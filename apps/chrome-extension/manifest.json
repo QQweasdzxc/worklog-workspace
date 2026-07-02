@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "WorkLog RC1",
+  "version": "1.0.0",
+  "description": "每天只花 30 秒，AI 幫你記住一整天的工作。",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "WorkLog RC1"
+  },
+  "permissions": [
+    "storage",
+    "downloads"
+  ],
+  "host_permissions": [
+    "https://*.supabase.co/*"
+  ]
+}
