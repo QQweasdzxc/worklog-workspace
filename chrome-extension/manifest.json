@@ -1,11 +1,12 @@
 {
   "manifest_version": 3,
-  "name": "WorkLog RC1",
+  "name": "WorkLog RC2",
   "version": "1.0.0",
-  "description": "每天只花 30 秒，AI 幫你記住一整天的工作。",
+  "version_name": "1.0.0-rc2",
+  "description": "WorkLog RC2：工作中心、快速紀錄、同步狀態與 Evidence AI。",
   "action": {
     "default_popup": "popup.html",
-    "default_title": "WorkLog RC1"
+    "default_title": "WorkLog RC2"
   },
   "permissions": [
     "storage",

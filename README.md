@@ -1,22 +1,31 @@
-# WorkLog v1.0 Repository
+# WorkLog RC2 Monorepo
 
-WorkLog：每天只花 30 秒，AI 幫你記住一整天的工作。
+Version: `1.0.0-rc2`
 
-## 內容
-- `apps/web`：Web / RWD 版，可部署 GitHub Pages / Vercel
-- `apps/chrome-extension`：Chrome Extension 版
-- `packages/shared`：共用規則與文件
-- `supabase/migrations`：RC1 Supabase migration
-- `docs`：產品規格、同步規則、ECP Mapping、驗收清單
+## Apps
+- `apps/web`：GitHub Pages / Vercel 網頁版
+- `apps/chrome-extension`：Chrome Extension 插件版
 
-## 快速測試
-### Web
-直接開啟 `apps/web/index.html`
+## Version Rule
+Web 與 Chrome Extension 版本號必須一致。
 
-### Chrome Extension
-Chrome → `chrome://extensions/` → 開發人員模式 → 載入未封裝項目 → 選 `apps/chrome-extension`
+目前版本：
 
-## RC1 驗收身份
-UUID：`ac5afcc7-f045-41a9-8827-eaf085a04c0d`
+```text
+1.0.0-rc2
+```
 
-正式多人版需改為 Google Login / Supabase Auth `auth.uid()`。
+版本來源：
+- `package.json`
+- `apps/web/version.json`
+- `apps/chrome-extension/version.json`
+- `apps/chrome-extension/manifest.json`
+- `packages/shared/version.js`
+- `docs/RELEASE_NOTES.md`
+
+## RC2 改動
+- 建立 monorepo 結構
+- Web / Extension 共用 shared 版本號
+- 同步中心定位為狀態中心
+- Event 建立不再暴露給一般使用者
+- 後續每次更新，Web 與插件版本同步

@@ -1,8 +1,13 @@
 {
-  "name": "worklog-v1-repository",
-  "version": "1.0.0-rc1",
+  "name": "worklog-monorepo",
+  "version": "1.0.0-rc2",
   "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "serve:web": "python3 -m http.server 5173 -d apps/web"
+    "serve:web": "python3 -m http.server 5173 -d apps/web",
+    "zip:extension": "cd apps && zip -r ../release/worklog-chrome-extension-1.0.0-rc2.zip chrome-extension"
   }
 }

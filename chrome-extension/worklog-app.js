@@ -1,43 +1,64 @@
+import { WORKLOG_VERSION } from './version.js';
 
-const SB_URL = "https://lenpbbhwxyyfwgvjcozf.supabase.co";
-const SB_KEY = "sb_publishable_ffE7BbcZqx-r3J8bWwAofQ__EJ26Lox";
-const QQ_UUID = "ac5afcc7-f045-41a9-8827-eaf085a04c0d";
-const DEFAULT_TASK = "採購案件處理";
-const ECP_HEADERS = ["編號","名稱","狀態","負責人","負責部門","活動類型","活動描述","開始時間","結束時間","時數","任務","線索","商機","專案","服務請求"];
-const app = document.getElementById("app");
-const S={profile:"wl_profile",entries:"wl_entries",events:"wl_events",draft:"wl_draft",view:"wl_view",month:"wl_month",theme:"wl_theme",edit:"wl_edit"};
-function read(k,f){try{const v=localStorage.getItem(k);return v?JSON.parse(v):f}catch{return f}}
-function write(k,v){localStorage.setItem(k,JSON.stringify(v))}
-function localTime(d=new Date()){return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16)}
-function dateKey(v){const d=new Date(v);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`}
-function fmt(v){const d=new Date(v);return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,"0")}/${String(d.getDate()).padStart(2,"0")} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`}
-function profile(){return read(S.profile,{owner:"陳叮噹",department:"管理部",role:"採購",task:DEFAULT_TASK})}
-function draft(){return read(S.draft,{time:localTime(),title:"",task:DEFAULT_TASK,duration:1})}
-function entries(){return read(S.entries,[])}
-function events(){return read(S.events,[])}
-function toast(m){const t=document.createElement("div");t.className="toast";t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.classList.add("show"),10);setTimeout(()=>{t.classList.remove("show");setTimeout(()=>t.remove(),250)},2200)}
-function applyTheme(){const t=read(S.theme,"system");document.body.classList.toggle("dark",t==="dark"||(t==="system"&&matchMedia("(prefers-color-scheme: dark)").matches))}
-async function rpc(fn,body={}){const r=await fetch(`${SB_URL}/rest/v1/rpc/${fn}`,{method:"POST",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json",Accept:"application/json"},body:JSON.stringify(body)});if(!r.ok)throw new Error(await r.text());return await r.json()}
-async function syncEntries(show=false){try{const rows=await rpc("worklog_alpha_list_qq",{p_days:40});write(S.entries,rows.map(r=>({sbId:r.id,title:r.title,task:r.note||DEFAULT_TASK,duration:Number(r.estimated_hours||0),at:r.work_datetime,status:"synced"})));if(show)toast("已同步工時")}catch(e){if(show)toast("工時同步失敗")}}
-async function syncEvents(show=false){try{const rows=await rpc("worklog_rc1_list_source_events_qq",{p_days:40});write(S.events,rows.map(r=>({id:r.id,source_type:r.source_type,event_key:r.event_key,event_date:r.event_date,title:r.title,suggested_hours:Number(r.suggested_hours||0),quantity:Number(r.quantity||1),evidence:r.evidence,status:r.status})));if(show)toast("已同步事件")}catch(e){if(show)toast("事件同步失敗")}}
-async function syncAll(show=false){await syncEntries(false);await syncEvents(false);if(show)toast("已同步 Supabase")}
-function topbar(){return `<div class="top"><span><span class="dot"></span>SB 已接入</span><span>🪶 RC1</span></div>`}
-function tabs(v){return `<div class="tabs"><button class="tab ${v==="center"?"on":""}" id="tab-center">📅<br>中心</button><button class="tab ${v==="capture"?"on":""}" id="tab-capture">➕<br>紀錄</button><button class="tab ${v==="sync"?"on":""}" id="tab-sync">📦<br>同步</button><button class="tab ${v==="settings"?"on":""}" id="tab-settings">⚙️<br>我的</button></div>`}
-function bindTabs(){["center","capture","sync","settings"].forEach(v=>document.getElementById("tab-"+v).onclick=async()=>{localStorage.setItem(S.view,v);if(v==="center")await syncAll(false);render()})}
-function render(){applyTheme();const v=localStorage.getItem(S.view)||"center";if(v==="capture")return renderCapture();if(v==="sync")return renderSync();if(v==="settings")return renderSettings();renderCenter()}
-function hoursOf(k){return entries().filter(e=>dateKey(e.at)===k).reduce((s,e)=>s+Number(e.duration||0),0)}
-function entriesOf(k){return entries().filter(e=>dateKey(e.at)===k).sort((a,b)=>new Date(a.at)-new Date(b.at))}
-function eventsOf(k){return events().filter(e=>e.event_date===k)}
-function monthState(){const m=read(S.month,null);if(m)return m;const n=new Date();return {y:n.getFullYear(),m:n.getMonth()}}
-function calendarHtml(m,sel){const first=new Date(m.y,m.m,1),last=new Date(m.y,m.m+1,0);let html=`<div class="week">${["日","一","二","三","四","五","六"].map(w=>`<div>${w}</div>`).join("")}</div><div class="cal">`;for(let i=0;i<first.getDay();i++)html+=`<div class="day muted"></div>`;for(let d=1;d<=last.getDate();d++){const k=`${m.y}-${String(m.m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`,h=hoursOf(k),pct=Math.min(100,Math.round(h/8*100)),status=h>=8?"green":h>=6?"yellow":h>0?"red":"";html+=`<div class="day ${status} ${k===sel?"selected":""}" data-day="${k}"><div class="day-num">${d}</div><div class="bar"><div class="fill" style="width:${pct}%"></div></div><div class="day-hours">${h?h+"h":""}</div></div>`}return html+"</div>"}
-function renderCenter(){const p=profile(),d=draft(),key=dateKey(new Date(d.time)),m=monthState(),h=hoursOf(key),miss=Math.max(0,8-h),es=entriesOf(key),ev=eventsOf(key);let todos=[],last=new Date(m.y,m.m+1,0);for(let i=1;i<=last.getDate();i++){let k=`${m.y}-${String(m.m+1).padStart(2,"0")}-${String(i).padStart(2,"0")}`,hh=hoursOf(k);if(hh>0&&hh<8)todos.push({k,missing:8-hh})}app.innerHTML=`<div class="app"><div class="card">${topbar()}<div class="head"><div><h1>📅 工作中心</h1><p class="sub">先看今天狀態，再決定要不要整理。</p></div><div class="badge">${h}/8h</div></div>${tabs("center")}<div class="summary"><div>今天 / 所選日期</div><strong>${key.replaceAll("-","/")}｜${h} / 8h</strong><div class="bar"><div class="fill" style="width:${Math.min(100,Math.round(h/8*100))}%"></div></div><div class="muted-text">${miss>0?`尚缺 ${miss}h`:"已滿 8h"}</div></div><div class="cal-head"><button class="nav" id="prev">‹</button><b>${m.y}/${String(m.m+1).padStart(2,"0")}</b><button class="nav" id="next">›</button></div>${calendarHtml(m,key)}<div class="box"><h2>🗂 每日工作中心</h2>${miss>0?`<div class="warnbox">今天還有 ${miss}h 可整理。${ev.length?`已找到 ${ev.length} 筆同步事件可參考。`:""}</div>`:`<div class="okbox">這一天已滿 8 小時，AI 不打擾。</div>`}${es.length?es.map(e=>`<div class="entry"><div class="entry-title">${e.title}</div><div class="entry-meta">${fmt(e.at)}｜${e.duration}h｜${e.task||p.task}｜${e.status}</div><div class="entry-actions"><button class="mini" data-edit="${e.sbId||""}">✏️ 編輯</button><button class="mini" data-del="${e.sbId||""}">🗑 刪除</button></div></div>`).join(""):`<div class="entry"><div class="entry-title">尚無工時紀錄</div><div class="entry-meta">可新增或依同步事件建立。</div></div>`}${renderAi(miss,ev)}${todos.length?`<label>待整理日期</label>${todos.map(t=>`<div class="todo"><div><b>${t.k.replaceAll("-","/")}</b><div class="entry-meta">缺 ${t.missing}h</div></div><button class="chip" data-goto="${t.k}">整理</button></div>`).join("")}`:""}</div><button class="primary" id="add">＋新增工作</button><button class="outline" id="export">📄 匯出 ECP CSV</button></div></div>`;bindTabs();document.getElementById("prev").onclick=()=>{let x={y:m.y,m:m.m-1};if(x.m<0){x.m=11;x.y--};write(S.month,x);render()};document.getElementById("next").onclick=()=>{let x={y:m.y,m:m.m+1};if(x.m>11){x.m=0;x.y++};write(S.month,x);render()};document.querySelectorAll("[data-day]").forEach(el=>el.onclick=()=>{write(S.draft,{...draft(),time:el.dataset.day+"T09:00"});render()});document.querySelectorAll("[data-goto]").forEach(el=>el.onclick=()=>{write(S.draft,{...draft(),time:el.dataset.goto+"T09:00"});render()});document.querySelectorAll("[data-edit]").forEach(el=>el.onclick=()=>startEdit(el.dataset.edit));document.querySelectorAll("[data-del]").forEach(el=>el.onclick=()=>removeEntry(el.dataset.del));document.getElementById("add").onclick=()=>{localStorage.setItem(S.view,"capture");render()};document.getElementById("export").onclick=exportEcp}
-function renderAi(miss,ev){if(miss<=0)return "";if(!ev.length)return `<div class="suggest-box"><div class="suggest-title">🪶 諸葛先生</div><div class="muted-text">目前沒有足夠依據提出建議。可手動新增今天完成的工作。</div></div>`;const total=ev.reduce((s,e)=>s+Number(e.suggested_hours||0),0);return `<div class="suggest-box"><div class="suggest-title">🪶 諸葛先生｜Evidence 建議</div><div class="muted-text">依據：${ev.length} 筆同步事件，候選工時約 ${total}h。AI 不自動修改，請你確認。</div>${ev.slice(0,6).map(e=>`<button class="suggestion">${e.title}｜${e.suggested_hours}h</button>`).join("")}</div>`}
-function renderCapture(){const d=draft(),p=profile(),editId=read(S.edit,null);app.innerHTML=`<div class="app"><div class="card">${topbar()}<div class="head"><div><h1>➕ 快速紀錄</h1><p class="sub">${editId?"編輯工時":"30 秒完成一筆工作紀錄。"}</p></div><div class="badge">RC1</div></div>${tabs("capture")}<label>日期與開始時間</label><input type="datetime-local" id="time" value="${d.time}"><label>今天做了什麼？</label><textarea id="title">${d.title||""}</textarea><label>工作多久？</label><div class="duration-row">${[0.5,1,1.5,2,3,4,8].map(h=>`<button class="duration ${Number(d.duration)===h?"active":""}" data-h="${h}">${h===0.5?"30m":h+"h"}</button>`).join("")}</div><label>任務</label><input id="task" value="${d.task||p.task}"><div class="error" id="err"></div><button class="primary" id="save">${editId?"儲存修改":"⚡ 快速記錄到 Supabase"}</button><button class="secondary" id="cancel">取消</button></div></div>`;bindTabs();document.getElementById("time").onchange=e=>write(S.draft,{...draft(),time:e.target.value});document.getElementById("title").oninput=e=>write(S.draft,{...draft(),title:e.target.value});document.getElementById("task").oninput=e=>write(S.draft,{...draft(),task:e.target.value});document.querySelectorAll(".duration").forEach(b=>b.onclick=()=>{write(S.draft,{...draft(),duration:Number(b.dataset.h)});renderCapture()});document.getElementById("save").onclick=saveEntry;document.getElementById("cancel").onclick=()=>{localStorage.removeItem(S.edit);localStorage.setItem(S.view,"center");render()}}
-async function saveEntry(){const d=draft();if(!d.title.trim()){document.getElementById("err").textContent="請輸入工作內容";return}try{const editId=read(S.edit,null);if(editId){await rpc("worklog_rc1_update_entry_qq",{p_id:editId,p_work_datetime:new Date(d.time).toISOString(),p_title:d.title.trim(),p_task_name:d.task||DEFAULT_TASK,p_estimated_hours:Number(d.duration)});localStorage.removeItem(S.edit);toast("已更新")}else{await rpc("worklog_alpha_capture_qq",{p_work_datetime:new Date(d.time).toISOString(),p_title:d.title.trim(),p_task_name:d.task||DEFAULT_TASK,p_estimated_hours:Number(d.duration)});toast("已寫入 Supabase")}write(S.draft,{time:d.time,title:"",task:d.task||DEFAULT_TASK,duration:d.duration});await syncAll(false);localStorage.setItem(S.view,"center");render()}catch(e){toast("儲存失敗")}}
-function startEdit(id){const e=entries().find(x=>x.sbId===id);if(!e)return;write(S.edit,id);write(S.draft,{time:localTime(new Date(e.at)),title:e.title,task:e.task,duration:e.duration});localStorage.setItem(S.view,"capture");render()}
-async function removeEntry(id){if(!id)return;try{await rpc("worklog_rc1_delete_entry_qq",{p_id:id});await syncAll(false);toast("已刪除");render()}catch{toast("刪除失敗")}}
-function renderSync(){const ev=events();app.innerHTML=`<div class="app"><div class="card">${topbar()}<div class="head"><div><h1>📦 資料同步</h1><p class="sub">手動建立乾淨 Event，避免 SB 進垃圾資料。</p></div><div class="badge">${ev.length} events</div></div>${tabs("sync")}<div class="grid2"><button class="outline" id="syncAll">同步 SB</button><button class="outline" id="noop">40天規則</button></div><label>建立 Event 類型</label><select id="etype"><option value="purchase">採購單（1h/張）</option><option value="invoice">發票/應付款（0.5h/張）</option></select><label>日期</label><input type="date" id="edate" value="${dateKey(new Date(draft().time))}"><label>唯一編號 / 發票號碼</label><input id="ekey" placeholder="例如 AL 2026060501-01 / BM01901824"><label>應付款明細編號（選填）</label><input id="payable" placeholder="例如 AP-202606-001"><label>標題</label><input id="etitle" placeholder="採購單｜AL 2026060501-01｜採購案件處理"><button class="primary" id="addEvent">建立乾淨 Event</button><label>最近 Events</label>${ev.slice(0,12).map(e=>`<div class="entry"><div class="entry-title">${e.title}</div><div class="entry-meta">${e.event_date}｜${e.source_type}｜${e.suggested_hours}h｜${e.event_key}</div></div>`).join("")||`<div class="entry"><div class="entry-title">尚無 Event</div><div class="entry-meta">可先建立採購或發票 Event 測試 AI 建議。</div></div>`}</div></div>`;bindTabs();document.getElementById("syncAll").onclick=async()=>{await syncAll(true);render()};document.getElementById("noop").onclick=()=>toast("SB 僅保留 40 天資料");document.getElementById("addEvent").onclick=addEvent}
-async function addEvent(){const type=document.getElementById("etype").value,date=document.getElementById("edate").value,key=document.getElementById("ekey").value.trim(),payable=document.getElementById("payable").value.trim();let title=document.getElementById("etitle").value.trim();if(!key||!date)return toast("日期與唯一編號必填");if(!title)title=type==="purchase"?`採購單｜${key}｜採購案件處理`:`發票請款｜${key}${payable?"｜應付款："+payable:""}`;const hours=type==="purchase"?1:0.5;try{await rpc("worklog_rc1_upsert_source_event_qq",{p_source_type:type,p_event_key:key,p_event_date:date,p_title:title,p_suggested_hours:hours,p_quantity:1,p_evidence:{rule:type==="purchase"?"採購一張=1h":"發票完整流程約2張/小時",payable_no:payable},p_raw_payload:{key,payable_no:payable}});await syncEvents(false);toast("Event 已建立");renderSync()}catch(e){toast("Event 建立失敗")}}
-function renderSettings(){const p=profile(),t=read(S.theme,"system");app.innerHTML=`<div class="app"><div class="card">${topbar()}<div class="head"><div><h1>⚙️ 我的工作</h1><p class="sub">帳號、角色、外觀與系統狀態。</p></div><div class="badge">RC1</div></div>${tabs("settings")}<div class="idcard">👤 陳叮噹<br>qq.1025@gmail.com<br><span class="uuid">${QQ_UUID}</span></div><label>外觀主題</label><select id="theme"><option value="system" ${t==="system"?"selected":""}>跟隨系統</option><option value="light" ${t==="light"?"selected":""}>淺色</option><option value="dark" ${t==="dark"?"selected":""}>深色</option></select><label>目前角色</label><select id="role"><option ${p.role==="採購"?"selected":""}>採購</option><option>行政</option><option>人資</option><option>業務</option><option>行銷</option></select><label>ECP 負責人</label><input id="owner" value="${p.owner}"><label>負責部門</label><input id="department" value="${p.department}"><label>預設工作任務</label><input id="task" value="${p.task}"><button class="primary" id="saveSettings">儲存設定</button><div class="idcard">About<br>Version：WorkLog RC1<br>Supabase：已接入<br>AI：Evidence 模式<br>ECP：CSV 匯出</div></div></div>`;bindTabs();document.getElementById("theme").onchange=e=>{write(S.theme,e.target.value);applyTheme()};document.getElementById("saveSettings").onclick=()=>{write(S.profile,{owner:document.getElementById("owner").value,department:document.getElementById("department").value,role:document.getElementById("role").value,task:document.getElementById("task").value});toast("設定已儲存");renderSettings()}}
-function exportEcp(){const p=profile();const rows=[ECP_HEADERS];entries().sort((a,b)=>new Date(a.at)-new Date(b.at)).forEach(e=>{const start=new Date(e.at),end=new Date(start.getTime()+Number(e.duration)*3600*1000),title=e.title;rows.push(["",title,"新增",p.owner,p.department,"工作",title,fmt(start),fmt(end),e.duration,p.task||DEFAULT_TASK,"","","",""])});const csv=rows.map(r=>r.map(v=>{v=(v??"").toString();return /[",\n]/.test(v)?`"${v.replaceAll('"','""')}"`:v}).join(",")).join("\n");const blob=new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="WorkLog_ECP_RC1.csv";a.click();URL.revokeObjectURL(url);toast("已匯出 ECP CSV")}
-applyTheme();render();syncAll(false);
+const root = document.getElementById('app');
+const today = new Date();
+const y = today.getFullYear();
+const m = today.getMonth();
+const selected = `${y}-${String(m+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+
+function days(){
+  const first = new Date(y,m,1);
+  const last = new Date(y,m+1,0);
+  const arr = [];
+  for(let i=0;i<first.getDay();i++) arr.push(null);
+  for(let d=1;d<=last.getDate();d++) arr.push(d);
+  return arr;
+}
+
+root.innerHTML = `
+<div class="wrap">
+  <div class="card">
+    <div class="top">
+      <div>
+        <div class="muted">🟢 SB 已接入・Web / Extension 版本一致</div>
+        <h1>📅 工作中心</h1>
+        <div class="muted">先看今天狀態，再決定要不要整理。</div>
+      </div>
+      <div class="tag">🪶 ${WORKLOG_VERSION}</div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab on">📅<br>中心</button>
+      <button class="tab">➕<br>紀錄</button>
+      <button class="tab">📦<br>同步</button>
+      <button class="tab">⚙️<br>設定</button>
+    </div>
+
+    <div class="grid">
+      <section class="panel">
+        <h2>${y}/${String(m+1).padStart(2,'0')}</h2>
+        <div class="cal">
+          ${['日','一','二','三','四','五','六'].map(w=>`<div class="muted">${w}</div>`).join('')}
+          ${days().map(d=> d ? `<div class="day ${d===today.getDate()?'sel':''}"><b>${d}</b><div class="bar"><div class="fill" style="width:${d===today.getDate()?0:100}%"></div></div><small>${d===today.getDate()?'0h':''}</small></div>` : '<div></div>').join('')}
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>今日工作中心</h2>
+        <div class="tag">0 / 8h・尚缺 8h</div>
+        <p class="muted">尚無工時紀錄。可由快速紀錄新增，或由同步資料建立 AI 建議。</p>
+
+        <h3>🪶 諸葛先生</h3>
+        <div class="status"><span>Evidence 狀態</span><b>尚無足夠依據，不猜測</b></div>
+
+        <h3>同步中心</h3>
+        <div class="status"><span>Supabase</span><b>🟢 已連線</b></div>
+        <div class="status"><span>Google Drive</span><b>🟡 待正式串接</b></div>
+        <div class="status"><span>GPT / AI</span><b>🟡 Evidence 模式</b></div>
+
+        <button class="btn">＋新增工作</button>
+      </section>
+    </div>
+  </div>
+</div>
+`;
