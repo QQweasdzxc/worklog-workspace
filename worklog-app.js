@@ -1,64 +1,23 @@
-import { WORKLOG_VERSION } from './version.js';
 
-const root = document.getElementById('app');
-const today = new Date();
-const y = today.getFullYear();
-const m = today.getMonth();
-const selected = `${y}-${String(m+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
-
-function days(){
-  const first = new Date(y,m,1);
-  const last = new Date(y,m+1,0);
-  const arr = [];
-  for(let i=0;i<first.getDay();i++) arr.push(null);
-  for(let d=1;d<=last.getDate();d++) arr.push(d);
-  return arr;
-}
-
-root.innerHTML = `
-<div class="wrap">
-  <div class="card">
-    <div class="top">
-      <div>
-        <div class="muted">🟢 SB 已接入・Web / Extension 版本一致</div>
-        <h1>📅 工作中心</h1>
-        <div class="muted">先看今天狀態，再決定要不要整理。</div>
-      </div>
-      <div class="tag">🪶 ${WORKLOG_VERSION}</div>
-    </div>
-
-    <div class="tabs">
-      <button class="tab on">📅<br>中心</button>
-      <button class="tab">➕<br>紀錄</button>
-      <button class="tab">📦<br>同步</button>
-      <button class="tab">⚙️<br>設定</button>
-    </div>
-
-    <div class="grid">
-      <section class="panel">
-        <h2>${y}/${String(m+1).padStart(2,'0')}</h2>
-        <div class="cal">
-          ${['日','一','二','三','四','五','六'].map(w=>`<div class="muted">${w}</div>`).join('')}
-          ${days().map(d=> d ? `<div class="day ${d===today.getDate()?'sel':''}"><b>${d}</b><div class="bar"><div class="fill" style="width:${d===today.getDate()?0:100}%"></div></div><small>${d===today.getDate()?'0h':''}</small></div>` : '<div></div>').join('')}
-        </div>
-      </section>
-
-      <section class="panel">
-        <h2>今日工作中心</h2>
-        <div class="tag">0 / 8h・尚缺 8h</div>
-        <p class="muted">尚無工時紀錄。可由快速紀錄新增，或由同步資料建立 AI 建議。</p>
-
-        <h3>🪶 諸葛先生</h3>
-        <div class="status"><span>Evidence 狀態</span><b>尚無足夠依據，不猜測</b></div>
-
-        <h3>同步中心</h3>
-        <div class="status"><span>Supabase</span><b>🟢 已連線</b></div>
-        <div class="status"><span>Google Drive</span><b>🟡 待正式串接</b></div>
-        <div class="status"><span>GPT / AI</span><b>🟡 Evidence 模式</b></div>
-
-        <button class="btn">＋新增工作</button>
-      </section>
-    </div>
-  </div>
-</div>
-`;
+const VERSION="1.0.0-rc2.1";
+const root=document.getElementById("app");
+let view="center";
+let selected=new Date();
+let entries=JSON.parse(localStorage.getItem("wl_entries")||"[]");
+let theme=localStorage.getItem("wl_theme")||"dark";
+function k(d=selected){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`}
+function save(){localStorage.setItem("wl_entries",JSON.stringify(entries))}
+function toast(t){const e=document.createElement("div");e.className="toast";e.textContent=t;document.body.appendChild(e);setTimeout(()=>e.classList.add("show"),10);setTimeout(()=>{e.classList.remove("show");setTimeout(()=>e.remove(),200)},1800)}
+function fmt(dt){const d=new Date(dt);return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,"0")}/${String(d.getDate()).padStart(2,"0")} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`}
+function dayEntries(){return entries.filter(e=>e.date===k())}
+function hours(){return dayEntries().reduce((s,e)=>s+Number(e.hours),0)}
+function tabs(){return `<div class="tabs">${[["center","📅","中心"],["capture","➕","紀錄"],["sync","📦","同步"],["settings","⚙️","設定"]].map(t=>`<button class="tab ${view===t[0]?"on":""}" data-view="${t[0]}">${t[1]}<br>${t[2]}</button>`).join("")}</div>`}
+function header(){return `<div class="top"><div><div class="muted">🟢 SB 已接入・Web / Extension 版本一致</div><h1>📅 工作中心</h1><div class="muted">先看今天狀態，再決定要不要整理。</div></div><div class="tag">🪶 ${VERSION}</div></div>${tabs()}`}
+function cal(){const y=selected.getFullYear(),m=selected.getMonth(),first=new Date(y,m,1),last=new Date(y,m+1,0);let html=`<h2>${y}/${String(m+1).padStart(2,"0")}</h2><div class="cal">${["日","一","二","三","四","五","六"].map(x=>`<div class="muted">${x}</div>`).join("")}`;for(let i=0;i<first.getDay();i++)html+="<div></div>";for(let d=1;d<=last.getDate();d++){const sel=d===selected.getDate();const dk=`${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;const h=entries.filter(e=>e.date===dk).reduce((s,e)=>s+Number(e.hours),0);html+=`<div class="day ${sel?"sel":""}" data-day="${d}"><b>${d}</b><div class="bar"><div class="fill" style="width:${Math.min(100,h/8*100)}%"></div></div><small>${h?h+"h":""}</small></div>`}return html+"</div>"}
+function center(){const h=hours(),miss=Math.max(0,8-h);return `<div class="grid"><section class="panel">${cal()}</section><section class="panel"><h2>今日工作中心</h2><div class="tag">${h} / 8h・${miss?`尚缺 ${miss}h`:"已滿 8h"}</div><p class="muted">${dayEntries().length?"今天已有紀錄如下。":"尚無工時紀錄。可由快速紀錄新增，或由同步資料建立 AI 建議。"}</p>${dayEntries().map((e,i)=>`<div class="entry"><b>${e.title}</b><div class="muted">${fmt(e.at)}｜${e.hours}h｜${e.task}</div><button class="btn2" data-del="${i}">刪除</button></div>`).join("")}<h3>🪶 諸葛先生</h3><div class="status"><span>Evidence 狀態</span><b>${miss?"尚無足夠依據，不猜測":"已滿 8h，不打擾"}</b></div><h3>同步中心</h3><div class="status" data-status="sb"><span>Supabase</span><b>🟢 已連線</b></div><div class="status" data-status="gd"><span>Google Drive</span><b>🟡 待正式串接</b></div><div class="status" data-status="ai"><span>GPT / AI</span><b>🟡 Evidence 模式</b></div><button class="btn" data-action="add">＋新增工作</button></section></div>`}
+function capture(){return `<section class="panel"><h2>➕ 快速紀錄</h2><div class="form"><input class="input" id="dt" type="datetime-local" value="${k()}T09:00"><textarea id="title" placeholder="今天做了什麼？"></textarea><div class="row">${[0.5,1,1.5,2,3,4,8].map(h=>`<button class="btn2" data-h="${h}">${h===0.5?"30m":h+"h"}</button>`).join("")}</div><input class="input" id="task" value="採購案件處理"><button class="btn" id="saveEntry">⚡ 快速記錄</button></div></section>`}
+function sync(){return `<section class="panel"><h2>📦 同步中心</h2><p class="muted">這裡只顯示連線狀態；採購單、發票、應付款的 Event 建立邏輯會藏在底層，不讓使用者亂改。</p><div class="status" data-status="sb"><span>Supabase</span><b>🟢 已連線</b></div><div class="status" data-status="gd"><span>Google Drive</span><b>🟡 待正式串接</b></div><div class="status" data-status="ai"><span>GPT / AI</span><b>🟡 Evidence 模式</b></div><button class="btn" id="runSync">立即同步</button></section>`}
+function settings(){return `<section class="panel"><h2>⚙️ 設定</h2><div class="entry"><b>版本</b><div class="muted">${VERSION}</div></div><label>外觀主題</label><select class="input" id="theme"><option value="dark">深色</option><option value="light">淺色</option></select><label>目前角色</label><input class="input" value="採購"><label>預設任務</label><input class="input" value="採購案件處理"><button class="btn" id="logout">登出 / 重設本機資料</button></section>`}
+function render(){document.body.style.background=theme==="light"?"#f1f5f9":"#0f172a";root.innerHTML=`<div class="wrap"><div class="card">${header()}${view==="center"?center():view==="capture"?capture():view==="sync"?sync():settings()}</div></div>`;bind()}
+function bind(){document.querySelectorAll("[data-view]").forEach(b=>b.onclick=()=>{view=b.dataset.view;render()});document.querySelectorAll("[data-day]").forEach(b=>b.onclick=()=>{selected.setDate(Number(b.dataset.day));render()});document.querySelectorAll("[data-status]").forEach(b=>b.onclick=()=>toast(b.dataset.status==="gd"?"Google Drive 正式串接尚未啟用":b.dataset.status==="ai"?"AI Evidence 模式已啟用，尚未接 GPT API":"Supabase 連線狀態正常"));const add=document.querySelector("[data-action=add]");if(add)add.onclick=()=>{view="capture";render()};document.querySelectorAll("[data-h]").forEach(b=>b.onclick=()=>{document.querySelectorAll("[data-h]").forEach(x=>x.classList.remove("on"));b.classList.add("on");window.selH=Number(b.dataset.h);toast(`已選 ${b.textContent}`)});const saveBtn=document.getElementById("saveEntry");if(saveBtn)saveBtn.onclick=()=>{const title=document.getElementById("title").value.trim();if(!title)return toast("請輸入工作內容");const at=document.getElementById("dt").value;entries.push({date:at.slice(0,10),at,title,hours:window.selH||1,task:document.getElementById("task").value||"採購案件處理"});save();selected=new Date(at);view="center";render();toast("已新增工時")};document.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{const day=dayEntries();const target=day[Number(b.dataset.del)];entries=entries.filter(e=>e!==target);save();render();toast("已刪除")});const run=document.getElementById("runSync");if(run)run.onclick=()=>toast("RC2：同步中心 UI 已完成；GD/GPT 正式 API 尚未接入");const logout=document.getElementById("logout");if(logout)logout.onclick=()=>{localStorage.clear();entries=[];toast("已重設本機資料");render()};const themeSel=document.getElementById("theme");if(themeSel){themeSel.value=theme;themeSel.onchange=()=>{theme=themeSel.value;localStorage.setItem("wl_theme",theme);render()}}}
+render();
