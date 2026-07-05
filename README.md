@@ -1,7 +1,7 @@
-# WorkLog 1.0.0-rc3
+# WorkLog 1.0.0-rc3.1-sp2
 
-RC3：AI Work Profile + 今日建議卡。
+RC3.1 Sprint 2：Today Work CRUD / Validation / Suggestion Flow 整理。
 
 - 根目錄可直接上 GitHub Pages
 - apps/chrome-extension 可載入 Chrome 插件
-- 同一包 ZIP 含 Web + 插件
+- release 內含插件 ZIP
