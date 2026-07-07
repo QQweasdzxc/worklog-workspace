@@ -13,6 +13,7 @@ let activeModule = localStorage.getItem(ACTIVE_MODULE_KEY) || "dashboard";
 let authCallbackCaptured = false;
 let view = localStorage.getItem("wl_view") || "center";
 if (view === "warroom") view = "library";
+if (view === "capture") view = "center";
 let selected = new Date(localStorage.getItem("wl_selected") || Date.now());
 let entries = readJson("wl_entries", []);
 let profile = readJson("wl_profile", null);
@@ -319,7 +320,6 @@ function nextStart() {
 function tabs() {
   const items = [
     ["center", "📅", "中心"],
-    ["capture", "➕", "紀錄"],
     ["library", "📚", "藏書閣"],
     ["sync", "📦", "同步"],
     ["settings", "⚙️", "設定"]
