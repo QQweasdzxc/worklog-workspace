@@ -1,7 +1,8 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const root = document.getElementById("app");
-const AUTH_SESSION_KEY = "wl_google_auth_session_v1";
-const AUTH_CODE_VERIFIER_KEY = "wl_google_pkce_code_verifier_v1";
+const AUTH_SESSION_KEY = "zhuge_ai_os_google_auth_session_v1";
+const AUTH_CODE_VERIFIER_KEY = "zhuge_ai_os_pkce_code_verifier_v1";
+const AI_OS_SESSION_KEY = "zhuge_ai_os_session_v1";
 const ACTIVE_MODULE_KEY = "zhuge_active_module_v1";
 const AUTH_CONFIG = {
   supabaseUrl: "https://lenpbbhwxyyfwgvjcozf.supabase.co",
@@ -15,7 +16,7 @@ let selected = new Date(localStorage.getItem("wl_selected") || Date.now());
 let entries = readJson("wl_entries", []);
 let profile = readJson("wl_profile", null);
 let feedback = readJson("wl_feedback", {});
-let session = readJson("wl_session", null);
+let session = readJson(AI_OS_SESSION_KEY, null);
 let library = readJson("wl_library", []);
 let warroom = readJson("wl_warroom", []);
 let suggestionIndex = Number(localStorage.getItem("wl_suggestion_index") || 0);
@@ -49,10 +50,12 @@ function getStoredAuthSession() {
 
 function setStoredAuthSession(value) {
   localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(value));
+  localStorage.removeItem("wl_google_auth_session_v1");
 }
 
 function clearStoredAuthSession() {
   localStorage.removeItem(AUTH_SESSION_KEY);
+  localStorage.removeItem("wl_google_auth_session_v1");
 }
 
 function getStoredCodeVerifier() {
@@ -61,10 +64,12 @@ function getStoredCodeVerifier() {
 
 function setStoredCodeVerifier(value) {
   localStorage.setItem(AUTH_CODE_VERIFIER_KEY, value);
+  localStorage.removeItem("wl_google_pkce_code_verifier_v1");
 }
 
 function clearStoredCodeVerifier() {
   localStorage.removeItem(AUTH_CODE_VERIFIER_KEY);
+  localStorage.removeItem("wl_google_pkce_code_verifier_v1");
 }
 
 function base64UrlEncode(bytes) {
@@ -236,7 +241,8 @@ function saveAll() {
   localStorage.setItem("wl_entries", JSON.stringify(entries));
   localStorage.setItem("wl_profile", JSON.stringify(profile));
   localStorage.setItem("wl_feedback", JSON.stringify(feedback));
-  localStorage.setItem("wl_session", JSON.stringify(session));
+  localStorage.setItem(AI_OS_SESSION_KEY, JSON.stringify(session));
+  localStorage.removeItem("wl_session");
   localStorage.setItem("wl_library", JSON.stringify(library));
   localStorage.setItem("wl_warroom", JSON.stringify(warroom));
   localStorage.setItem(ACTIVE_MODULE_KEY, activeModule);
