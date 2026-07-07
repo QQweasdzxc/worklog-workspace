@@ -33,13 +33,7 @@ const roleTagMap = {
   "自訂": ["自訂工作", "Mail處理", "資料整理", "會議", "專案追蹤", "跨部門溝通", "文件整理", "待辦追蹤"]
 };
 const eventTypes = ["工作", "特休", "事假", "病假", "會議", "出差", "教育訓練"];
-const librarySourceTypes = ["上傳檔案", "Google Drive", "Google Docs", "Google Sheets", "PDF", "網址"];
-const libraryReadingStatuses = ["🟡 等待閱讀", "🔵 AI 閱讀中", "🟢 已完成理解", "🟠 文件更新，待重新閱讀"];
-const libraryTagGroups = {
-  "部門": ["採購", "人資", "財務", "IT", "行政"],
-  "文件類型": ["SOP", "流程", "法規", "教學", "範本", "表單", "合約", "報表"],
-  "用途": ["AI 推理", "AI 回答", "AI 搜尋", "AI 引用", "工作建議", "學習資料"]
-};
+const DEFAULT_LIBRARY_READING_STATUS = "🟡 等待閱讀";
 
 function readJson(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback)); }
@@ -417,24 +411,14 @@ function sync() {
 }
 
 function normalizedLibraryItem(item = {}) {
-  const sourceType = item.sourceType || (librarySourceTypes.includes(item.type) ? item.type : "上傳檔案");
+  const sourceType = item.sourceType === "上傳檔案" ? "上傳文件" : (item.sourceType || item.type || "上傳文件");
   return {
     ...item,
     sourceType,
     type: item.type || sourceType,
-    readingStatus: item.readingStatus || "🟡 等待閱讀",
+    readingStatus: item.readingStatus === "🟢 已完成理解" ? "🟢 已完成閱讀" : (item.readingStatus || DEFAULT_LIBRARY_READING_STATUS),
     tags: Array.isArray(item.tags) ? item.tags : []
   };
-}
-
-function libraryTagCheckboxes(selectedTags = []) {
-  return Object.entries(libraryTagGroups).map(([group, tags]) => `<div class="tag-group"><b>${group}</b><div class="library-tags">${tags.map(tag => `<label class="check-chip"><input type="checkbox" class="libTag" value="${escapeHtml(tag)}" ${selectedTags.includes(tag) ? "checked" : ""}>${escapeHtml(tag)}</label>`).join("")}</div></div>`).join("");
-}
-
-function librarySourceFields(item, sourceType) {
-  const location = escapeHtml(item.location || "");
-  const active = type => sourceType === type ? " active" : "";
-  return `<div class="library-source-field${active("上傳檔案")}" data-source-field="上傳檔案"><label>上傳檔案</label><div class="upload-drop"><input id="libFile" type="file"><span>拖曳檔案至此，或瀏覽上傳</span></div></div><div class="library-source-field${active("Google Drive")}" data-source-field="Google Drive"><label>Google Drive</label><input id="libDrive" class="input" value="${location}" placeholder="選擇或貼上 Google Drive 檔案連結"></div><div class="library-source-field${active("Google Docs")}" data-source-field="Google Docs"><label>Google Docs</label><input id="libDocs" class="input" value="${location}" placeholder="選擇或貼上 Google Docs 連結"></div><div class="library-source-field${active("Google Sheets")}" data-source-field="Google Sheets"><label>Google Sheets</label><input id="libSheets" class="input" value="${location}" placeholder="選擇或貼上 Google Sheets 連結"></div><div class="library-source-field${active("PDF")}" data-source-field="PDF"><label>PDF</label><div class="upload-drop"><input id="libPdf" type="file" accept="application/pdf"><span>拖曳 PDF 至此，或瀏覽上傳</span></div></div><div class="library-source-field${active("網址")}" data-source-field="網址"><label>網址</label><input id="libUrl" class="input" value="${location}" placeholder="https://example.com"></div>`;
 }
 
 function libraryView() {
@@ -443,7 +427,7 @@ function libraryView() {
 
 function libraryForm(id = null) {
   const item = normalizedLibraryItem(id ? library.find(x => x.id === id) : {});
-  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>${id ? "編輯藏書" : "新增藏書"}</h2><div class="muted">藏書閣是 AI OS Knowledge Library，請選擇來源並標記 AI 可閱讀的用途。</div></div><button class="btn2" data-library-back="1">返回</button></div><label>名稱</label><input id="libName" class="input" value="${escapeHtml(item.name || "")}"><label>來源</label><select id="libSourceType" class="input">${librarySourceTypes.map(t => `<option ${item.sourceType === t ? "selected" : ""}>${t}</option>`).join("")}</select>${librarySourceFields(item, item.sourceType)}<label>AI 閱讀狀態</label><select id="libReadingStatus" class="input">${libraryReadingStatuses.map(s => `<option ${item.readingStatus === s ? "selected" : ""}>${s}</option>`).join("")}</select><label>說明</label><textarea id="libDesc" placeholder="這份文件提供給諸葛先生理解哪些工作脈絡？">${escapeHtml(item.description || "")}</textarea><label>固定標籤</label><div class="library-tag-panel">${libraryTagCheckboxes(item.tags)}</div><div class="form-actions"><button class="btn2" data-library-cancel="1">取消</button><button class="btn" id="saveLibrary">儲存</button></div></section>`;
+  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>${id ? "編輯藏書" : "新增藏書"}</h2><div class="muted">藏書閣是 AI OS Knowledge Library，請提供文件給諸葛先生閱讀、理解、引用，作為未來 AI 推理的知識依據。</div></div><button class="btn2" data-library-back="1">返回</button></div><label>名稱</label><input id="libName" class="input" value="${escapeHtml(item.name || "")}"><label>上傳文件</label><div class="upload-drop"><input id="libFile" type="file"><span>${escapeHtml(item.location || "拖曳文件至此，或瀏覽上傳")}</span></div><label>使用者補充說明</label><textarea id="libDesc" placeholder="這份文件想讓諸葛先生知道什麼？例如：這是公司採購 SOP，請作為未來安排採購工作與 AI 推理的依據。">${escapeHtml(item.description || "")}</textarea><label>AI 閱讀狀態</label><div class="readonly-status">${escapeHtml(item.readingStatus || DEFAULT_LIBRARY_READING_STATUS)}</div><div class="library-ai-preview"><b>AI 閱讀完成後將自動判斷</b><div class="muted">文件類型、主題、標籤、可用於 AI 推理 / AI 回答 / AI 搜尋的知識內容。</div></div><div class="form-actions"><button class="btn2" data-library-cancel="1">取消</button><button class="btn" id="saveLibrary">儲存</button></div></section>`;
 }
 
 function settings() {
@@ -553,25 +537,10 @@ function bindLibrary() {
 }
 
 function bindLibraryForm(id = null) {
-  const sourceSelect = document.getElementById("libSourceType");
-  const showSourceField = () => {
-    document.querySelectorAll("[data-source-field]").forEach(el => el.classList.toggle("active", el.dataset.sourceField === sourceSelect.value));
-  };
-  sourceSelect.onchange = showSourceField;
-  showSourceField();
   document.querySelectorAll("[data-library-back],[data-library-cancel]").forEach(b => b.onclick = () => { view = "library"; saveAll(); render(); });
   document.getElementById("saveLibrary").onclick = () => {
-    const sourceType = sourceSelect.value;
-    const locationMap = {
-      "上傳檔案": document.getElementById("libFile")?.files?.[0]?.name || "",
-      "Google Drive": document.getElementById("libDrive")?.value.trim() || "",
-      "Google Docs": document.getElementById("libDocs")?.value.trim() || "",
-      "Google Sheets": document.getElementById("libSheets")?.value.trim() || "",
-      "PDF": document.getElementById("libPdf")?.files?.[0]?.name || "",
-      "網址": document.getElementById("libUrl")?.value.trim() || ""
-    };
     const existing = id ? normalizedLibraryItem(library.find(x => x.id === id)) : {};
-    const item = { id: id || uid("lib"), name: document.getElementById("libName").value.trim(), type: sourceType, sourceType, readingStatus: document.getElementById("libReadingStatus").value, description: document.getElementById("libDesc").value.trim(), location: locationMap[sourceType] || existing.location || "", purpose: document.querySelectorAll(".libTag:checked").length ? "Knowledge Library" : "", tags: Array.from(document.querySelectorAll(".libTag:checked")).map(x => x.value) };
+    const item = { id: id || uid("lib"), name: document.getElementById("libName").value.trim(), type: "上傳文件", sourceType: "上傳文件", readingStatus: existing.readingStatus || DEFAULT_LIBRARY_READING_STATUS, description: document.getElementById("libDesc").value.trim(), location: document.getElementById("libFile")?.files?.[0]?.name || existing.location || "", purpose: existing.purpose || "", tags: existing.tags || [] };
     if (!item.name) return toast("請輸入來源名稱");
     if (id) library[library.findIndex(x => x.id === id)] = item; else library.push(item);
     view = "library"; saveAll(); toast("藏書閣已儲存"); render();
