@@ -337,7 +337,7 @@ function userBadge() {
 }
 
 function header() {
-  return `<div class="top"><div><div class="muted">🟢 WorkLog AI・Web / Extension 版本一致</div><h1>🪶 WorkLog RC3.1</h1><div class="muted">月曆、今日工作紀錄、建議工作卡三欄工作台。</div></div><div class="header-right">${userBadge()}<div class="tag">${VERSION}</div></div></div>${tabs()}`;
+  return `<div class="top"><div><div class="muted">🟢 WorkLog AI・Web / Extension 版本一致</div><h1>🪶 WorkLog RC3.1</h1><div class="muted">Calendar、我的工作、AI 建議三欄工作台。</div></div><div class="header-right">${userBadge()}<div class="tag">${VERSION}</div></div></div>${tabs()}`;
 }
 
 function authScreen() {
@@ -368,7 +368,7 @@ function calendarPanel() {
 function todayPanel() {
   const list = dayEntries();
   const h = hours(list);
-  return `<div class="panel-head"><h2>今日工作紀錄</h2><div class="tag">${h} / 8h</div></div>${list.length ? list.map(e => `<div class="entry"><div class="entry-main"><b>${escapeHtml(e.title)}</b><div class="muted">${fmt(e.at)}｜${Number(e.hours || 0)}h｜${escapeHtml(e.type || "工作")}</div><small>${escapeHtml(e.task || "")}</small></div><div class="actions compact"><button class="btn2" data-edit-id="${e.id}">編輯</button><button class="btn2 danger" data-del-id="${e.id}">刪除</button></div></div>`).join("") : `<div class="empty"><b>尚無工時紀錄</b><div class="muted">可採納建議卡，或按右下角 + 新增。</div></div>`}<button class="btn full" data-action="add">➕ 新增今日工時</button>`;
+  return `<div class="panel-head"><h2>我的工作</h2><div class="tag">${h} / 8h</div></div>${list.length ? list.map(e => `<div class="entry"><div class="entry-main"><b>${escapeHtml(e.title)}</b><div class="muted">${fmt(e.at)}｜${Number(e.hours || 0)}h｜${escapeHtml(e.type || "工作")}</div><small>${escapeHtml(e.task || "")}</small></div><div class="actions compact"><button class="btn2" data-edit-id="${e.id}">編輯</button><button class="btn2 danger" data-del-id="${e.id}">刪除</button></div></div>`).join("") : `<div class="empty"><b>尚無工時紀錄</b><div class="muted">可採納 AI 建議，或按右下角 + 新增。</div></div>`}<button class="btn full" data-action="add">➕ 新增工作</button>`;
 }
 
 function makeSuggestions() {
@@ -392,14 +392,12 @@ function makeSuggestions() {
 
 function suggestionPanel() {
   const s = makeSuggestions();
-  if (!s.length) return `<h2>今日建議卡</h2><div class="empty"><b>目前沒有建議卡</b><div class="muted">可能今天已滿工時，或工作模型尚未建立。</div></div>`;
-  if (suggestionIndex >= s.length) suggestionIndex = 0;
-  const x = s[suggestionIndex];
-  return `<div class="panel-head"><h2>今日建議卡</h2><div class="tag">${suggestionIndex + 1} / ${s.length}</div></div><div class="suggestion compact-card"><div class="muted">建議工作</div><h3>${escapeHtml(x.title)}</h3><div class="muted">預估 ${x.hours}h｜${fmt(x.at)}</div><div class="actions"><button class="btn green" data-accept="${escapeHtml(x.id)}">採納</button><button class="btn amber" data-adjust="${escapeHtml(x.id)}">編輯</button></div></div><div class="carousel-controls"><button class="btn2" data-sug-prev="1">← 上一張</button><button class="btn2" data-sug-next="1">下一張 →</button></div>`;
+  if (!s.length) return `<h2>AI 建議</h2><div class="empty"><b>目前沒有 AI 建議</b><div class="muted">可能今天已滿工時，或工作模型尚未建立。</div></div>`;
+  return `<div class="panel-head"><h2>AI 建議</h2><div class="tag">${s.length} 筆</div></div><div class="ai-suggestion-list">${s.map(x => `<div class="suggestion compact-card"><div class="muted">建議內容</div><h3>${escapeHtml(x.title)}</h3><div class="suggestion-meta"><span>預估 ${x.hours}h</span><span>${fmt(x.at)}</span></div><div class="actions suggestion-actions"><button class="btn green" data-accept="${escapeHtml(x.id)}">採納</button><button class="btn amber" data-adjust="${escapeHtml(x.id)}">編輯</button></div></div>`).join("")}</div>`;
 }
 
 function center() {
-  return `<div class="dashboard-grid"><section class="panel module calendar-module">${calendarPanel()}</section><section class="panel module today-module">${todayPanel()}</section><section class="panel module suggestion-module">${suggestionPanel()}</section></div><button class="fab" data-action="add">+</button>`;
+  return `<div class="workbench-grid"><section class="panel module calendar-module">${calendarPanel()}</section><section class="panel module today-module">${todayPanel()}</section><section class="panel module suggestion-module">${suggestionPanel()}</section></div><button class="fab" data-action="add">+</button>`;
 }
 
 function capture(editId = null, seed = null) {
@@ -513,7 +511,7 @@ function acceptSuggestion(id) {
   if (!s) return;
   entries.push({ id: uid(), date: key(), at: s.at, title: s.title, task: s.task, hours: 1, type: "工作", source: "ai-card" });
   feedback[s.id] = (feedback[s.id] || 0) + 1;
-  saveAll(); toast("已加入今日工作紀錄"); render();
+  saveAll(); toast("已加入我的工作"); render();
 }
 
 function adjustSuggestion(id) {
