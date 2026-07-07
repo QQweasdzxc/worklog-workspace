@@ -135,7 +135,7 @@ function header() {
 }
 
 function authScreen() {
-  return `<div class="wrap"><div class="card"><div class="top"><div><div class="muted">🔐 Identity Module</div><h1>WorkLog 登入</h1><div class="muted">本機驗收版：Login / Session / Logout。</div></div><div class="tag">${VERSION}</div></div><section class="panel" style="margin-top:18px"><button class="btn full" id="mockGoogleLogin">使用 Google 登入</button><div class="entry"><b>驗收重點</b><div class="muted">登入後重新整理頁面應維持登入；按登出後應回到登入畫面。</div></div></section></div></div>`;
+  return `<div class="wrap"><div class="card"><div class="top"><div><div class="muted">🔐 Identity Module</div><h1>WorkLog 登入</h1><div class="muted">本機驗收版：Login / Session / Logout。</div></div><div class="tag">${VERSION}</div></div><section class="panel" style="margin-top:18px"><button class="btn full" id="mockGoogleLogin">使用 Google 登入</button></section></div></div>`;
 }
 
 function onboarding() {
