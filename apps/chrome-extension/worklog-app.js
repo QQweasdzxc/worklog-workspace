@@ -135,7 +135,7 @@ function header() {
 }
 
 function authScreen() {
-  return `<div class="wrap"><div class="card"><div class="top"><div><div class="muted">🔐 Identity Module</div><h1>WorkLog 登入</h1><div class="muted">本機驗收版：Login / Session / Logout。</div></div><div class="tag">${VERSION}</div></div><section class="panel" style="margin-top:18px"><label>顯示名稱</label><input id="loginName" class="input" value="叮噹"><label>Email</label><input id="loginEmail" class="input" value="qq.1025@gmail.com"><button class="btn full" id="mockGoogleLogin">使用 Google 登入（本機驗收）</button><div class="entry"><b>驗收重點</b><div class="muted">登入後重新整理頁面應維持登入；按登出後應回到登入畫面。</div></div></section></div></div>`;
+  return `<div class="wrap"><div class="card"><div class="top"><div><div class="muted">🔐 Identity Module</div><h1>WorkLog 登入</h1><div class="muted">本機驗收版：Login / Session / Logout。</div></div><div class="tag">${VERSION}</div></div><section class="panel" style="margin-top:18px"><button class="btn full" id="mockGoogleLogin">使用 Google 登入</button><div class="entry"><b>驗收重點</b><div class="muted">登入後重新整理頁面應維持登入；按登出後應回到登入畫面。</div></div></section></div></div>`;
 }
 
 function onboarding() {
@@ -246,8 +246,8 @@ function render() {
 
 function bindAuth() {
   document.getElementById("mockGoogleLogin").onclick = () => {
-    const name = document.getElementById("loginName").value.trim() || "WorkLog User";
-    const email = document.getElementById("loginEmail").value.trim() || "user@example.com";
+    const name = "測試使用者";
+    const email = "test.user@worklog.local";
     session = { provider: "google-local", name, email, uuid: `local-${btoa(email).replace(/=/g, "")}`, loginAt: new Date().toISOString() };
     saveAll(); toast("登入成功"); render();
   };
@@ -267,7 +267,7 @@ function bindOnboarding() {
 }
 
 function bind() {
-  document.querySelectorAll("[data-view]").forEach(b => b.onclick = () => { view = b.dataset.view; saveAll(); render(); });
+  document.querySelectorAll("[data-view]").forEach(b => b.onclick = () => { view = b.dataset.view; if (view === "center") selected = new Date(); saveAll(); render(); });
   document.querySelectorAll("[data-day]").forEach(b => b.onclick = () => { selected.setDate(Number(b.dataset.day)); saveAll(); render(); });
   document.querySelectorAll("[data-action=add]").forEach(b => b.onclick = () => { view = "capture"; saveAll(); render(); });
   const today = document.querySelector("[data-today]"); if (today) today.onclick = () => { selected = new Date(); saveAll(); render(); };
