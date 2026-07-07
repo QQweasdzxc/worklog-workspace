@@ -6,7 +6,7 @@ const AI_OS_SESSION_KEY = "zhuge_ai_os_session_v1";
 const ACTIVE_MODULE_KEY = "zhuge_active_module_v1";
 const AUTH_CONFIG = {
   supabaseUrl: "https://lenpbbhwxyyfwgvjcozf.supabase.co",
-  supabaseAnonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJIUzI1NiIsInJlZiI6ImxlbnBiYmh3eHl5Zndndmpjb3pmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyOTM1ODksImV4cCI6MjA5NTg2OTU4OX0.TAFfLoMC8Tqr4r7nlAtsOke3YcjBIBmr5fN1a6iwSFQ"
+  supabaseAnonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxlbnBiYmh3eHl5Zndndmpjb3pmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyOTM1ODksImV4cCI6MjA5NTg2OTU4OX0.TAFfLoMC8Tqr4r7nlAtsOke3YcjBIBmr5fN1a6iwSFQ"
 };
 
 let activeModule = localStorage.getItem(ACTIVE_MODULE_KEY) || "dashboard";
@@ -72,6 +72,12 @@ function clearStoredCodeVerifier() {
   localStorage.removeItem("wl_google_pkce_code_verifier_v1");
 }
 
+function recordOAuthDebug(stage, detail) {
+  const payload = { stage, detail, at: new Date().toISOString(), href: location.href };
+  localStorage.setItem("zhuge_ai_os_oauth_debug_v1", JSON.stringify(payload));
+  console.error("Zhuge AI OS OAuth Debug", payload);
+}
+
 function base64UrlEncode(bytes) {
   return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
@@ -125,6 +131,8 @@ async function exchangeCodeForSession() {
     body: JSON.stringify({ auth_code: code, code_verifier: codeVerifier })
   });
   if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    recordOAuthDebug("pkce_token_exchange_failed", { status: res.status, body });
     clearStoredAuthSession();
     return null;
   }
@@ -185,6 +193,8 @@ async function getGoogleAuthUser() {
   if (!authSession?.access_token) return null;
   const res = await fetch(`${AUTH_CONFIG.supabaseUrl}/auth/v1/user`, { headers: authHeaders(authSession.access_token) });
   if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    recordOAuthDebug("auth_user_fetch_failed", { status: res.status, body });
     clearStoredAuthSession();
     return null;
   }
