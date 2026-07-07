@@ -17,6 +17,7 @@ let authCallbackCaptured = false;
 let view = localStorage.getItem("wl_view") || "center";
 if (view === "warroom") view = "library";
 if (view === "capture") view = "center";
+let hasOsShellState = localStorage.getItem(OS_OPEN_TABS_KEY) !== null;
 let openTabs = readJson(OS_OPEN_TABS_KEY, []);
 let activeWorkspace = localStorage.getItem(OS_ACTIVE_WORKSPACE_KEY) || "dashboard";
 let recentWorkspaces = readJson(OS_RECENT_WORKSPACES_KEY, []);
@@ -45,20 +46,17 @@ const roleTagMap = {
 const eventTypes = ["工作", "特休", "事假", "病假", "會議", "出差", "教育訓練"];
 const DEFAULT_LIBRARY_READING_STATUS = "🟡 等待閱讀";
 const workspaceRegistry = {
-  worklog: { icon: "🪶", label: "工時", group: "camp" },
-  investment: { icon: "📈", label: "投資", group: "camp", comingSoon: true },
-  procurement: { icon: "📦", label: "採購", group: "camp", comingSoon: true },
-  hr: { icon: "👥", label: "HR", group: "camp", comingSoon: true },
-  travel: { icon: "✈️", label: "旅遊", group: "camp", comingSoon: true },
+  worklog: { icon: "🪶", label: "工時營帳", group: "camp", enabled: true },
+  investment: { icon: "📈", label: "投資營帳", group: "camp", comingSoon: true },
+  procurement: { icon: "📦", label: "採購營帳", group: "camp", comingSoon: true },
+  hr: { icon: "👥", label: "HR營帳", group: "camp", comingSoon: true },
+  travel: { icon: "✈️", label: "旅遊營帳", group: "camp", comingSoon: true },
   library: { icon: "📚", label: "藏書閣", group: "system" },
   sync: { icon: "🔄", label: "同步", group: "system" },
   settings: { icon: "⚙️", label: "設定", group: "system" }
 };
 const agentStatuses = [
-  ["📈", "投資 Agent", "在線"],
-  ["🪶", "工時 Agent", "執行中"],
-  ["📦", "採購 Agent", "等待"],
-  ["👥", "HR Agent", "離線"]
+  ["🪶", "工時 Agent", "🟢 在線"]
 ];
 
 function readJson(key, fallback) {
@@ -283,6 +281,7 @@ function saveAll() {
   localStorage.setItem(OS_OPEN_TABS_KEY, JSON.stringify(openTabs));
   localStorage.setItem(OS_ACTIVE_WORKSPACE_KEY, activeWorkspace);
   localStorage.setItem(OS_RECENT_WORKSPACES_KEY, JSON.stringify(recentWorkspaces));
+  hasOsShellState = true;
   localStorage.setItem("wl_view", view);
   localStorage.setItem("wl_selected", selected.toISOString());
 }
@@ -351,7 +350,7 @@ function userBadge() {
 }
 
 function header() {
-  return `<div class="top"><div><div class="muted">🧠 Zhuge AI OS</div><h1>Desktop Shell</h1><div class="muted">Dashboard Home・營帳・Workspace Tabs</div></div><div class="header-right">${userBadge()}<div class="tag">${VERSION}</div></div></div>`;
+  return `<div class="top"><div><h1>🧠 Zhuge AI OS</h1></div><div class="header-right">${userBadge()}<div class="tag">${VERSION}</div></div></div>`;
 }
 
 function authScreen() {
@@ -359,7 +358,7 @@ function authScreen() {
 }
 
 function zhugeDashboard() {
-  return `<section class="panel os-home"><div class="panel-head"><div><h2>🧠 Zhuge AI OS Dashboard</h2><div class="muted">Dashboard 是登入後唯一 Home。請從左側「營帳」或上方 Workspace Tabs 進入工作區。</div></div><div class="tag">Home</div></div><div class="dashboard-grid"><div class="entry"><b>🪶 工時</b><div class="muted">Calendar、我的工作、推理預測</div><button class="btn full" data-open-workspace="worklog">開啟工時</button></div><div class="entry"><b>📈 投資</b><div class="muted">Coming Soon</div><button class="btn gray full" data-open-workspace="investment">開啟投資</button></div><div class="entry"><b>📚 藏書閣</b><div class="muted">AI OS Knowledge Library</div><button class="btn full" data-open-workspace="library">開啟藏書閣</button></div></div></section>`;
+  return `<section class="panel os-home"><div class="panel-head"><div><h2>🧠 Zhuge AI OS</h2><div class="muted">請從左側營帳進入工作區。</div></div></div></section>`;
 }
 
 function workspaceDef(id) {
@@ -369,6 +368,7 @@ function workspaceDef(id) {
 function normalizeWorkspaceState() {
   openTabs = openTabs.filter(id => workspaceRegistry[id]);
   recentWorkspaces = recentWorkspaces.filter(id => openTabs.includes(id));
+  if (!hasOsShellState && session) { openTabs = ["worklog"]; activeWorkspace = "worklog"; recentWorkspaces = ["worklog"]; hasOsShellState = true; }
   if (activeWorkspace !== "dashboard" && !openTabs.includes(activeWorkspace)) activeWorkspace = recentWorkspaces[0] || "dashboard";
   if (!openTabs.length) activeWorkspace = "dashboard";
 }
@@ -379,6 +379,7 @@ function rememberWorkspace(id) {
 
 function openWorkspace(id) {
   if (!workspaceRegistry[id]) return;
+  if (id !== "worklog") return;
   if (!openTabs.includes(id)) openTabs.push(id);
   activeWorkspace = id;
   rememberWorkspace(id);
@@ -407,25 +408,25 @@ function closeWorkspace(id) {
 }
 
 function agentStatusPanel() {
-  return `<div class="agent-panel"><h3>🤖 Agent 狀態</h3>${agentStatuses.map(([icon, name, status]) => `<div class="agent-row"><span>${icon} ${name}</span><b>${escapeHtml(status)}</b></div>`).join("")}</div>`;
+  return `<div class="agent-panel"><h3>🤖 Agent</h3>${agentStatuses.map(([icon, name, status]) => `<div class="agent-row"><span>${icon} ${name}</span><b>${escapeHtml(status)}</b></div>`).join("")}</div>`;
 }
 
 function sidebarSection(title, group) {
-  return `<div class="side-section"><h3>${title}</h3>${Object.entries(workspaceRegistry).filter(([, w]) => w.group === group).map(([id, w]) => `<button class="side-item ${activeWorkspace === id ? "on" : ""}" data-open-workspace="${id}"><span>${w.icon} ${w.label}</span>${w.comingSoon ? `<small>Future</small>` : ""}</button>`).join("")}</div>`;
+  return `<div class="side-section"><h3>${title}</h3>${Object.entries(workspaceRegistry).filter(([, w]) => w.group === group).map(([id, w]) => w.enabled ? `<button class="side-item ${activeWorkspace === id ? "on" : ""}" data-open-workspace="${id}"><span>${w.icon} ${w.label}</span></button>` : `<div class="side-item disabled"><span>${w.icon} ${w.label}</span>${w.comingSoon ? `<small>🚧 施工中</small>` : ""}</div>`).join("")}</div>`;
 }
 
 function osSidebar() {
-  return `<aside class="os-sidebar">${agentStatusPanel()}${sidebarSection("營帳", "camp")}${sidebarSection("系統", "system")}</aside>`;
+  return `<aside class="os-sidebar">${agentStatusPanel()}${sidebarSection("🏕️ 營帳", "camp")}${sidebarSection("⚙️ 系統", "system")}</aside>`;
 }
 
 function workspaceTabs() {
-  if (!openTabs.length) return `<div class="workspace-tabs empty"><span>Dashboard Home</span><button class="tab-plus" data-open-workspace="worklog">+</button></div>`;
-  return `<div class="workspace-tabs">${openTabs.map(id => { const w = workspaceDef(id); return `<button class="workspace-tab ${activeWorkspace === id ? "active" : ""}" data-activate-workspace="${id}"><span>${w.icon} ${w.label}</span><span class="tab-close" data-close-workspace="${id}">×</span></button>`; }).join("")}<button class="tab-plus" data-open-workspace="worklog">+</button></div>`;
+  if (!openTabs.length) return `<div class="workspace-tabs empty"><span>Home</span></div>`;
+  return `<div class="workspace-tabs">${openTabs.map(id => { const w = workspaceDef(id); return `<button class="workspace-tab ${activeWorkspace === id ? "active" : ""}" data-activate-workspace="${id}"><span>${w.icon} ${w.label}</span><span class="tab-close" data-close-workspace="${id}">×</span></button>`; }).join("")}</div>`;
 }
 
 function comingSoonWorkspace(id) {
   const w = workspaceDef(id);
-  return `<section class="panel coming-soon"><h2>${w.icon} ${w.label}</h2><div class="empty"><b>Coming Soon</b><div class="muted">${w.label} Workspace 已進入 Zhuge AI OS Shell，功能將於後續版本實作。</div></div></section>`;
+  return `<section class="panel coming-soon"><h2>${w.icon} ${w.label}</h2><div class="empty"><b>施工中</b><div class="muted">${w.label} 將於後續版本實作。</div></div></section>`;
 }
 
 function worklogWorkspace() {
@@ -447,7 +448,7 @@ function osShell() {
 }
 
 function onboardingWorkspace() {
-  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>🪶 初次認識工時 Workspace</h2><div class="muted">建立工作模型後，即可使用 Calendar、我的工作與推理預測。</div></div></div><div class="profile-grid"><div><label>你的職務</label><select id="role" class="input">${roles.map(r => `<option>${r}</option>`).join("")}</select></div><div><label>每日工時</label><select class="input"><option>09:00~18:00，午休 12:00~13:00</option></select></div></div><label>常見工作內容（可複選）</label><div class="row two" id="tagOptions">${tagButtons(tagsForRole("採購"))}</div><label>SOP 狀態</label><select id="sop" class="input"><option>目前沒有 SOP，先用職務模型</option><option>有 SOP，之後上傳</option></select><label>工作來源</label><div class="row two">${["Google Drive", "Gmail", "Calendar", "手動紀錄"].map(s => `<button class="btn2 src-btn" data-src="${s}">${s}</button>`).join("")}</div><button class="btn full" id="saveProfile">建立我的工作模型</button></section>`;
+  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>🪶 初次認識工時營帳</h2><div class="muted">建立工作模型後，即可使用 Calendar、我的工作與推理預測。</div></div></div><div class="profile-grid"><div><label>你的職務</label><select id="role" class="input">${roles.map(r => `<option>${r}</option>`).join("")}</select></div><div><label>每日工時</label><select class="input"><option>09:00~18:00，午休 12:00~13:00</option></select></div></div><label>常見工作內容（可複選）</label><div class="row two" id="tagOptions">${tagButtons(tagsForRole("採購"))}</div><label>SOP 狀態</label><select id="sop" class="input"><option>目前沒有 SOP，先用職務模型</option><option>有 SOP，之後上傳</option></select><label>工作來源</label><div class="row two">${["Google Drive", "Gmail", "Calendar", "手動紀錄"].map(s => `<button class="btn2 src-btn" data-src="${s}">${s}</button>`).join("")}</div><button class="btn full" id="saveProfile">建立我的工作模型</button></section>`;
 }
 
 function onboarding() {
@@ -493,10 +494,10 @@ function makeSuggestions() {
 
 function suggestionPanel() {
   const s = makeSuggestions();
-  if (!s.length) return `<h2>推理預測</h2><div class="empty"><b>目前沒有推理預測</b><div class="muted">可能今天已滿工時，或工作模型尚未建立。</div></div>`;
+  if (!s.length) return `<h2>🤖 推理預測</h2><div class="empty"><b>目前沒有推理預測</b><div class="muted">可能今天已滿工時，或工作模型尚未建立。</div></div>`;
   const queueItems = s.slice(0, AI_REASON_QUEUE_SIZE);
   const slots = Array.from({ length: AI_REASON_QUEUE_SIZE }, (_, i) => queueItems[i]);
-  return `<div class="panel-head"><h2>推理預測</h2><div class="tag">${queueItems.length} / ${s.length}</div></div><div class="ai-suggestion-list queue-list">${slots.map(x => x ? `<div class="suggestion compact-card"><div class="suggestion-title-row"><h3>${escapeHtml(x.title)}</h3><div class="actions suggestion-actions"><button class="btn green" data-accept="${escapeHtml(x.id)}">採納</button><button class="btn amber" data-adjust="${escapeHtml(x.id)}">編輯</button></div></div><div class="suggestion-source">${escapeHtml(x.sourceLabel || "🤖 AI 推理")}</div></div>` : `<div class="suggestion compact-card placeholder-card"><div class="muted">等待新的推理預測</div></div>`).join("")}</div>`;
+  return `<div class="panel-head"><h2>🤖 推理預測</h2><div class="tag">${queueItems.length} / ${s.length}</div></div><div class="ai-suggestion-list queue-list">${slots.map(x => x ? `<div class="suggestion compact-card"><div class="suggestion-title-row"><h3>${escapeHtml(x.title)}</h3><div class="actions suggestion-actions"><button class="btn green" data-accept="${escapeHtml(x.id)}">採納</button><button class="btn amber" data-adjust="${escapeHtml(x.id)}">編輯</button></div></div><div class="suggestion-source">${escapeHtml(x.sourceLabel || "🤖 AI 推理")}</div></div>` : `<div class="suggestion compact-card placeholder-card"><div class="muted">等待新的推理預測</div></div>`).join("")}</div>`;
 }
 
 function center() {
@@ -682,7 +683,7 @@ async function boot() {
     const googleAuth = await getGoogleAuthUser();
     if (googleAuth) {
       session = googleSessionFromUser(googleAuth.user, googleAuth.authSession);
-      if (authCallbackCaptured) { activeModule = "dashboard"; activeWorkspace = "dashboard"; openTabs = []; recentWorkspaces = []; view = "center"; }
+      if (authCallbackCaptured) { activeModule = "dashboard"; activeWorkspace = "worklog"; openTabs = ["worklog"]; recentWorkspaces = ["worklog"]; view = "center"; hasOsShellState = true; }
       saveAll();
     }
   } catch {
