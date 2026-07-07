@@ -51,9 +51,9 @@ const workspaceRegistry = {
   procurement: { icon: "📦", label: "採購營帳", group: "camp", comingSoon: true },
   hr: { icon: "👥", label: "HR營帳", group: "camp", comingSoon: true },
   travel: { icon: "✈️", label: "旅遊營帳", group: "camp", comingSoon: true },
-  library: { icon: "📚", label: "藏書閣", group: "system" },
-  sync: { icon: "🔄", label: "同步", group: "system" },
-  settings: { icon: "⚙️", label: "設定", group: "system" }
+  library: { icon: "📚", label: "藏書閣", group: "system", enabled: true },
+  sync: { icon: "🔄", label: "同步", group: "system", enabled: true },
+  settings: { icon: "⚙️", label: "設定", group: "system", enabled: true }
 };
 const agentStatuses = [
   ["🪶", "工時 Agent", "🟢 在線"]
@@ -379,7 +379,7 @@ function rememberWorkspace(id) {
 
 function openWorkspace(id) {
   if (!workspaceRegistry[id]) return;
-  if (id !== "worklog") return;
+  if (workspaceRegistry[id].comingSoon) return;
   if (!openTabs.includes(id)) openTabs.push(id);
   activeWorkspace = id;
   rememberWorkspace(id);
@@ -511,7 +511,7 @@ function capture(editId = null, seed = null) {
   const title = e ? e.title : (seed ? seed.title : "");
   const task = e ? e.task : (seed ? seed.task : "採購案件處理");
   const type = e ? (e.type || "工作") : "工作";
-  return `<section class="panel" style="margin-top:18px"><h2>${e ? "編輯工時" : "➕ 快速紀錄"}</h2><div class="form"><input class="input" id="dt" type="datetime-local" value="${e ? e.at : nextStart()}"><textarea id="title" placeholder="今天做了什麼？">${escapeHtml(title)}</textarea><label>事件類型</label><select id="eventType" class="input">${eventTypes.map(t => `<option ${type === t ? "selected" : ""}>${t}</option>`).join("")}</select><div class="row hours">${[0.5, 1, 1.5, 2, 3, 4, 8].map(h => `<button class="btn2 hour" data-h="${h}">${h === 0.5 ? "30m" : h + "h"}</button>`).join("")}</div><input class="input" id="task" value="${escapeHtml(task)}"><button class="btn full" id="saveEntry">儲存</button></div></section>`;
+  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>${e ? "編輯工時" : "➕ 快速紀錄"}</h2></div><button class="btn2" data-capture-back="1">返回</button></div><div class="form"><input class="input" id="dt" type="datetime-local" value="${e ? e.at : nextStart()}"><textarea id="title" placeholder="今天做了什麼？">${escapeHtml(title)}</textarea><label>事件類型</label><select id="eventType" class="input">${eventTypes.map(t => `<option ${type === t ? "selected" : ""}>${t}</option>`).join("")}</select><div class="row hours">${[0.5, 1, 1.5, 2, 3, 4, 8].map(h => `<button class="btn2 hour" data-h="${h}">${h === 0.5 ? "30m" : h + "h"}</button>`).join("")}</div><input class="input" id="task" value="${escapeHtml(task)}"><div class="form-actions"><button class="btn2" data-capture-cancel="1">取消</button><button class="btn" id="saveEntry">儲存</button></div></div></section>`;
 }
 
 function sync() {
@@ -631,6 +631,7 @@ function bindCapture(editId = null) {
   editId = editId || editingEntryId;
   const editingEntry = editId ? entries.find(e => e.id === editId) : null;
   let selectedH = editingEntry ? Number(editingEntry.hours) : 1;
+  document.querySelectorAll("[data-capture-back],[data-capture-cancel]").forEach(b => b.onclick = () => { view = "center"; editingEntryId = null; captureSeed = null; saveAll(); render(); });
   document.querySelectorAll(".hour").forEach(b => b.onclick = () => { selectedH = Number(b.dataset.h); document.querySelectorAll(".hour").forEach(x => x.classList.remove("selected")); b.classList.add("selected"); });
   document.getElementById("saveEntry").onclick = () => {
     const at = document.getElementById("dt").value;
