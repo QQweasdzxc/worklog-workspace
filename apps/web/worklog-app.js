@@ -12,15 +12,14 @@ const AUTH_CONFIG = {
 let activeModule = localStorage.getItem(ACTIVE_MODULE_KEY) || "dashboard";
 let authCallbackCaptured = false;
 let view = localStorage.getItem("wl_view") || "center";
+if (view === "warroom") view = "library";
 let selected = new Date(localStorage.getItem("wl_selected") || Date.now());
 let entries = readJson("wl_entries", []);
 let profile = readJson("wl_profile", null);
 let feedback = readJson("wl_feedback", {});
 let session = readJson(AI_OS_SESSION_KEY, null);
 let library = readJson("wl_library", []);
-let warroom = readJson("wl_warroom", []);
-let suggestionIndex = Number(localStorage.getItem("wl_suggestion_index") || 0);
-const AI_REASON_PAGE_SIZE = 5;
+const AI_REASON_QUEUE_SIZE = 5;
 
 const roles = ["採購", "行政", "人資", "業務", "行銷", "IT", "自訂"];
 const defaultTags = ["採購案件處理", "發票請款", "驗收請款", "供應商聯繫", "Mail處理", "資料整理", "會議", "專案追蹤"];
@@ -34,7 +33,13 @@ const roleTagMap = {
   "自訂": ["自訂工作", "Mail處理", "資料整理", "會議", "專案追蹤", "跨部門溝通", "文件整理", "待辦追蹤"]
 };
 const eventTypes = ["工作", "特休", "事假", "病假", "會議", "出差", "教育訓練"];
-const sourceTypes = ["SOP", "工作資料", "文件來源", "網址", "檔案位置", "其他"];
+const librarySourceTypes = ["上傳檔案", "Google Drive", "Google Docs", "Google Sheets", "PDF", "網址"];
+const libraryReadingStatuses = ["🟡 等待閱讀", "🔵 AI 閱讀中", "🟢 已完成理解", "🟠 文件更新，待重新閱讀"];
+const libraryTagGroups = {
+  "部門": ["採購", "人資", "財務", "IT", "行政"],
+  "文件類型": ["SOP", "流程", "法規", "教學", "範本", "表單", "合約", "報表"],
+  "用途": ["AI 推理", "AI 回答", "AI 搜尋", "AI 引用", "工作建議", "學習資料"]
+};
 
 function readJson(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback)); }
@@ -232,7 +237,6 @@ function normalizeEntries() {
     return next;
   });
   library = library.map(item => item.id ? item : { ...item, id: uid("lib") });
-  warroom = warroom.map(item => item.id ? item : { ...item, id: uid("war") });
   if (changed) saveAll();
 }
 
@@ -255,11 +259,9 @@ function saveAll() {
   localStorage.setItem(AI_OS_SESSION_KEY, JSON.stringify(session));
   localStorage.removeItem("wl_session");
   localStorage.setItem("wl_library", JSON.stringify(library));
-  localStorage.setItem("wl_warroom", JSON.stringify(warroom));
   localStorage.setItem(ACTIVE_MODULE_KEY, activeModule);
   localStorage.setItem("wl_view", view);
   localStorage.setItem("wl_selected", selected.toISOString());
-  localStorage.setItem("wl_suggestion_index", String(suggestionIndex));
 }
 
 function toast(t) {
@@ -325,7 +327,6 @@ function tabs() {
     ["center", "📅", "中心"],
     ["capture", "➕", "紀錄"],
     ["library", "📚", "藏書閣"],
-    ["warroom", "🧭", "軍機處"],
     ["sync", "📦", "同步"],
     ["settings", "⚙️", "設定"]
   ];
@@ -393,10 +394,9 @@ function makeSuggestions() {
 function suggestionPanel() {
   const s = makeSuggestions();
   if (!s.length) return `<h2>AI 推理</h2><div class="empty"><b>目前沒有 AI 推理</b><div class="muted">可能今天已滿工時，或工作模型尚未建立。</div></div>`;
-  const pageCount = Math.max(1, Math.ceil(s.length / AI_REASON_PAGE_SIZE));
-  const page = Math.min(Math.max(0, suggestionIndex), pageCount - 1);
-  const pageItems = s.slice(page * AI_REASON_PAGE_SIZE, page * AI_REASON_PAGE_SIZE + AI_REASON_PAGE_SIZE);
-  return `<div class="panel-head"><h2>AI 推理</h2><div class="tag">${s.length} 筆</div></div><div class="ai-suggestion-list">${pageItems.map(x => `<div class="suggestion compact-card"><div class="suggestion-title-row"><h3>${escapeHtml(x.title)}</h3><div class="actions suggestion-actions"><button class="btn green" data-accept="${escapeHtml(x.id)}">採納</button><button class="btn amber" data-adjust="${escapeHtml(x.id)}">編輯</button></div></div><div class="suggestion-source">來源：👤 職務內容</div><div class="suggestion-reason">AI 推理原因：依據你的職務內容、常見工作項目與尚未採納紀錄排序。</div><div class="suggestion-meta"><span>預估 ${x.hours}h</span></div></div>`).join("")}</div><div class="suggestion-pager"><button class="btn2" data-sug-prev ${pageCount <= 1 ? "disabled" : ""}>上一頁</button><span>第 ${page + 1} / ${pageCount} 頁</span><button class="btn2" data-sug-next ${pageCount <= 1 ? "disabled" : ""}>下一頁</button></div>`;
+  const queueItems = s.slice(0, AI_REASON_QUEUE_SIZE);
+  const slots = Array.from({ length: AI_REASON_QUEUE_SIZE }, (_, i) => queueItems[i]);
+  return `<div class="panel-head"><h2>AI 推理</h2><div class="tag">${queueItems.length} / ${s.length}</div></div><div class="ai-suggestion-list queue-list">${slots.map(x => x ? `<div class="suggestion compact-card"><div class="suggestion-title-row"><h3>${escapeHtml(x.title)}</h3><div class="actions suggestion-actions"><button class="btn green" data-accept="${escapeHtml(x.id)}">採納</button><button class="btn amber" data-adjust="${escapeHtml(x.id)}">編輯</button></div></div><div class="suggestion-source">🤖 AI 推理</div></div>` : `<div class="suggestion compact-card placeholder-card"><div class="muted">等待新的 AI 推理</div></div>`).join("")}</div>`;
 }
 
 function center() {
@@ -416,22 +416,34 @@ function sync() {
   return `<section class="panel" style="margin-top:18px"><h2>📦 同步中心</h2><p class="muted">只顯示真實狀態；未完成串接不放假按鈕。</p><div class="status"><span>Identity</span><b>${session ? "🟢 Google 已登入" : "⚪ 未登入"}</b></div><div class="status"><span>本機資料</span><b>🟢 localStorage</b></div><div class="status"><span>Google Drive</span><b>${googleState}</b></div><div class="status"><span>Gmail</span><b>${googleState}</b></div><div class="status"><span>Calendar</span><b>${googleState}</b></div><div class="status"><span>Supabase Auth</span><b>${session ? "🟢 已連接" : "⚪ 未連接"}</b></div></section>`;
 }
 
+function normalizedLibraryItem(item = {}) {
+  const sourceType = item.sourceType || (librarySourceTypes.includes(item.type) ? item.type : "上傳檔案");
+  return {
+    ...item,
+    sourceType,
+    type: item.type || sourceType,
+    readingStatus: item.readingStatus || "🟡 等待閱讀",
+    tags: Array.isArray(item.tags) ? item.tags : []
+  };
+}
+
+function libraryTagCheckboxes(selectedTags = []) {
+  return Object.entries(libraryTagGroups).map(([group, tags]) => `<div class="tag-group"><b>${group}</b><div class="library-tags">${tags.map(tag => `<label class="check-chip"><input type="checkbox" class="libTag" value="${escapeHtml(tag)}" ${selectedTags.includes(tag) ? "checked" : ""}>${escapeHtml(tag)}</label>`).join("")}</div></div>`).join("");
+}
+
+function librarySourceFields(item, sourceType) {
+  const location = escapeHtml(item.location || "");
+  const active = type => sourceType === type ? " active" : "";
+  return `<div class="library-source-field${active("上傳檔案")}" data-source-field="上傳檔案"><label>上傳檔案</label><div class="upload-drop"><input id="libFile" type="file"><span>拖曳檔案至此，或瀏覽上傳</span></div></div><div class="library-source-field${active("Google Drive")}" data-source-field="Google Drive"><label>Google Drive</label><input id="libDrive" class="input" value="${location}" placeholder="選擇或貼上 Google Drive 檔案連結"></div><div class="library-source-field${active("Google Docs")}" data-source-field="Google Docs"><label>Google Docs</label><input id="libDocs" class="input" value="${location}" placeholder="選擇或貼上 Google Docs 連結"></div><div class="library-source-field${active("Google Sheets")}" data-source-field="Google Sheets"><label>Google Sheets</label><input id="libSheets" class="input" value="${location}" placeholder="選擇或貼上 Google Sheets 連結"></div><div class="library-source-field${active("PDF")}" data-source-field="PDF"><label>PDF</label><div class="upload-drop"><input id="libPdf" type="file" accept="application/pdf"><span>拖曳 PDF 至此，或瀏覽上傳</span></div></div><div class="library-source-field${active("網址")}" data-source-field="網址"><label>網址</label><input id="libUrl" class="input" value="${location}" placeholder="https://example.com"></div>`;
+}
+
 function libraryView() {
-  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>📚 藏書閣</h2><div class="muted">管理 SOP、工作資料、文件來源與可供諸葛先生理解工作的知識來源。</div></div><button class="btn" data-add-library="1">新增來源</button></div><div class="library-list">${library.length ? library.map(item => `<div class="entry"><b>${escapeHtml(item.name)}</b><div class="muted">${escapeHtml(item.type)}｜${escapeHtml(item.purpose || "未填用途")}</div><small>${escapeHtml(item.description || "")}</small><div class="source-path">${escapeHtml(item.location || "")}</div><div class="actions compact"><button class="btn2" data-edit-library="${item.id}">編輯</button><button class="btn2 danger" data-del-library="${item.id}">刪除</button></div></div>`).join("") : `<div class="empty"><b>尚無知識來源</b><div class="muted">可新增 SOP、文件位置、網址或工作資料，作為未來 AI 理解工作的素材。</div></div>`}</div></section>`;
+  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>📚 藏書閣</h2><div class="muted">AI OS Knowledge Library：統一管理提供給諸葛先生閱讀、理解、引用與 AI 推理的知識來源。</div></div><button class="btn" data-add-library="1">新增藏書</button></div><div class="library-list">${library.length ? library.map(raw => { const item = normalizedLibraryItem(raw); return `<div class="entry"><div class="entry-main"><b>${escapeHtml(item.name)}</b><div class="muted">${escapeHtml(item.sourceType)}｜${escapeHtml(item.readingStatus)}</div><small>${escapeHtml(item.description || "")}</small><div class="source-path">${escapeHtml(item.location || "尚未連結來源")}</div><div class="library-tag-line">${item.tags.map(tag => `<span>${escapeHtml(tag)}</span>`).join("")}</div></div><div class="actions compact"><button class="btn2" data-edit-library="${item.id}">編輯</button><button class="btn2 danger" data-del-library="${item.id}">刪除</button></div></div>`; }).join("") : `<div class="empty"><b>尚無知識來源</b><div class="muted">請新增 SOP、流程、表單、PDF、網址或 Google 文件，作為未來 AI 推理、AI 回答、AI 搜尋與 AI 引用的知識庫。</div></div>`}</div></section>`;
 }
 
 function libraryForm(id = null) {
-  const item = id ? library.find(x => x.id === id) : null;
-  return `<section class="panel" style="margin-top:18px"><h2>${item ? "編輯藏書閣來源" : "新增藏書閣來源"}</h2><label>名稱</label><input id="libName" class="input" value="${escapeHtml(item?.name || "")}"><label>類型</label><select id="libType" class="input">${sourceTypes.map(t => `<option ${item?.type === t ? "selected" : ""}>${t}</option>`).join("")}</select><label>說明</label><textarea id="libDesc">${escapeHtml(item?.description || "")}</textarea><label>檔案位置 / 網址 / 資料來源</label><input id="libLocation" class="input" value="${escapeHtml(item?.location || "")}"><label>用途</label><input id="libPurpose" class="input" value="${escapeHtml(item?.purpose || "")}" placeholder="例如：讓諸葛先生理解採購 SOP"><label>標籤</label><input id="libTags" class="input" value="${escapeHtml((item?.tags || []).join(", "))}"><button class="btn full" id="saveLibrary">儲存藏書閣來源</button></section>`;
-}
-
-function warroomView() {
-  const sources = library.length ? library.map(x => x.name).join("、") : "尚未建立藏書閣來源";
-  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>🧭 軍機處</h2><div class="muted">把藏書閣資料、工作模型與今日紀錄轉成工作判斷與待辦方向。</div></div><button class="btn" data-add-war="1">新增判斷</button></div><div class="entry"><b>目前可用知識來源</b><div class="muted">${escapeHtml(sources)}</div></div>${warroom.length ? warroom.map(item => `<div class="entry"><b>${escapeHtml(item.title)}</b><div class="muted">${escapeHtml(item.kind || "策略")}</div><small>${escapeHtml(item.note || "")}</small><div class="actions compact"><button class="btn2" data-del-war="${item.id}">刪除</button></div></div>`).join("") : `<div class="empty"><b>尚無軍機處紀錄</b><div class="muted">可記錄判斷、提醒、策略或需要諸葛先生持續追蹤的工作脈絡。</div></div>`}</section>`;
-}
-
-function warroomForm() {
-  return `<section class="panel" style="margin-top:18px"><h2>新增軍機處紀錄</h2><label>標題</label><input id="warTitle" class="input"><label>類型</label><select id="warKind" class="input"><option>策略</option><option>提醒</option><option>風險</option><option>待確認</option></select><label>內容</label><textarea id="warNote"></textarea><button class="btn full" id="saveWar">儲存軍機處紀錄</button></section>`;
+  const item = normalizedLibraryItem(id ? library.find(x => x.id === id) : {});
+  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>${id ? "編輯藏書" : "新增藏書"}</h2><div class="muted">藏書閣是 AI OS Knowledge Library，請選擇來源並標記 AI 可閱讀的用途。</div></div><button class="btn2" data-library-back="1">返回</button></div><label>名稱</label><input id="libName" class="input" value="${escapeHtml(item.name || "")}"><label>來源</label><select id="libSourceType" class="input">${librarySourceTypes.map(t => `<option ${item.sourceType === t ? "selected" : ""}>${t}</option>`).join("")}</select>${librarySourceFields(item, item.sourceType)}<label>AI 閱讀狀態</label><select id="libReadingStatus" class="input">${libraryReadingStatuses.map(s => `<option ${item.readingStatus === s ? "selected" : ""}>${s}</option>`).join("")}</select><label>說明</label><textarea id="libDesc" placeholder="這份文件提供給諸葛先生理解哪些工作脈絡？">${escapeHtml(item.description || "")}</textarea><label>固定標籤</label><div class="library-tag-panel">${libraryTagCheckboxes(item.tags)}</div><div class="form-actions"><button class="btn2" data-library-cancel="1">取消</button><button class="btn" id="saveLibrary">儲存</button></div></section>`;
 }
 
 function settings() {
@@ -442,7 +454,6 @@ function currentViewHtml() {
   if (view === "center") return center();
   if (view === "capture") return capture();
   if (view === "library") return libraryView();
-  if (view === "warroom") return warroomView();
   if (view === "sync") return sync();
   return settings();
 }
@@ -500,11 +511,9 @@ function bind() {
   const exportBtn = document.querySelector("[data-export-month]"); if (exportBtn) exportBtn.onclick = () => exportMonthXls();
   document.querySelectorAll("[data-accept]").forEach(b => b.onclick = () => acceptSuggestion(b.dataset.accept));
   document.querySelectorAll("[data-adjust]").forEach(b => b.onclick = () => adjustSuggestion(b.dataset.adjust));
-  document.querySelectorAll("[data-sug-prev]").forEach(b => b.onclick = () => { const pageCount = Math.max(1, Math.ceil(makeSuggestions().length / AI_REASON_PAGE_SIZE)); suggestionIndex = (suggestionIndex - 1 + pageCount) % pageCount; saveAll(); render(); });
-  document.querySelectorAll("[data-sug-next]").forEach(b => b.onclick = () => { const pageCount = Math.max(1, Math.ceil(makeSuggestions().length / AI_REASON_PAGE_SIZE)); suggestionIndex = (suggestionIndex + 1) % pageCount; saveAll(); render(); });
   document.querySelectorAll("[data-del-id]").forEach(b => b.onclick = () => { entries = entries.filter(e => e.id !== b.dataset.delId); saveAll(); toast("已刪除"); render(); });
   document.querySelectorAll("[data-edit-id]").forEach(b => b.onclick = () => { view = "capture"; root.innerHTML = `<div class="wrap"><div class="card">${header()}${capture(b.dataset.editId)}</div></div>`; bindCapture(b.dataset.editId); bindGlobal(); });
-  bindLibrary(); bindWarroom();
+  bindLibrary();
   if (view === "capture") bindCapture();
   if (view === "settings") bindSettings();
 }
@@ -544,24 +553,28 @@ function bindLibrary() {
 }
 
 function bindLibraryForm(id = null) {
+  const sourceSelect = document.getElementById("libSourceType");
+  const showSourceField = () => {
+    document.querySelectorAll("[data-source-field]").forEach(el => el.classList.toggle("active", el.dataset.sourceField === sourceSelect.value));
+  };
+  sourceSelect.onchange = showSourceField;
+  showSourceField();
+  document.querySelectorAll("[data-library-back],[data-library-cancel]").forEach(b => b.onclick = () => { view = "library"; saveAll(); render(); });
   document.getElementById("saveLibrary").onclick = () => {
-    const item = { id: id || uid("lib"), name: document.getElementById("libName").value.trim(), type: document.getElementById("libType").value, description: document.getElementById("libDesc").value.trim(), location: document.getElementById("libLocation").value.trim(), purpose: document.getElementById("libPurpose").value.trim(), tags: document.getElementById("libTags").value.split(",").map(x => x.trim()).filter(Boolean) };
+    const sourceType = sourceSelect.value;
+    const locationMap = {
+      "上傳檔案": document.getElementById("libFile")?.files?.[0]?.name || "",
+      "Google Drive": document.getElementById("libDrive")?.value.trim() || "",
+      "Google Docs": document.getElementById("libDocs")?.value.trim() || "",
+      "Google Sheets": document.getElementById("libSheets")?.value.trim() || "",
+      "PDF": document.getElementById("libPdf")?.files?.[0]?.name || "",
+      "網址": document.getElementById("libUrl")?.value.trim() || ""
+    };
+    const existing = id ? normalizedLibraryItem(library.find(x => x.id === id)) : {};
+    const item = { id: id || uid("lib"), name: document.getElementById("libName").value.trim(), type: sourceType, sourceType, readingStatus: document.getElementById("libReadingStatus").value, description: document.getElementById("libDesc").value.trim(), location: locationMap[sourceType] || existing.location || "", purpose: document.querySelectorAll(".libTag:checked").length ? "Knowledge Library" : "", tags: Array.from(document.querySelectorAll(".libTag:checked")).map(x => x.value) };
     if (!item.name) return toast("請輸入來源名稱");
     if (id) library[library.findIndex(x => x.id === id)] = item; else library.push(item);
     view = "library"; saveAll(); toast("藏書閣已儲存"); render();
-  };
-}
-
-function bindWarroom() {
-  const add = document.querySelector("[data-add-war]"); if (add) add.onclick = () => { root.innerHTML = `<div class="wrap"><div class="card">${header()}${warroomForm()}</div></div>`; bindWarroomForm(); bindGlobal(); };
-  document.querySelectorAll("[data-del-war]").forEach(b => b.onclick = () => { warroom = warroom.filter(x => x.id !== b.dataset.delWar); saveAll(); toast("已刪除軍機處紀錄"); render(); });
-}
-
-function bindWarroomForm() {
-  document.getElementById("saveWar").onclick = () => {
-    const item = { id: uid("war"), title: document.getElementById("warTitle").value.trim(), kind: document.getElementById("warKind").value, note: document.getElementById("warNote").value.trim() };
-    if (!item.title) return toast("請輸入標題");
-    warroom.push(item); view = "warroom"; saveAll(); toast("軍機處已儲存"); render();
   };
 }
 
