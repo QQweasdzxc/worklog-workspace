@@ -1,6 +1,7 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const root = document.getElementById("app");
 const AUTH_SESSION_KEY = "wl_google_auth_session_v1";
+const AUTH_CODE_VERIFIER_KEY = "wl_google_pkce_code_verifier_v1";
 const ACTIVE_MODULE_KEY = "zhuge_active_module_v1";
 const AUTH_CONFIG = {
   supabaseUrl: "https://lenpbbhwxyyfwgvjcozf.supabase.co",
@@ -54,6 +55,41 @@ function clearStoredAuthSession() {
   localStorage.removeItem(AUTH_SESSION_KEY);
 }
 
+function getStoredCodeVerifier() {
+  return localStorage.getItem(AUTH_CODE_VERIFIER_KEY);
+}
+
+function setStoredCodeVerifier(value) {
+  localStorage.setItem(AUTH_CODE_VERIFIER_KEY, value);
+}
+
+function clearStoredCodeVerifier() {
+  localStorage.removeItem(AUTH_CODE_VERIFIER_KEY);
+}
+
+function base64UrlEncode(bytes) {
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function generateCodeVerifier() {
+  const bytes = new Uint8Array(64);
+  crypto.getRandomValues(bytes);
+  return base64UrlEncode(bytes);
+}
+
+async function codeChallengeFromVerifier(verifier) {
+  const bytes = new TextEncoder().encode(verifier);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return base64UrlEncode(new Uint8Array(digest));
+}
+
+function cleanAuthCallbackUrl() {
+  const params = new URLSearchParams(location.search);
+  ["code", "state", "error", "error_description"].forEach(key => params.delete(key));
+  const search = params.toString();
+  history.replaceState(null, "", location.pathname + (search ? `?${search}` : ""));
+}
+
 function captureHashAuthSession() {
   const hash = new URLSearchParams(location.hash.replace(/^#/, ""));
   const accessToken = hash.get("access_token");
@@ -62,48 +98,97 @@ function captureHashAuthSession() {
   const sessionValue = {
     access_token: accessToken,
     refresh_token: hash.get("refresh_token"),
+    token_type: hash.get("token_type") || "bearer",
+    expires_in: Number(hash.get("expires_in") || 3600),
     expires_at: Date.now() + Number(hash.get("expires_in") || 3600) * 1000
   };
   setStoredAuthSession(sessionValue);
+  clearStoredCodeVerifier();
   history.replaceState(null, "", location.pathname + location.search);
   return sessionValue;
 }
 
-function getAuthSession() {
-  return captureHashAuthSession() || getStoredAuthSession();
+async function exchangeCodeForSession() {
+  const code = new URLSearchParams(location.search).get("code");
+  if (!code) return null;
+  const codeVerifier = getStoredCodeVerifier();
+  if (!codeVerifier) return null;
+  authCallbackCaptured = true;
+  const res = await fetch(`${AUTH_CONFIG.supabaseUrl}/auth/v1/token?grant_type=pkce`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ auth_code: code, code_verifier: codeVerifier })
+  });
+  if (!res.ok) {
+    clearStoredAuthSession();
+    return null;
+  }
+  const data = await res.json();
+  const sessionValue = {
+    access_token: data.access_token,
+    refresh_token: data.refresh_token,
+    token_type: data.token_type || "bearer",
+    expires_in: Number(data.expires_in || 3600),
+    expires_at: Date.now() + Number(data.expires_in || 3600) * 1000
+  };
+  setStoredAuthSession(sessionValue);
+  clearStoredCodeVerifier();
+  cleanAuthCallbackUrl();
+  return sessionValue;
 }
 
-function signInWithGoogle() {
+async function getAuthSession() {
+  return captureHashAuthSession() || await exchangeCodeForSession() || getStoredAuthSession();
+}
+
+async function signInWithGoogle() {
+  const codeVerifier = generateCodeVerifier();
+  const codeChallenge = await codeChallengeFromVerifier(codeVerifier);
+  setStoredCodeVerifier(codeVerifier);
   const redirectTo = location.origin + location.pathname;
-  location.href = `${AUTH_CONFIG.supabaseUrl}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(redirectTo)}`;
+  const params = new URLSearchParams({
+    provider: "google",
+    redirect_to: redirectTo,
+    code_challenge: codeChallenge,
+    code_challenge_method: "S256"
+  });
+  location.href = `${AUTH_CONFIG.supabaseUrl}/auth/v1/authorize?${params.toString()}`;
 }
 
-function googleSessionFromUser(authUser) {
+function googleSessionFromUser(authUser, authSession = {}) {
   const meta = authUser.user_metadata || {};
   const email = authUser.email || "";
   return {
     provider: "google-oauth",
+    user_uuid: authUser.id,
+    uuid: authUser.id,
     name: meta.full_name || meta.name || email || "Google User",
     email,
-    uuid: authUser.id,
+    avatar: meta.avatar_url || "",
     avatarUrl: meta.avatar_url || "",
+    access_token: authSession.access_token || "",
+    refresh_token: authSession.refresh_token || "",
+    expires_at: authSession.expires_at || null,
+    expires_in: authSession.expires_in || null,
+    token_type: authSession.token_type || "bearer",
     loginAt: new Date().toISOString()
   };
 }
 
 async function getGoogleAuthUser() {
-  const authSession = getAuthSession();
+  const authSession = await getAuthSession();
   if (!authSession?.access_token) return null;
   const res = await fetch(`${AUTH_CONFIG.supabaseUrl}/auth/v1/user`, { headers: authHeaders(authSession.access_token) });
   if (!res.ok) {
     clearStoredAuthSession();
     return null;
   }
-  return await res.json();
+  const user = await res.json();
+  return { user, authSession };
 }
 
 function hasGoogleOAuthSession() {
-  return session?.provider === "google-oauth" && !!session.email && !!session.uuid;
+  return session?.provider === "google-oauth" && !!session.email && !!(session.user_uuid || session.uuid);
 }
 
 function clearInvalidAuthState() {
@@ -369,7 +454,7 @@ function bindDashboard() {
 }
 
 function bindGlobal() { document.querySelectorAll("[data-logout]").forEach(b => b.onclick = () => doLogout()); }
-function doLogout() { clearStoredAuthSession(); session = null; activeModule = "dashboard"; view = "center"; saveAll(); toast("已登出"); render(); }
+function doLogout() { clearStoredAuthSession(); clearStoredCodeVerifier(); session = null; activeModule = "dashboard"; view = "center"; saveAll(); toast("已登出"); render(); }
 
 function bindOnboarding() {
   let tags = [], src = [];
@@ -485,9 +570,9 @@ function exportMonthXls() {
 
 async function boot() {
   try {
-    const googleUser = await getGoogleAuthUser();
-    if (googleUser) {
-      session = googleSessionFromUser(googleUser);
+    const googleAuth = await getGoogleAuthUser();
+    if (googleAuth) {
+      session = googleSessionFromUser(googleAuth.user, googleAuth.authSession);
       if (authCallbackCaptured) activeModule = "dashboard";
       saveAll();
     }
