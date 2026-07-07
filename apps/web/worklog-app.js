@@ -4,6 +4,9 @@ const AUTH_SESSION_KEY = "zhuge_ai_os_google_auth_session_v1";
 const AUTH_CODE_VERIFIER_KEY = "zhuge_ai_os_pkce_code_verifier_v1";
 const AI_OS_SESSION_KEY = "zhuge_ai_os_session_v1";
 const ACTIVE_MODULE_KEY = "zhuge_active_module_v1";
+const OS_OPEN_TABS_KEY = "zhuge_os_open_tabs_v1";
+const OS_ACTIVE_WORKSPACE_KEY = "zhuge_os_active_workspace_v1";
+const OS_RECENT_WORKSPACES_KEY = "zhuge_os_recent_workspaces_v1";
 const AUTH_CONFIG = {
   supabaseUrl: "https://lenpbbhwxyyfwgvjcozf.supabase.co",
   supabaseAnonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxlbnBiYmh3eHl5Zndndmpjb3pmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyOTM1ODksImV4cCI6MjA5NTg2OTU4OX0.TAFfLoMC8Tqr4r7nlAtsOke3YcjBIBmr5fN1a6iwSFQ"
@@ -14,12 +17,18 @@ let authCallbackCaptured = false;
 let view = localStorage.getItem("wl_view") || "center";
 if (view === "warroom") view = "library";
 if (view === "capture") view = "center";
+let openTabs = readJson(OS_OPEN_TABS_KEY, []);
+let activeWorkspace = localStorage.getItem(OS_ACTIVE_WORKSPACE_KEY) || "dashboard";
+let recentWorkspaces = readJson(OS_RECENT_WORKSPACES_KEY, []);
 let selected = new Date(localStorage.getItem("wl_selected") || Date.now());
 let entries = readJson("wl_entries", []);
 let profile = readJson("wl_profile", null);
 let feedback = readJson("wl_feedback", {});
 let session = readJson(AI_OS_SESSION_KEY, null);
 let library = readJson("wl_library", []);
+let editingLibraryId = null;
+let editingEntryId = null;
+let captureSeed = null;
 const AI_REASON_QUEUE_SIZE = 5;
 
 const roles = ["採購", "行政", "人資", "業務", "行銷", "IT", "自訂"];
@@ -35,6 +44,22 @@ const roleTagMap = {
 };
 const eventTypes = ["工作", "特休", "事假", "病假", "會議", "出差", "教育訓練"];
 const DEFAULT_LIBRARY_READING_STATUS = "🟡 等待閱讀";
+const workspaceRegistry = {
+  worklog: { icon: "🪶", label: "工時", group: "camp" },
+  investment: { icon: "📈", label: "投資", group: "camp", comingSoon: true },
+  procurement: { icon: "📦", label: "採購", group: "camp", comingSoon: true },
+  hr: { icon: "👥", label: "HR", group: "camp", comingSoon: true },
+  travel: { icon: "✈️", label: "旅遊", group: "camp", comingSoon: true },
+  library: { icon: "📚", label: "藏書閣", group: "system" },
+  sync: { icon: "🔄", label: "同步", group: "system" },
+  settings: { icon: "⚙️", label: "設定", group: "system" }
+};
+const agentStatuses = [
+  ["📈", "投資 Agent", "在線"],
+  ["🪶", "工時 Agent", "執行中"],
+  ["📦", "採購 Agent", "等待"],
+  ["👥", "HR Agent", "離線"]
+];
 
 function readJson(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback)); }
@@ -255,6 +280,9 @@ function saveAll() {
   localStorage.removeItem("wl_session");
   localStorage.setItem("wl_library", JSON.stringify(library));
   localStorage.setItem(ACTIVE_MODULE_KEY, activeModule);
+  localStorage.setItem(OS_OPEN_TABS_KEY, JSON.stringify(openTabs));
+  localStorage.setItem(OS_ACTIVE_WORKSPACE_KEY, activeWorkspace);
+  localStorage.setItem(OS_RECENT_WORKSPACES_KEY, JSON.stringify(recentWorkspaces));
   localStorage.setItem("wl_view", view);
   localStorage.setItem("wl_selected", selected.toISOString());
 }
@@ -317,23 +345,13 @@ function nextStart() {
   return `${key()}T${String(h).padStart(2, "0")}:00`;
 }
 
-function tabs() {
-  const items = [
-    ["center", "📅", "中心"],
-    ["library", "📚", "藏書閣"],
-    ["sync", "📦", "同步"],
-    ["settings", "⚙️", "設定"]
-  ];
-  return `<div class="tabs">${items.map(t => `<button class="tab ${view === t[0] ? "on" : ""}" data-view="${t[0]}">${t[1]}<br>${t[2]}</button>`).join("")}</div>`;
-}
-
 function userBadge() {
   if (!session) return "";
   return `<div class="identity-badge"><span>👤 ${escapeHtml(session.name)}</span><small>${escapeHtml(session.status || session.email || "")}</small><button class="mini" data-logout="1">登出</button></div>`;
 }
 
 function header() {
-  return `<div class="top"><div><div class="muted">🟢 WorkLog AI・Web / Extension 版本一致</div><h1>🪶 WorkLog RC3.1</h1><div class="muted">Calendar、我的工作、AI 推理三欄工作台。</div></div><div class="header-right">${userBadge()}<div class="tag">${VERSION}</div></div></div>${tabs()}`;
+  return `<div class="top"><div><div class="muted">🧠 Zhuge AI OS</div><h1>Desktop Shell</h1><div class="muted">Dashboard Home・營帳・Workspace Tabs</div></div><div class="header-right">${userBadge()}<div class="tag">${VERSION}</div></div></div>`;
 }
 
 function authScreen() {
@@ -341,7 +359,95 @@ function authScreen() {
 }
 
 function zhugeDashboard() {
-  return `<div class="wrap"><div class="card"><div class="top"><div><div class="muted">Identity Hub・Module Hub</div><h1>🧠 Zhuge AI OS</h1><div class="muted">請選擇要進入的工作模組。</div></div><div class="header-right">${userBadge()}<div class="tag">${VERSION}</div></div></div><section class="panel" style="margin-top:18px"><h2>Modules</h2><div class="dashboard-grid"><div class="entry"><b>🪶 Zhuge-WorkLog</b><div class="muted">工時紀錄與工作模型</div><button class="btn full" data-open-module="worklog">進入 WorkLog</button></div><div class="entry"><b>📈 Zhuge-investment</b><div class="muted">Coming Soon</div><button class="btn gray full" disabled>Coming Soon</button></div><div class="entry"><b>✈️ Zhuge Travel</b><div class="muted">Coming Soon</div><button class="btn gray full" disabled>Coming Soon</button></div></div></section></div></div>`;
+  return `<section class="panel os-home"><div class="panel-head"><div><h2>🧠 Zhuge AI OS Dashboard</h2><div class="muted">Dashboard 是登入後唯一 Home。請從左側「營帳」或上方 Workspace Tabs 進入工作區。</div></div><div class="tag">Home</div></div><div class="dashboard-grid"><div class="entry"><b>🪶 工時</b><div class="muted">Calendar、我的工作、推理預測</div><button class="btn full" data-open-workspace="worklog">開啟工時</button></div><div class="entry"><b>📈 投資</b><div class="muted">Coming Soon</div><button class="btn gray full" data-open-workspace="investment">開啟投資</button></div><div class="entry"><b>📚 藏書閣</b><div class="muted">AI OS Knowledge Library</div><button class="btn full" data-open-workspace="library">開啟藏書閣</button></div></div></section>`;
+}
+
+function workspaceDef(id) {
+  return workspaceRegistry[id] || { icon: "□", label: id, comingSoon: true };
+}
+
+function normalizeWorkspaceState() {
+  openTabs = openTabs.filter(id => workspaceRegistry[id]);
+  recentWorkspaces = recentWorkspaces.filter(id => openTabs.includes(id));
+  if (activeWorkspace !== "dashboard" && !openTabs.includes(activeWorkspace)) activeWorkspace = recentWorkspaces[0] || "dashboard";
+  if (!openTabs.length) activeWorkspace = "dashboard";
+}
+
+function rememberWorkspace(id) {
+  recentWorkspaces = [id, ...recentWorkspaces.filter(x => x !== id)].filter(x => openTabs.includes(x));
+}
+
+function openWorkspace(id) {
+  if (!workspaceRegistry[id]) return;
+  if (!openTabs.includes(id)) openTabs.push(id);
+  activeWorkspace = id;
+  rememberWorkspace(id);
+  if (id === "worklog") view = "center";
+  if (id === "library") { view = "library"; editingLibraryId = null; }
+  if (id === "sync" || id === "settings") view = "center";
+  saveAll();
+  render();
+}
+
+function activateWorkspace(id) {
+  if (!openTabs.includes(id)) return;
+  activeWorkspace = id;
+  rememberWorkspace(id);
+  saveAll();
+  render();
+}
+
+function closeWorkspace(id) {
+  const wasActive = activeWorkspace === id;
+  openTabs = openTabs.filter(x => x !== id);
+  recentWorkspaces = recentWorkspaces.filter(x => x !== id);
+  if (wasActive) activeWorkspace = recentWorkspaces.find(x => openTabs.includes(x)) || openTabs[openTabs.length - 1] || "dashboard";
+  saveAll();
+  render();
+}
+
+function agentStatusPanel() {
+  return `<div class="agent-panel"><h3>🤖 Agent 狀態</h3>${agentStatuses.map(([icon, name, status]) => `<div class="agent-row"><span>${icon} ${name}</span><b>${escapeHtml(status)}</b></div>`).join("")}</div>`;
+}
+
+function sidebarSection(title, group) {
+  return `<div class="side-section"><h3>${title}</h3>${Object.entries(workspaceRegistry).filter(([, w]) => w.group === group).map(([id, w]) => `<button class="side-item ${activeWorkspace === id ? "on" : ""}" data-open-workspace="${id}"><span>${w.icon} ${w.label}</span>${w.comingSoon ? `<small>Future</small>` : ""}</button>`).join("")}</div>`;
+}
+
+function osSidebar() {
+  return `<aside class="os-sidebar">${agentStatusPanel()}${sidebarSection("營帳", "camp")}${sidebarSection("系統", "system")}</aside>`;
+}
+
+function workspaceTabs() {
+  if (!openTabs.length) return `<div class="workspace-tabs empty"><span>Dashboard Home</span><button class="tab-plus" data-open-workspace="worklog">+</button></div>`;
+  return `<div class="workspace-tabs">${openTabs.map(id => { const w = workspaceDef(id); return `<button class="workspace-tab ${activeWorkspace === id ? "active" : ""}" data-activate-workspace="${id}"><span>${w.icon} ${w.label}</span><span class="tab-close" data-close-workspace="${id}">×</span></button>`; }).join("")}<button class="tab-plus" data-open-workspace="worklog">+</button></div>`;
+}
+
+function comingSoonWorkspace(id) {
+  const w = workspaceDef(id);
+  return `<section class="panel coming-soon"><h2>${w.icon} ${w.label}</h2><div class="empty"><b>Coming Soon</b><div class="muted">${w.label} Workspace 已進入 Zhuge AI OS Shell，功能將於後續版本實作。</div></div></section>`;
+}
+
+function worklogWorkspace() {
+  return view === "capture" ? capture() : center();
+}
+
+function workspaceContent() {
+  if (activeWorkspace === "dashboard") return zhugeDashboard();
+  if (activeWorkspace === "worklog") return profile ? worklogWorkspace() : onboardingWorkspace();
+  if (activeWorkspace === "library") return view === "libraryForm" ? libraryForm(editingLibraryId) : libraryView();
+  if (activeWorkspace === "sync") return sync();
+  if (activeWorkspace === "settings") return settings();
+  return comingSoonWorkspace(activeWorkspace);
+}
+
+function osShell() {
+  normalizeWorkspaceState();
+  return `<div class="os-shell"><div class="os-topbar">${header()}</div><div class="os-body">${osSidebar()}<main class="os-main">${workspaceTabs()}<div class="workspace-canvas">${workspaceContent()}</div></main></div></div>`;
+}
+
+function onboardingWorkspace() {
+  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>🪶 初次認識工時 Workspace</h2><div class="muted">建立工作模型後，即可使用 Calendar、我的工作與推理預測。</div></div></div><div class="profile-grid"><div><label>你的職務</label><select id="role" class="input">${roles.map(r => `<option>${r}</option>`).join("")}</select></div><div><label>每日工時</label><select class="input"><option>09:00~18:00，午休 12:00~13:00</option></select></div></div><label>常見工作內容（可複選）</label><div class="row two" id="tagOptions">${tagButtons(tagsForRole("採購"))}</div><label>SOP 狀態</label><select id="sop" class="input"><option>目前沒有 SOP，先用職務模型</option><option>有 SOP，之後上傳</option></select><label>工作來源</label><div class="row two">${["Google Drive", "Gmail", "Calendar", "手動紀錄"].map(s => `<button class="btn2 src-btn" data-src="${s}">${s}</button>`).join("")}</div><button class="btn full" id="saveProfile">建立我的工作模型</button></section>`;
 }
 
 function onboarding() {
@@ -364,7 +470,7 @@ function calendarPanel() {
 function todayPanel() {
   const list = dayEntries();
   const h = hours(list);
-  return `<div class="panel-head"><h2>我的工作</h2><div class="tag">${h} / 8h</div></div>${list.length ? list.map(e => `<div class="entry"><div class="entry-main"><b>${escapeHtml(e.title)}</b><div class="muted">${fmt(e.at)}｜${Number(e.hours || 0)}h｜${escapeHtml(e.type || "工作")}</div><small>${escapeHtml(e.task || "")}</small></div><div class="actions compact"><button class="btn2" data-edit-id="${e.id}">編輯</button><button class="btn2 danger" data-del-id="${e.id}">刪除</button></div></div>`).join("") : `<div class="empty"><b>尚無工時紀錄</b><div class="muted">可採納 AI 推理，或按右下角 + 新增。</div></div>`}<button class="btn full" data-action="add">➕ 新增工作</button>`;
+  return `<div class="panel-head"><h2>我的工作</h2><div class="tag">${h} / 8h</div></div>${list.length ? list.map(e => `<div class="entry"><div class="entry-main"><b>${escapeHtml(e.title)}</b><div class="muted">${fmt(e.at)}｜${Number(e.hours || 0)}h｜${escapeHtml(e.type || "工作")}</div><small>${escapeHtml(e.task || "")}</small></div><div class="actions compact"><button class="btn2" data-edit-id="${e.id}">編輯</button><button class="btn2 danger" data-del-id="${e.id}">刪除</button></div></div>`).join("") : `<div class="empty"><b>尚無工時紀錄</b><div class="muted">可採納推理預測，或按右下角 + 新增。</div></div>`}<button class="btn full" data-action="add">➕ 新增工作</button>`;
 }
 
 function makeSuggestions() {
@@ -376,7 +482,7 @@ function makeSuggestions() {
   let start = nextStart();
   for (const tag of tags) {
     if (done.some(d => d.includes(tag))) continue;
-    suggestions.push({ id: tag, title: tag, task: tag, hours: 1, at: start });
+    suggestions.push({ id: tag, title: tag, task: tag, hours: 1, at: start, sourceLabel: "🤖 AI 推理" });
     let d = new Date(start);
     d.setHours(d.getHours() + 1);
     if (d.getHours() === 12) d.setHours(13);
@@ -387,10 +493,10 @@ function makeSuggestions() {
 
 function suggestionPanel() {
   const s = makeSuggestions();
-  if (!s.length) return `<h2>AI 推理</h2><div class="empty"><b>目前沒有 AI 推理</b><div class="muted">可能今天已滿工時，或工作模型尚未建立。</div></div>`;
+  if (!s.length) return `<h2>推理預測</h2><div class="empty"><b>目前沒有推理預測</b><div class="muted">可能今天已滿工時，或工作模型尚未建立。</div></div>`;
   const queueItems = s.slice(0, AI_REASON_QUEUE_SIZE);
   const slots = Array.from({ length: AI_REASON_QUEUE_SIZE }, (_, i) => queueItems[i]);
-  return `<div class="panel-head"><h2>AI 推理</h2><div class="tag">${queueItems.length} / ${s.length}</div></div><div class="ai-suggestion-list queue-list">${slots.map(x => x ? `<div class="suggestion compact-card"><div class="suggestion-title-row"><h3>${escapeHtml(x.title)}</h3><div class="actions suggestion-actions"><button class="btn green" data-accept="${escapeHtml(x.id)}">採納</button><button class="btn amber" data-adjust="${escapeHtml(x.id)}">編輯</button></div></div><div class="suggestion-source">🤖 AI 推理</div></div>` : `<div class="suggestion compact-card placeholder-card"><div class="muted">等待新的 AI 推理</div></div>`).join("")}</div>`;
+  return `<div class="panel-head"><h2>推理預測</h2><div class="tag">${queueItems.length} / ${s.length}</div></div><div class="ai-suggestion-list queue-list">${slots.map(x => x ? `<div class="suggestion compact-card"><div class="suggestion-title-row"><h3>${escapeHtml(x.title)}</h3><div class="actions suggestion-actions"><button class="btn green" data-accept="${escapeHtml(x.id)}">採納</button><button class="btn amber" data-adjust="${escapeHtml(x.id)}">編輯</button></div></div><div class="suggestion-source">${escapeHtml(x.sourceLabel || "🤖 AI 推理")}</div></div>` : `<div class="suggestion compact-card placeholder-card"><div class="muted">等待新的推理預測</div></div>`).join("")}</div>`;
 }
 
 function center() {
@@ -398,6 +504,8 @@ function center() {
 }
 
 function capture(editId = null, seed = null) {
+  editId = editId || editingEntryId;
+  seed = seed || captureSeed;
   const e = editId ? entries.find(x => x.id === editId) : null;
   const title = e ? e.title : (seed ? seed.title : "");
   const task = e ? e.task : (seed ? seed.task : "採購案件處理");
@@ -446,9 +554,7 @@ function render() {
   normalizeEntries();
   clearInvalidAuthState();
   if (!session) { root.innerHTML = authScreen(); bindAuth(); return; }
-  if (activeModule !== "worklog") { root.innerHTML = zhugeDashboard(); bindDashboard(); bindGlobal(); return; }
-  if (!profile) { root.innerHTML = onboarding(); bindOnboarding(); bindGlobal(); return; }
-  root.innerHTML = `<div class="wrap"><div class="card">${header()}${currentViewHtml()}</div></div>`;
+  root.innerHTML = osShell();
   bind();
   bindGlobal();
 }
@@ -457,16 +563,10 @@ function bindAuth() {
   document.getElementById("googleLoginBtn").onclick = () => signInWithGoogle();
 }
 
-function bindDashboard() {
-  document.querySelectorAll("[data-open-module]").forEach(b => b.onclick = () => {
-    activeModule = b.dataset.openModule;
-    saveAll();
-    render();
-  });
-}
+function bindDashboard() {}
 
 function bindGlobal() { document.querySelectorAll("[data-logout]").forEach(b => b.onclick = () => doLogout()); }
-function doLogout() { clearStoredAuthSession(); clearStoredCodeVerifier(); session = null; activeModule = "dashboard"; view = "center"; saveAll(); toast("已登出"); render(); }
+function doLogout() { clearStoredAuthSession(); clearStoredCodeVerifier(); session = null; activeModule = "dashboard"; activeWorkspace = "dashboard"; openTabs = []; recentWorkspaces = []; view = "center"; saveAll(); toast("已登出"); render(); }
 
 function bindOnboarding() {
   let tags = [], src = [];
@@ -488,18 +588,22 @@ function bindOnboarding() {
 }
 
 function bind() {
-  document.querySelectorAll("[data-view]").forEach(b => b.onclick = () => { view = b.dataset.view; if (view === "center") selected = new Date(); saveAll(); render(); });
+  document.querySelectorAll("[data-open-workspace]").forEach(b => b.onclick = () => openWorkspace(b.dataset.openWorkspace));
+  document.querySelectorAll("[data-activate-workspace]").forEach(b => b.onclick = () => activateWorkspace(b.dataset.activateWorkspace));
+  document.querySelectorAll("[data-close-workspace]").forEach(b => b.onclick = e => { e.stopPropagation(); closeWorkspace(b.dataset.closeWorkspace); });
   document.querySelectorAll("[data-day]").forEach(b => b.onclick = () => { selected.setDate(Number(b.dataset.day)); saveAll(); render(); });
-  document.querySelectorAll("[data-action=add]").forEach(b => b.onclick = () => { view = "capture"; saveAll(); render(); });
+  document.querySelectorAll("[data-action=add]").forEach(b => b.onclick = () => { editingEntryId = null; captureSeed = null; activeWorkspace = "worklog"; if (!openTabs.includes("worklog")) openTabs.push("worklog"); rememberWorkspace("worklog"); view = "capture"; saveAll(); render(); });
   const today = document.querySelector("[data-today]"); if (today) today.onclick = () => { selected = new Date(); saveAll(); render(); };
   const exportBtn = document.querySelector("[data-export-month]"); if (exportBtn) exportBtn.onclick = () => exportMonthXls();
   document.querySelectorAll("[data-accept]").forEach(b => b.onclick = () => acceptSuggestion(b.dataset.accept));
   document.querySelectorAll("[data-adjust]").forEach(b => b.onclick = () => adjustSuggestion(b.dataset.adjust));
   document.querySelectorAll("[data-del-id]").forEach(b => b.onclick = () => { entries = entries.filter(e => e.id !== b.dataset.delId); saveAll(); toast("已刪除"); render(); });
-  document.querySelectorAll("[data-edit-id]").forEach(b => b.onclick = () => { view = "capture"; root.innerHTML = `<div class="wrap"><div class="card">${header()}${capture(b.dataset.editId)}</div></div>`; bindCapture(b.dataset.editId); bindGlobal(); });
+  document.querySelectorAll("[data-edit-id]").forEach(b => b.onclick = () => { editingEntryId = b.dataset.editId; captureSeed = null; activeWorkspace = "worklog"; if (!openTabs.includes("worklog")) openTabs.push("worklog"); rememberWorkspace("worklog"); view = "capture"; saveAll(); render(); });
   bindLibrary();
-  if (view === "capture") bindCapture();
-  if (view === "settings") bindSettings();
+  if (activeWorkspace === "worklog" && view === "capture") bindCapture();
+  if (activeWorkspace === "worklog" && !profile) bindOnboarding();
+  if (activeWorkspace === "library" && view === "libraryForm") bindLibraryForm(editingLibraryId);
+  if (activeWorkspace === "settings") bindSettings();
 }
 
 function acceptSuggestion(id) {
@@ -512,12 +616,18 @@ function acceptSuggestion(id) {
 
 function adjustSuggestion(id) {
   const s = makeSuggestions().find(x => x.id === id);
+  editingEntryId = null;
+  captureSeed = s;
+  activeWorkspace = "worklog";
+  if (!openTabs.includes("worklog")) openTabs.push("worklog");
+  rememberWorkspace("worklog");
   view = "capture";
-  root.innerHTML = `<div class="wrap"><div class="card">${header()}${capture(null, s)}</div></div>`;
-  bindCapture(); bindGlobal();
+  saveAll();
+  render();
 }
 
 function bindCapture(editId = null) {
+  editId = editId || editingEntryId;
   const editingEntry = editId ? entries.find(e => e.id === editId) : null;
   let selectedH = editingEntry ? Number(editingEntry.hours) : 1;
   document.querySelectorAll(".hour").forEach(b => b.onclick = () => { selectedH = Number(b.dataset.h); document.querySelectorAll(".hour").forEach(x => x.classList.remove("selected")); b.classList.add("selected"); });
@@ -526,24 +636,24 @@ function bindCapture(editId = null) {
     const item = { id: editingEntry ? editingEntry.id : uid(), date: at.slice(0, 10), at, title: document.getElementById("title").value.trim(), hours: selectedH, type: document.getElementById("eventType").value, task: document.getElementById("task").value || "採購案件處理", source: editingEntry ? editingEntry.source : "manual" };
     const error = validateEntry(item); if (error) return toast(error);
     if (editingEntry) entries[entries.findIndex(e => e.id === editingEntry.id)] = item; else entries.push(item);
-    selected = new Date(at); view = "center"; saveAll(); toast("已儲存工時"); render();
+    selected = new Date(at); view = "center"; editingEntryId = null; captureSeed = null; saveAll(); toast("已儲存工時"); render();
   };
 }
 
 function bindLibrary() {
-  const add = document.querySelector("[data-add-library]"); if (add) add.onclick = () => { root.innerHTML = `<div class="wrap"><div class="card">${header()}${libraryForm()}</div></div>`; bindLibraryForm(); bindGlobal(); };
-  document.querySelectorAll("[data-edit-library]").forEach(b => b.onclick = () => { root.innerHTML = `<div class="wrap"><div class="card">${header()}${libraryForm(b.dataset.editLibrary)}</div></div>`; bindLibraryForm(b.dataset.editLibrary); bindGlobal(); });
+  const add = document.querySelector("[data-add-library]"); if (add) add.onclick = () => { editingLibraryId = null; activeWorkspace = "library"; view = "libraryForm"; saveAll(); render(); };
+  document.querySelectorAll("[data-edit-library]").forEach(b => b.onclick = () => { editingLibraryId = b.dataset.editLibrary; activeWorkspace = "library"; view = "libraryForm"; saveAll(); render(); });
   document.querySelectorAll("[data-del-library]").forEach(b => b.onclick = () => { library = library.filter(x => x.id !== b.dataset.delLibrary); saveAll(); toast("已刪除藏書閣來源"); render(); });
 }
 
 function bindLibraryForm(id = null) {
-  document.querySelectorAll("[data-library-back],[data-library-cancel]").forEach(b => b.onclick = () => { view = "library"; saveAll(); render(); });
+  document.querySelectorAll("[data-library-back],[data-library-cancel]").forEach(b => b.onclick = () => { editingLibraryId = null; view = "library"; saveAll(); render(); });
   document.getElementById("saveLibrary").onclick = () => {
     const existing = id ? normalizedLibraryItem(library.find(x => x.id === id)) : {};
     const item = { id: id || uid("lib"), name: document.getElementById("libName").value.trim(), type: "上傳文件", sourceType: "上傳文件", readingStatus: existing.readingStatus || DEFAULT_LIBRARY_READING_STATUS, description: document.getElementById("libDesc").value.trim(), location: document.getElementById("libFile")?.files?.[0]?.name || existing.location || "", purpose: existing.purpose || "", tags: existing.tags || [] };
     if (!item.name) return toast("請輸入來源名稱");
     if (id) library[library.findIndex(x => x.id === id)] = item; else library.push(item);
-    view = "library"; saveAll(); toast("藏書閣已儲存"); render();
+    editingLibraryId = null; view = "library"; saveAll(); toast("藏書閣已儲存"); render();
   };
 }
 
@@ -572,7 +682,7 @@ async function boot() {
     const googleAuth = await getGoogleAuthUser();
     if (googleAuth) {
       session = googleSessionFromUser(googleAuth.user, googleAuth.authSession);
-      if (authCallbackCaptured) activeModule = "dashboard";
+      if (authCallbackCaptured) { activeModule = "dashboard"; activeWorkspace = "dashboard"; openTabs = []; recentWorkspaces = []; view = "center"; }
       saveAll();
     }
   } catch {
