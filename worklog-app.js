@@ -20,6 +20,7 @@ let session = readJson(AI_OS_SESSION_KEY, null);
 let library = readJson("wl_library", []);
 let warroom = readJson("wl_warroom", []);
 let suggestionIndex = Number(localStorage.getItem("wl_suggestion_index") || 0);
+const AI_REASON_PAGE_SIZE = 5;
 
 const roles = ["採購", "行政", "人資", "業務", "行銷", "IT", "自訂"];
 const defaultTags = ["採購案件處理", "發票請款", "驗收請款", "供應商聯繫", "Mail處理", "資料整理", "會議", "專案追蹤"];
@@ -337,7 +338,7 @@ function userBadge() {
 }
 
 function header() {
-  return `<div class="top"><div><div class="muted">🟢 WorkLog AI・Web / Extension 版本一致</div><h1>🪶 WorkLog RC3.1</h1><div class="muted">Calendar、我的工作、AI 建議三欄工作台。</div></div><div class="header-right">${userBadge()}<div class="tag">${VERSION}</div></div></div>${tabs()}`;
+  return `<div class="top"><div><div class="muted">🟢 WorkLog AI・Web / Extension 版本一致</div><h1>🪶 WorkLog RC3.1</h1><div class="muted">Calendar、我的工作、AI 推理三欄工作台。</div></div><div class="header-right">${userBadge()}<div class="tag">${VERSION}</div></div></div>${tabs()}`;
 }
 
 function authScreen() {
@@ -368,7 +369,7 @@ function calendarPanel() {
 function todayPanel() {
   const list = dayEntries();
   const h = hours(list);
-  return `<div class="panel-head"><h2>我的工作</h2><div class="tag">${h} / 8h</div></div>${list.length ? list.map(e => `<div class="entry"><div class="entry-main"><b>${escapeHtml(e.title)}</b><div class="muted">${fmt(e.at)}｜${Number(e.hours || 0)}h｜${escapeHtml(e.type || "工作")}</div><small>${escapeHtml(e.task || "")}</small></div><div class="actions compact"><button class="btn2" data-edit-id="${e.id}">編輯</button><button class="btn2 danger" data-del-id="${e.id}">刪除</button></div></div>`).join("") : `<div class="empty"><b>尚無工時紀錄</b><div class="muted">可採納 AI 建議，或按右下角 + 新增。</div></div>`}<button class="btn full" data-action="add">➕ 新增工作</button>`;
+  return `<div class="panel-head"><h2>我的工作</h2><div class="tag">${h} / 8h</div></div>${list.length ? list.map(e => `<div class="entry"><div class="entry-main"><b>${escapeHtml(e.title)}</b><div class="muted">${fmt(e.at)}｜${Number(e.hours || 0)}h｜${escapeHtml(e.type || "工作")}</div><small>${escapeHtml(e.task || "")}</small></div><div class="actions compact"><button class="btn2" data-edit-id="${e.id}">編輯</button><button class="btn2 danger" data-del-id="${e.id}">刪除</button></div></div>`).join("") : `<div class="empty"><b>尚無工時紀錄</b><div class="muted">可採納 AI 推理，或按右下角 + 新增。</div></div>`}<button class="btn full" data-action="add">➕ 新增工作</button>`;
 }
 
 function makeSuggestions() {
@@ -379,7 +380,6 @@ function makeSuggestions() {
   let suggestions = [];
   let start = nextStart();
   for (const tag of tags) {
-    if (suggestions.length >= 5) break;
     if (done.some(d => d.includes(tag))) continue;
     suggestions.push({ id: tag, title: tag, task: tag, hours: 1, at: start });
     let d = new Date(start);
@@ -392,8 +392,11 @@ function makeSuggestions() {
 
 function suggestionPanel() {
   const s = makeSuggestions();
-  if (!s.length) return `<h2>AI 建議</h2><div class="empty"><b>目前沒有 AI 建議</b><div class="muted">可能今天已滿工時，或工作模型尚未建立。</div></div>`;
-  return `<div class="panel-head"><h2>AI 建議</h2><div class="tag">${s.length} 筆</div></div><div class="ai-suggestion-list">${s.map(x => `<div class="suggestion compact-card"><div class="muted">建議內容</div><h3>${escapeHtml(x.title)}</h3><div class="suggestion-meta"><span>預估 ${x.hours}h</span><span>${fmt(x.at)}</span></div><div class="actions suggestion-actions"><button class="btn green" data-accept="${escapeHtml(x.id)}">採納</button><button class="btn amber" data-adjust="${escapeHtml(x.id)}">編輯</button></div></div>`).join("")}</div>`;
+  if (!s.length) return `<h2>AI 推理</h2><div class="empty"><b>目前沒有 AI 推理</b><div class="muted">可能今天已滿工時，或工作模型尚未建立。</div></div>`;
+  const pageCount = Math.max(1, Math.ceil(s.length / AI_REASON_PAGE_SIZE));
+  const page = Math.min(Math.max(0, suggestionIndex), pageCount - 1);
+  const pageItems = s.slice(page * AI_REASON_PAGE_SIZE, page * AI_REASON_PAGE_SIZE + AI_REASON_PAGE_SIZE);
+  return `<div class="panel-head"><h2>AI 推理</h2><div class="tag">${s.length} 筆</div></div><div class="ai-suggestion-list">${pageItems.map(x => `<div class="suggestion compact-card"><div class="suggestion-title-row"><h3>${escapeHtml(x.title)}</h3><div class="actions suggestion-actions"><button class="btn green" data-accept="${escapeHtml(x.id)}">採納</button><button class="btn amber" data-adjust="${escapeHtml(x.id)}">編輯</button></div></div><div class="suggestion-source">來源：👤 職務內容</div><div class="suggestion-reason">AI 推理原因：依據你的職務內容、常見工作項目與尚未採納紀錄排序。</div><div class="suggestion-meta"><span>預估 ${x.hours}h</span></div></div>`).join("")}</div><div class="suggestion-pager"><button class="btn2" data-sug-prev ${pageCount <= 1 ? "disabled" : ""}>上一頁</button><span>第 ${page + 1} / ${pageCount} 頁</span><button class="btn2" data-sug-next ${pageCount <= 1 ? "disabled" : ""}>下一頁</button></div>`;
 }
 
 function center() {
@@ -497,8 +500,8 @@ function bind() {
   const exportBtn = document.querySelector("[data-export-month]"); if (exportBtn) exportBtn.onclick = () => exportMonthXls();
   document.querySelectorAll("[data-accept]").forEach(b => b.onclick = () => acceptSuggestion(b.dataset.accept));
   document.querySelectorAll("[data-adjust]").forEach(b => b.onclick = () => adjustSuggestion(b.dataset.adjust));
-  document.querySelectorAll("[data-sug-prev]").forEach(b => b.onclick = () => { const s = makeSuggestions(); suggestionIndex = (suggestionIndex - 1 + s.length) % s.length; saveAll(); render(); });
-  document.querySelectorAll("[data-sug-next]").forEach(b => b.onclick = () => { const s = makeSuggestions(); suggestionIndex = (suggestionIndex + 1) % s.length; saveAll(); render(); });
+  document.querySelectorAll("[data-sug-prev]").forEach(b => b.onclick = () => { const pageCount = Math.max(1, Math.ceil(makeSuggestions().length / AI_REASON_PAGE_SIZE)); suggestionIndex = (suggestionIndex - 1 + pageCount) % pageCount; saveAll(); render(); });
+  document.querySelectorAll("[data-sug-next]").forEach(b => b.onclick = () => { const pageCount = Math.max(1, Math.ceil(makeSuggestions().length / AI_REASON_PAGE_SIZE)); suggestionIndex = (suggestionIndex + 1) % pageCount; saveAll(); render(); });
   document.querySelectorAll("[data-del-id]").forEach(b => b.onclick = () => { entries = entries.filter(e => e.id !== b.dataset.delId); saveAll(); toast("已刪除"); render(); });
   document.querySelectorAll("[data-edit-id]").forEach(b => b.onclick = () => { view = "capture"; root.innerHTML = `<div class="wrap"><div class="card">${header()}${capture(b.dataset.editId)}</div></div>`; bindCapture(b.dataset.editId); bindGlobal(); });
   bindLibrary(); bindWarroom();
