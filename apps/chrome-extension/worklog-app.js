@@ -1,6 +1,14 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const root = document.getElementById("app");
+const AUTH_SESSION_KEY = "wl_google_auth_session_v1";
+const ACTIVE_MODULE_KEY = "zhuge_active_module_v1";
+const AUTH_CONFIG = {
+  supabaseUrl: "https://lenpbbhwxyyfwgvjcozf.supabase.co",
+  supabaseAnonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJIUzI1NiIsInJlZiI6ImxlbnBiYmh3eHl5Zndndmpjb3pmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyOTM1ODksImV4cCI6MjA5NTg2OTU4OX0.TAFfLoMC8Tqr4r7nlAtsOke3YcjBIBmr5fN1a6iwSFQ"
+};
 
+let activeModule = localStorage.getItem(ACTIVE_MODULE_KEY) || "dashboard";
+let authCallbackCaptured = false;
 let view = localStorage.getItem("wl_view") || "center";
 let selected = new Date(localStorage.getItem("wl_selected") || Date.now());
 let entries = readJson("wl_entries", []);
@@ -28,6 +36,81 @@ const sourceTypes = ["SOP", "工作資料", "文件來源", "網址", "檔案位
 function readJson(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback)); }
   catch { return fallback; }
+}
+
+function authHeaders(token) {
+  return { apikey: AUTH_CONFIG.supabaseAnonKey, Authorization: `Bearer ${token || AUTH_CONFIG.supabaseAnonKey}`, "Content-Type": "application/json" };
+}
+
+function getStoredAuthSession() {
+  return readJson(AUTH_SESSION_KEY, null);
+}
+
+function setStoredAuthSession(value) {
+  localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(value));
+}
+
+function clearStoredAuthSession() {
+  localStorage.removeItem(AUTH_SESSION_KEY);
+}
+
+function captureHashAuthSession() {
+  const hash = new URLSearchParams(location.hash.replace(/^#/, ""));
+  const accessToken = hash.get("access_token");
+  if (!accessToken) return null;
+  authCallbackCaptured = true;
+  const sessionValue = {
+    access_token: accessToken,
+    refresh_token: hash.get("refresh_token"),
+    expires_at: Date.now() + Number(hash.get("expires_in") || 3600) * 1000
+  };
+  setStoredAuthSession(sessionValue);
+  history.replaceState(null, "", location.pathname + location.search);
+  return sessionValue;
+}
+
+function getAuthSession() {
+  return captureHashAuthSession() || getStoredAuthSession();
+}
+
+function signInWithGoogle() {
+  const redirectTo = location.origin + location.pathname;
+  location.href = `${AUTH_CONFIG.supabaseUrl}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(redirectTo)}`;
+}
+
+function googleSessionFromUser(authUser) {
+  const meta = authUser.user_metadata || {};
+  const email = authUser.email || "";
+  return {
+    provider: "google-oauth",
+    name: meta.full_name || meta.name || email || "Google User",
+    email,
+    uuid: authUser.id,
+    avatarUrl: meta.avatar_url || "",
+    loginAt: new Date().toISOString()
+  };
+}
+
+async function getGoogleAuthUser() {
+  const authSession = getAuthSession();
+  if (!authSession?.access_token) return null;
+  const res = await fetch(`${AUTH_CONFIG.supabaseUrl}/auth/v1/user`, { headers: authHeaders(authSession.access_token) });
+  if (!res.ok) {
+    clearStoredAuthSession();
+    return null;
+  }
+  return await res.json();
+}
+
+function hasGoogleOAuthSession() {
+  return session?.provider === "google-oauth" && !!session.email && !!session.uuid;
+}
+
+function clearInvalidAuthState() {
+  if (session && !hasGoogleOAuthSession()) {
+    session = null;
+    saveAll();
+  }
 }
 
 function uid(prefix = "wl") {
@@ -71,6 +154,7 @@ function saveAll() {
   localStorage.setItem("wl_session", JSON.stringify(session));
   localStorage.setItem("wl_library", JSON.stringify(library));
   localStorage.setItem("wl_warroom", JSON.stringify(warroom));
+  localStorage.setItem(ACTIVE_MODULE_KEY, activeModule);
   localStorage.setItem("wl_view", view);
   localStorage.setItem("wl_selected", selected.toISOString());
   localStorage.setItem("wl_suggestion_index", String(suggestionIndex));
@@ -124,8 +208,7 @@ function tagButtons(tags) {
 }
 
 function googleConnectionLabel() {
-  if (!session) return "⚪ 未登入";
-  return session.provider === "google-oauth" ? "🟢 已連接" : "🟡 已登入，待 OAuth 授權";
+  return "⚪ 尚未連接";
 }
 
 function nextStart() {
@@ -157,7 +240,11 @@ function header() {
 }
 
 function authScreen() {
-  return `<div class="wrap"><div class="card"><div class="top"><div><div class="muted">🔐 Identity Module</div><h1>WorkLog 登入</h1><div class="muted">本機驗收版：Login / Session / Logout。</div></div><div class="tag">${VERSION}</div></div><section class="panel" style="margin-top:18px"><button class="btn full" id="mockGoogleLogin">使用 Google 登入</button></section></div></div>`;
+  return `<div class="wrap"><div class="card"><section class="panel" style="margin-top:18px"><h1>🧠 Zhuge AI OS</h1><button class="btn full" id="googleLoginBtn">使用 Google 登入</button></section></div></div>`;
+}
+
+function zhugeDashboard() {
+  return `<div class="wrap"><div class="card"><div class="top"><div><div class="muted">Identity Hub・Module Hub</div><h1>🧠 Zhuge AI OS</h1><div class="muted">請選擇要進入的工作模組。</div></div><div class="header-right">${userBadge()}<div class="tag">${VERSION}</div></div></div><section class="panel" style="margin-top:18px"><h2>Modules</h2><div class="dashboard-grid"><div class="entry"><b>🪶 Zhuge-WorkLog</b><div class="muted">工時紀錄與工作模型</div><button class="btn full" data-open-module="worklog">進入 WorkLog</button></div><div class="entry"><b>📈 Zhuge-investment</b><div class="muted">Coming Soon</div><button class="btn gray full" disabled>Coming Soon</button></div><div class="entry"><b>✈️ Zhuge Travel</b><div class="muted">Coming Soon</div><button class="btn gray full" disabled>Coming Soon</button></div></div></section></div></div>`;
 }
 
 function onboarding() {
@@ -224,7 +311,7 @@ function capture(editId = null, seed = null) {
 
 function sync() {
   const googleState = googleConnectionLabel();
-  return `<section class="panel" style="margin-top:18px"><h2>📦 同步中心</h2><p class="muted">只顯示真實狀態；未完成串接不放假按鈕。</p><div class="status"><span>Identity</span><b>${session ? "🟡 Google 登入待 OAuth 授權" : "⚪ 未登入"}</b></div><div class="status"><span>本機資料</span><b>🟢 localStorage</b></div><div class="status"><span>Google Drive</span><b>${googleState}</b></div><div class="status"><span>Gmail</span><b>${googleState}</b></div><div class="status"><span>Calendar</span><b>${googleState}</b></div><div class="status"><span>Supabase</span><b>⚪ 尚未連接</b></div></section>`;
+  return `<section class="panel" style="margin-top:18px"><h2>📦 同步中心</h2><p class="muted">只顯示真實狀態；未完成串接不放假按鈕。</p><div class="status"><span>Identity</span><b>${session ? "🟢 Google 已登入" : "⚪ 未登入"}</b></div><div class="status"><span>本機資料</span><b>🟢 localStorage</b></div><div class="status"><span>Google Drive</span><b>${googleState}</b></div><div class="status"><span>Gmail</span><b>${googleState}</b></div><div class="status"><span>Calendar</span><b>${googleState}</b></div><div class="status"><span>Supabase Auth</span><b>${session ? "🟢 已連接" : "⚪ 未連接"}</b></div></section>`;
 }
 
 function libraryView() {
@@ -260,7 +347,9 @@ function currentViewHtml() {
 
 function render() {
   normalizeEntries();
+  clearInvalidAuthState();
   if (!session) { root.innerHTML = authScreen(); bindAuth(); return; }
+  if (activeModule !== "worklog") { root.innerHTML = zhugeDashboard(); bindDashboard(); bindGlobal(); return; }
   if (!profile) { root.innerHTML = onboarding(); bindOnboarding(); bindGlobal(); return; }
   root.innerHTML = `<div class="wrap"><div class="card">${header()}${currentViewHtml()}</div></div>`;
   bind();
@@ -268,16 +357,19 @@ function render() {
 }
 
 function bindAuth() {
-  document.getElementById("mockGoogleLogin").onclick = () => {
-    const name = "Google 登入待串接";
-    const status = "尚未完成 Google OAuth 授權";
-    session = { provider: "google-pending", name, status, uuid: `google-pending-${Date.now()}`, loginAt: new Date().toISOString(), googleWorkspace: { drive: "pending-oauth", gmail: "pending-oauth", calendar: "pending-oauth" } };
-    saveAll(); toast("登入成功"); render();
-  };
+  document.getElementById("googleLoginBtn").onclick = () => signInWithGoogle();
+}
+
+function bindDashboard() {
+  document.querySelectorAll("[data-open-module]").forEach(b => b.onclick = () => {
+    activeModule = b.dataset.openModule;
+    saveAll();
+    render();
+  });
 }
 
 function bindGlobal() { document.querySelectorAll("[data-logout]").forEach(b => b.onclick = () => doLogout()); }
-function doLogout() { session = null; view = "center"; saveAll(); toast("已登出"); render(); }
+function doLogout() { clearStoredAuthSession(); session = null; activeModule = "dashboard"; view = "center"; saveAll(); toast("已登出"); render(); }
 
 function bindOnboarding() {
   let tags = [], src = [];
@@ -391,4 +483,22 @@ function exportMonthXls() {
   toast("已下載本月工時 Excel");
 }
 
-render();
+async function boot() {
+  try {
+    const googleUser = await getGoogleAuthUser();
+    if (googleUser) {
+      session = googleSessionFromUser(googleUser);
+      if (authCallbackCaptured) activeModule = "dashboard";
+      saveAll();
+    }
+  } catch {
+    clearStoredAuthSession();
+    if (session?.provider === "google-oauth") {
+      session = null;
+      saveAll();
+    }
+  }
+  render();
+}
+
+boot();
