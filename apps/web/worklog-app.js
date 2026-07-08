@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260708-2258";
+const BUILD_TIME = "20260708-2313";
 const root = document.getElementById("app");
 const AUTH_SESSION_KEY = "zhuge_ai_os_google_auth_session_v1";
 const AUTH_CODE_VERIFIER_KEY = "zhuge_ai_os_pkce_code_verifier_v1";
@@ -585,9 +585,9 @@ function weekEntries(d = new Date()) {
 }
 
 function workHoursHealth(avgDailyNeed) {
-  if (avgDailyNeed <= 8) return { label: "🟢 工時正常", className: "good" };
-  if (avgDailyNeed <= 10) return { label: "🟡 工時注意", className: "warn" };
-  return { label: "🔴 工時落後", className: "bad" };
+  if (avgDailyNeed <= 8) return { label: "🟢 正常", className: "good" };
+  if (avgDailyNeed <= 10) return { label: "🟡 稍落後", className: "warn" };
+  return { label: "🔴 建議補時", className: "bad" };
 }
 
 function todaySummaryPanel() {
@@ -595,14 +595,16 @@ function todaySummaryPanel() {
   const year = selected.getFullYear(), month = selected.getMonth();
   const monthlyDone = hours(monthEntries());
   const monthlyTarget = workdaysInMonth(year, month) * 8;
-  const progress = monthlyTarget ? Math.min(100, Math.round(monthlyDone / monthlyTarget * 100)) : 0;
+  const monthProgress = monthlyTarget ? Math.min(100, Math.round(monthlyDone / monthlyTarget * 100)) : 0;
   const remaining = Math.max(0, monthlyTarget - monthlyDone);
   const remainingDays = year === today.getFullYear() && month === today.getMonth() ? remainingWorkdaysInMonth(today) : workdaysInMonth(year, month);
   const avgDailyNeed = remainingDays ? Math.round(remaining / remainingDays * 10) / 10 : 0;
   const health = workHoursHealth(avgDailyNeed);
   const todayDone = hours(entriesForDate(today));
   const weekDone = hours(weekEntries(today));
-  return `<section class="panel mobile-summary-module summary-dashboard"><div class="summary-dashboard-head"><div><h2>☀️ 今日摘要</h2><div class="muted">${year}/${String(month + 1).padStart(2, "0")}｜每月工時儀表板</div></div><div class="health-badge ${health.className}">${health.label}</div></div><div class="summary-block month-progress"><div class="summary-label">本月工時</div><div class="summary-main"><b>${monthlyDone}</b><span>/ ${monthlyTarget}h</span></div><div class="summary-progress"><div style="width:${progress}%"></div></div><div class="summary-percent">${progress}%</div></div><div class="summary-grid"><div class="summary-tile"><span>剩餘工時</span><b>${remaining}h</b></div><div class="summary-tile"><span>每日目標</span><b>${avgDailyNeed}h</b></div><div class="summary-tile"><span>今日工時</span><b>${todayDone} / 8h</b></div><div class="summary-tile"><span>本週工時</span><b>${weekDone} / 40h</b></div></div></section>`;
+  const weekProgress = Math.min(100, Math.round(weekDone / 40 * 100));
+  const todayProgress = Math.min(100, Math.round(todayDone / 8 * 100));
+  return `<section class="panel mobile-summary-module summary-dashboard"><div class="summary-dashboard-head"><div><h2>☀️ 今日摘要</h2><div class="muted">${year}/${String(month + 1).padStart(2, "0")}｜每月工時儀表板</div></div></div><div class="summary-grid"><div class="summary-tile"><span>本月進度</span><b>${monthlyDone} / ${monthlyTarget}h</b><em>${monthProgress}%</em></div><div class="summary-tile"><span>本週進度</span><b>${weekDone} / 40h</b><em>${weekProgress}%</em></div><div class="summary-tile"><span>今日進度</span><b>${todayDone} / 8h</b><em>${todayProgress}%</em></div><div class="summary-tile summary-forecast ${health.className}"><span>達標預測</span><b>${health.label}</b></div></div></section>`;
 }
 
 function mobileCalendarPanel() {
