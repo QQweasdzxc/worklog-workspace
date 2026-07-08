@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260708-2313";
+const BUILD_TIME = "20260708-2320";
 const root = document.getElementById("app");
 const AUTH_SESSION_KEY = "zhuge_ai_os_google_auth_session_v1";
 const AUTH_CODE_VERIFIER_KEY = "zhuge_ai_os_pkce_code_verifier_v1";
@@ -604,7 +604,7 @@ function todaySummaryPanel() {
   const weekDone = hours(weekEntries(today));
   const weekProgress = Math.min(100, Math.round(weekDone / 40 * 100));
   const todayProgress = Math.min(100, Math.round(todayDone / 8 * 100));
-  return `<section class="panel mobile-summary-module summary-dashboard"><div class="summary-dashboard-head"><div><h2>☀️ 今日摘要</h2><div class="muted">${year}/${String(month + 1).padStart(2, "0")}｜每月工時儀表板</div></div></div><div class="summary-grid"><div class="summary-tile"><span>本月進度</span><b>${monthlyDone} / ${monthlyTarget}h</b><em>${monthProgress}%</em></div><div class="summary-tile"><span>本週進度</span><b>${weekDone} / 40h</b><em>${weekProgress}%</em></div><div class="summary-tile"><span>今日進度</span><b>${todayDone} / 8h</b><em>${todayProgress}%</em></div><div class="summary-tile summary-forecast ${health.className}"><span>達標預測</span><b>${health.label}</b></div></div></section>`;
+  return `<section class="panel mobile-summary-module summary-dashboard"><div class="summary-dashboard-head"><h2>☀️ 今日摘要</h2><div class="summary-dashboard-label">📊 工時儀表板</div></div><div class="summary-grid"><div class="summary-tile"><span>本月進度</span><b>${monthlyDone} / ${monthlyTarget}h</b><em>${monthProgress}%</em></div><div class="summary-tile"><span>本週進度</span><b>${weekDone} / 40h</b><em>${weekProgress}%</em></div><div class="summary-tile"><span>今日進度</span><b>${todayDone} / 8h</b><em>${todayProgress}%</em></div><div class="summary-tile summary-forecast ${health.className}"><span>達標預測</span><b>${health.label}</b></div></div></section>`;
 }
 
 function mobileCalendarPanel() {
