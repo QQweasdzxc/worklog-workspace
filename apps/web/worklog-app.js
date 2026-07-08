@@ -37,6 +37,7 @@ const AI_REASON_QUEUE_SIZE = 5;
 
 const roles = ["採購", "行政", "人資", "業務", "行銷", "IT", "自訂"];
 const defaultTags = ["採購案件處理", "發票請款", "驗收請款", "供應商聯繫", "Mail處理", "資料整理", "會議", "專案追蹤"];
+const defaultEcpTasks = ["採購案件處理", "驗收請款", "發票請款", "供應商聯繫", "採購進度追蹤"];
 const roleTagMap = {
   "採購": ["採購案件處理", "發票請款", "驗收請款", "供應商聯繫", "採購進度追蹤", "合約資料整理", "會議", "專案追蹤"],
   "行政": ["庶務行政", "文件整理", "會議安排", "費用請款", "資產管理", "跨部門聯繫", "Mail處理", "資料整理"],
@@ -257,6 +258,7 @@ function normalizeEntries() {
     if (!next.id) { next.id = uid(); changed = true; }
     if (!next.type) { next.type = "工作"; changed = true; }
     if (next.task == null) { next.task = ""; changed = true; }
+    if (next.ecpTask == null) { next.ecpTask = ""; changed = true; }
     return next;
   });
   library = library.map(item => item.id ? item : { ...item, id: uid("lib") });
@@ -266,6 +268,7 @@ function normalizeEntries() {
 function validateEntry(item) {
   if (!item.title) return "請輸入工作描述";
   if (!item.task) return "請輸入工作內容";
+  if (!item.ecpTask) return "請選擇 ECP 任務";
   if (!item.at || Number.isNaN(new Date(item.at).getTime())) return "請選擇正確時間";
   if (!item.hours || item.hours <= 0) return "請選擇工時";
   if (item.hours > 8) return "單筆工時不可超過 8 小時";
@@ -343,6 +346,25 @@ function tagsForRole(role) {
 function workModels() {
   const models = Array.isArray(profile?.tags) && profile.tags.length ? profile.tags : tagsForRole(profile?.role || "採購");
   return [...new Set(models.map(x => String(x).trim()).filter(Boolean))];
+}
+
+function ecpTasks() {
+  const source = Array.isArray(profile?.ecpTasks) && profile.ecpTasks.length ? profile.ecpTasks : (profile?.ecpTask ? [profile.ecpTask] : defaultEcpTasks);
+  return [...new Set(source.map(x => String(x).trim()).filter(Boolean))];
+}
+
+function ecpTaskOptions(selectedTask = "") {
+  const tasks = ecpTasks();
+  return `<option value="">請選擇 ECP 任務</option>${tasks.map(task => `<option value="${escapeHtml(task)}" ${task === selectedTask ? "selected" : ""}>${escapeHtml(task)}</option>`).join("")}<option value="__add__">＋新增 ECP 任務</option>`;
+}
+
+function ecpTaskList(tasks = ecpTasks()) {
+  return `<div class="ecp-task-list" id="ecpTaskList">${tasks.map(task => `<div class="ecp-task-item"><span>${escapeHtml(task)}</span><button class="btn2 danger" type="button" data-remove-ecp-task="${escapeHtml(task)}">移除</button></div>`).join("")}</div>`;
+}
+
+function firstEcpTaskFor(title = "") {
+  const tasks = ecpTasks();
+  return tasks.find(task => title && title.includes(task)) || tasks[0] || "";
 }
 
 function tagButtons(tags) {
@@ -522,13 +544,45 @@ function startOfWeek(d) {
   return x;
 }
 
+function workdaysInMonth(year, month) {
+  const last = new Date(year, month + 1, 0).getDate();
+  let count = 0;
+  for (let day = 1; day <= last; day++) {
+    const d = new Date(year, month, day);
+    if (d.getDay() !== 0 && d.getDay() !== 6) count++;
+  }
+  return count;
+}
+
+function remainingWorkdaysInMonth(date = new Date()) {
+  const year = date.getFullYear(), month = date.getMonth();
+  const last = new Date(year, month + 1, 0).getDate();
+  let count = 0;
+  for (let day = date.getDate(); day <= last; day++) {
+    const d = new Date(year, month, day);
+    if (d.getDay() !== 0 && d.getDay() !== 6) count++;
+  }
+  return count;
+}
+
+function workHoursHealth(avgDailyNeed) {
+  if (avgDailyNeed <= 8) return { label: "🟢 正常", className: "good" };
+  if (avgDailyNeed <= 10) return { label: "🟡 注意", className: "warn" };
+  return { label: "🔴 落後", className: "bad" };
+}
+
 function todaySummaryPanel() {
   const today = new Date();
-  const list = entriesForDate(today);
-  const done = hours(list);
-  const total = 8;
-  const rate = Math.min(100, Math.round(done / total * 100));
-  return `<section class="panel mobile-summary-module"><div class="panel-head"><div><h2>☀️ 今日摘要</h2><div class="muted">${fmt(today).slice(0, 10)}｜今天還剩哪些工作要完成？</div></div><div class="tag">${rate}%</div></div><div class="summary-metrics"><div><b>${total}h</b><span>今日預計</span></div><div><b>${done}h</b><span>已完成</span></div><div><b>${rate}%</b><span>完成率</span></div></div></section>`;
+  const year = selected.getFullYear(), month = selected.getMonth();
+  const monthlyDone = hours(monthEntries());
+  const monthlyTarget = workdaysInMonth(year, month) * 8;
+  const progress = monthlyTarget ? Math.min(100, Math.round(monthlyDone / monthlyTarget * 100)) : 0;
+  const remaining = Math.max(0, monthlyTarget - monthlyDone);
+  const remainingDays = year === today.getFullYear() && month === today.getMonth() ? remainingWorkdaysInMonth(today) : workdaysInMonth(year, month);
+  const avgDailyNeed = remainingDays ? Math.round(remaining / remainingDays * 10) / 10 : 0;
+  const health = workHoursHealth(avgDailyNeed);
+  const todayDone = hours(entriesForDate(today));
+  return `<section class="panel mobile-summary-module summary-dashboard"><div class="summary-dashboard-head"><div><h2>☀️ 今日摘要</h2><div class="muted">${year}/${String(month + 1).padStart(2, "0")}｜每月工時儀表板</div></div><div class="health-badge ${health.className}">${health.label}</div></div><div class="summary-block month-progress"><div class="summary-label">本月工時</div><div class="summary-main"><b>${monthlyDone}</b><span>/ ${monthlyTarget} h</span></div><div class="summary-progress"><div style="width:${progress}%"></div></div><div class="summary-percent">${progress}%</div></div><div class="summary-grid"><div class="summary-tile"><span>距離月底</span><b>${remaining}h</b></div><div class="summary-tile"><span>平均每天需</span><b>${avgDailyNeed}h</b></div><div class="summary-tile"><span>今日</span><b>${todayDone} / 8h</b></div></div></section>`;
 }
 
 function mobileCalendarPanel() {
@@ -604,8 +658,9 @@ function capture(editId = null, seed = null) {
   const e = editId ? entries.find(x => x.id === editId) : null;
   const title = e ? e.title : (seed ? seed.title : "");
   const task = e ? e.task : (seed ? seed.task : "");
+  const ecpTask = e ? (e.ecpTask || "") : (seed ? seed.ecpTask || firstEcpTaskFor(seed.title) : "");
   const type = e ? (e.type || "工作") : "工作";
-  return `<section class="panel capture-panel" style="margin-top:18px"><div class="panel-head"><div><h2>${e ? "編輯工時" : "➕ 快速紀錄"}</h2></div></div><div class="form capture-form"><label>日期 / 開始時間</label><input class="input" id="dt" type="datetime-local" value="${e ? e.at : captureDefaultStart()}"><label>工作描述（必填）</label><input class="input" id="title" value="${escapeHtml(title)}" placeholder="例如：採購案件處理" autocomplete="off">${descriptionSuggestionChips(title)}<label>事件類型</label><select id="eventType" class="input">${eventTypes.map(t => `<option ${type === t ? "selected" : ""}>${t}</option>`).join("")}</select><label>工時</label><div class="row hours">${[0.5, 1, 1.5, 2, 3, 4, 8].map(h => `<button class="btn2 hour" data-h="${h}">${h === 0.5 ? "30m" : h + "h"}</button>`).join("")}</div><label>工作內容（必填）</label><input class="input" id="task" value="${escapeHtml(task)}" placeholder="請填寫 ECP 任務內容"><div class="form-actions capture-actions"><button class="btn2" data-capture-cancel="1">取消</button><button class="btn" id="saveEntry">儲存</button></div></div></section>`;
+  return `<section class="panel capture-panel" style="margin-top:18px"><div class="panel-head"><div><h2>${e ? "編輯工時" : "➕ 快速紀錄"}</h2></div></div><div class="form capture-form"><label>日期 / 開始時間</label><input class="input" id="dt" type="datetime-local" value="${e ? e.at : captureDefaultStart()}"><label>工作描述（必填）</label><input class="input" id="title" value="${escapeHtml(title)}" placeholder="例如：採購案件處理" autocomplete="off">${descriptionSuggestionChips(title)}<label>ECP 任務（必填）</label><select id="ecpTaskSelect" class="input">${ecpTaskOptions(ecpTask)}</select><div class="work-model-add ecp-task-quick-add" id="ecpTaskQuickAdd" style="display:none"><input class="input" id="newEcpTaskCapture" placeholder="新增 ECP 任務，例如：採購案件處理"><button class="btn2" data-add-capture-ecp-task="1" type="button">＋ 新增</button></div><label>事件類型</label><select id="eventType" class="input">${eventTypes.map(t => `<option ${type === t ? "selected" : ""}>${t}</option>`).join("")}</select><label>工時</label><div class="row hours">${[0.5, 1, 1.5, 2, 3, 4, 8].map(h => `<button class="btn2 hour" data-h="${h}">${h === 0.5 ? "30m" : h + "h"}</button>`).join("")}</div><label>工作內容（必填）</label><input class="input" id="task" value="${escapeHtml(task)}" placeholder="請補充這筆工時內容"><div class="form-actions capture-actions"><button class="btn2" data-capture-cancel="1">取消</button><button class="btn" id="saveEntry">儲存</button></div></div></section>`;
 }
 
 function sync() {
@@ -648,7 +703,8 @@ function libraryForm(id = null) {
 
 function settings() {
   const models = workModels();
-  return `<section class="panel" style="margin-top:18px"><h2>⚙️ 設定</h2><div class="entry"><b>目前使用者</b><div class="muted">${escapeHtml(session.name)}｜${escapeHtml(session.status || session.email || "")}</div></div><label>角色</label><select id="roleSet" class="input">${roles.map(r => `<option ${profile && profile.role === r ? "selected" : ""}>${r}</option>`).join("")}</select><div class="work-model-section"><label>工作模型</label><div class="work-model-list" id="workModelList">${workModelChecks(models, models)}</div><div class="work-model-add"><input class="input" id="newWorkModel" placeholder="新增工作模型，例如：ISO 稽核"><button class="btn2" id="addWorkModel" type="button">＋ 新增工作模型</button></div><div class="muted">工作模型會成為快速紀錄、推理預測與未來知識來源關聯的共同基礎。</div></div><div class="work-model-section"><label>ECP 設定</label><label>ECP 負責人</label><input class="input" id="ecpOwner" value="${escapeHtml(profile?.ecpOwner || "")}" placeholder="例如：陳彥達-UU"><label>ECP 負責部門</label><input class="input" id="ecpDepartment" value="${escapeHtml(profile?.ecpDepartment || "")}" placeholder="例如：UU管理部"><div class="muted">此設定僅用於「下載 ECP 匯入檔」。</div></div><button class="btn full" id="saveSettings">儲存設定</button><button class="btn gray full" id="resetProfile">重新初次認識</button><button class="btn red full" id="logoutBtn">登出</button><div class="entry"><b>版本</b><div class="muted">${VERSION}</div></div></section>`;
+  const tasks = ecpTasks();
+  return `<section class="panel" style="margin-top:18px"><h2>⚙️ 設定</h2><div class="entry"><b>目前使用者</b><div class="muted">${escapeHtml(session.name)}｜${escapeHtml(session.status || session.email || "")}</div></div><label>角色</label><select id="roleSet" class="input">${roles.map(r => `<option ${profile && profile.role === r ? "selected" : ""}>${r}</option>`).join("")}</select><div class="work-model-section"><label>工作模型</label><div class="work-model-list" id="workModelList">${workModelChecks(models, models)}</div><div class="work-model-add"><input class="input" id="newWorkModel" placeholder="新增工作模型，例如：ISO 稽核"><button class="btn2" id="addWorkModel" type="button">＋ 新增工作模型</button></div><div class="muted">工作模型給 AI 學習、推理與推薦使用，不直接等於 ECP 匯入欄位。</div></div><div class="work-model-section"><label>ECP 設定</label><label>ECP 負責人</label><input class="input" id="ecpOwner" value="${escapeHtml(profile?.ecpOwner || "")}" placeholder="例如：陳彥達-UU"><label>ECP 負責部門</label><input class="input" id="ecpDepartment" value="${escapeHtml(profile?.ecpDepartment || "")}" placeholder="例如：UU管理部"><label>ECP 任務</label>${ecpTaskList(tasks)}<div class="work-model-add"><input class="input" id="newEcpTask" placeholder="新增 ECP 任務，例如：採購案件處理"><button class="btn2" id="addEcpTask" type="button">＋ 新增 ECP 任務</button></div><div class="muted">ECP 任務專供匯出使用，快速紀錄每筆工時需選擇一個 ECP 任務，並寫入 Excel「任務」欄位。</div></div><button class="btn full" id="saveSettings">儲存設定</button><button class="btn gray full" id="resetProfile">重新初次認識</button><button class="btn red full" id="logoutBtn">登出</button><div class="entry"><b>版本</b><div class="muted">${VERSION}</div></div></section>`;
 }
 
 function currentViewHtml() {
@@ -722,7 +778,7 @@ function bind() {
 function acceptSuggestion(id) {
   const s = makeSuggestions().find(x => x.id === id);
   if (!s) return;
-  entries.push({ id: uid(), date: key(), at: s.at, title: s.title, task: s.task, hours: 1, type: "工作", source: "ai-card" });
+  entries.push({ id: uid(), date: key(), at: s.at, title: s.title, task: s.task, ecpTask: firstEcpTaskFor(s.title), hours: 1, type: "工作", source: "ai-card" });
   feedback[s.id] = (feedback[s.id] || 0) + 1;
   saveAll(); toast("已加入我的工作"); render();
 }
@@ -759,11 +815,32 @@ function bindCapture(editId = null) {
       bindDescriptionSuggestions();
     }
   };
+  const ecpTaskSelect = document.getElementById("ecpTaskSelect");
+  const quickAdd = document.getElementById("ecpTaskQuickAdd");
+  if (ecpTaskSelect) ecpTaskSelect.onchange = () => {
+    if (quickAdd) quickAdd.style.display = ecpTaskSelect.value === "__add__" ? "grid" : "none";
+  };
+  const addEcpTaskBtn = document.querySelector("[data-add-capture-ecp-task]");
+  if (addEcpTaskBtn) addEcpTaskBtn.onclick = () => {
+    const input = document.getElementById("newEcpTaskCapture");
+    const name = input.value.trim();
+    if (!name) return toast("請輸入 ECP 任務名稱");
+    const tasks = ecpTasks();
+    profile.ecpTasks = tasks.includes(name) ? tasks : [...tasks, name];
+    profile.ecpTask = "";
+    saveAll();
+    ecpTaskSelect.innerHTML = ecpTaskOptions(name);
+    ecpTaskSelect.value = name;
+    input.value = "";
+    if (quickAdd) quickAdd.style.display = "none";
+    toast("已新增 ECP 任務");
+  };
   document.querySelectorAll(".hour").forEach(b => b.onclick = () => { selectedH = Number(b.dataset.h); document.querySelectorAll(".hour").forEach(x => x.classList.remove("selected")); b.classList.add("selected"); });
   document.getElementById("saveEntry").onclick = () => {
     const at = document.getElementById("dt").value;
     const description = document.getElementById("title").value.trim();
-    const item = { id: editingEntry ? editingEntry.id : uid(), date: at.slice(0, 10), at, title: description, hours: selectedH, type: document.getElementById("eventType").value, task: document.getElementById("task").value.trim(), source: editingEntry ? editingEntry.source : "manual" };
+    const selectedEcpTask = document.getElementById("ecpTaskSelect").value === "__add__" ? "" : document.getElementById("ecpTaskSelect").value.trim();
+    const item = { id: editingEntry ? editingEntry.id : uid(), date: at.slice(0, 10), at, title: description, ecpTask: selectedEcpTask, hours: selectedH, type: document.getElementById("eventType").value, task: document.getElementById("task").value.trim(), source: editingEntry ? editingEntry.source : "manual" };
     const error = validateEntry(item); if (error) return toast(error);
     if (editingEntry) entries[entries.findIndex(e => e.id === editingEntry.id)] = item; else entries.push(item);
     selected = new Date(at); view = "center"; editingEntryId = null; captureSeed = null; saveAll(); toast("已儲存工時"); render();
@@ -792,6 +869,21 @@ function bindSettings() {
     const list = document.getElementById("workModelList");
     if (list) list.innerHTML = workModelChecks(models, selectedModels);
   };
+  const renderEcpTasks = tasks => {
+    const list = document.getElementById("ecpTaskList");
+    if (list) {
+      list.outerHTML = ecpTaskList(tasks);
+      bindEcpTaskRemove();
+    }
+  };
+  const currentEcpTasks = () => [...document.querySelectorAll("#ecpTaskList .ecp-task-item span")].map(x => x.textContent.trim()).filter(Boolean);
+  const bindEcpTaskRemove = () => {
+    document.querySelectorAll("[data-remove-ecp-task]").forEach(b => b.onclick = () => {
+      const next = currentEcpTasks().filter(task => task !== b.dataset.removeEcpTask);
+      renderEcpTasks(next);
+    });
+  };
+  bindEcpTaskRemove();
   const roleSet = document.getElementById("roleSet");
   if (roleSet) roleSet.onchange = e => renderModelChecks(tagsForRole(e.target.value), tagsForRole(e.target.value));
   const add = document.getElementById("addWorkModel");
@@ -806,12 +898,24 @@ function bindSettings() {
     input.value = "";
     toast("已新增工作模型");
   };
+  const addEcp = document.getElementById("addEcpTask");
+  if (addEcp) addEcp.onclick = () => {
+    const input = document.getElementById("newEcpTask");
+    const name = input.value.trim();
+    if (!name) return toast("請輸入 ECP 任務名稱");
+    const tasks = currentEcpTasks();
+    renderEcpTasks(tasks.includes(name) ? tasks : [...tasks, name]);
+    input.value = "";
+    toast("已新增 ECP 任務");
+  };
   document.getElementById("saveSettings").onclick = () => {
     profile.role = document.getElementById("roleSet").value;
     const selectedModels = [...document.querySelectorAll(".work-model-option:checked")].map(x => x.value.trim()).filter(Boolean);
     profile.tags = selectedModels.length ? [...new Set(selectedModels)] : tagsForRole(profile.role);
     profile.ecpOwner = document.getElementById("ecpOwner").value.trim();
     profile.ecpDepartment = document.getElementById("ecpDepartment").value.trim();
+    profile.ecpTasks = currentEcpTasks();
+    profile.ecpTask = "";
     saveAll(); toast("工作模型已更新"); render();
   };
   document.getElementById("resetProfile").onclick = () => { profile = null; saveAll(); render(); };
@@ -1092,7 +1196,7 @@ function addHoursToDate(value, h) {
 function workLogRowsForEcp() {
   return monthEntries().map(entry => ({
     title: entry.title || "",
-    task: entry.task || "",
+    ecpTask: entry.ecpTask || "",
     startAt: formatEcpDateTime(entry.at),
     endAt: formatEcpDateTime(addHoursToDate(entry.at, entry.hours)),
     hours: Number(entry.hours || 0),
@@ -1121,9 +1225,10 @@ async function exportByProfile(rows, profileConfig) {
 
 async function exportEcpImportFile() {
   try {
-    if (!profile?.ecpOwner || !profile?.ecpDepartment) return toast("請先完成 ECP 設定。");
+    if (!profile?.ecpOwner || !profile?.ecpDepartment || !ecpTasks().length) return toast("請先完成 ECP 設定。");
     const rows = workLogRowsForEcp();
     if (!rows.length) return toast("本月份尚無工時資料可匯出。");
+    if (rows.some(row => !row.ecpTask)) return toast("請確認每筆工時皆已選擇 ECP 任務。");
     const profileConfig = await loadExportProfile(ECP_EXPORT_PROFILE_PATH);
     await exportByProfile(rows, profileConfig);
     toast("已下載 ECP 匯入檔");

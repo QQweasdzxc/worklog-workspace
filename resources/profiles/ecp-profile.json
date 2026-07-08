@@ -17,7 +17,7 @@
     "開始時間": { "type": "field", "field": "startAt" },
     "結束時間": { "type": "field", "field": "endAt" },
     "時數": { "type": "field", "field": "hours" },
-    "任務": { "type": "field", "field": "task" },
+    "任務": { "type": "field", "field": "ecpTask" },
     "線索": { "type": "blank" },
     "商機": { "type": "blank" },
     "專案": { "type": "blank" },
