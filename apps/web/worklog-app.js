@@ -567,9 +567,9 @@ function remainingWorkdaysInMonth(date = new Date()) {
 }
 
 function workHoursHealth(avgDailyNeed) {
-  if (avgDailyNeed <= 8) return { label: "🟢 正常", className: "good" };
-  if (avgDailyNeed <= 10) return { label: "🟡 注意", className: "warn" };
-  return { label: "🔴 落後", className: "bad" };
+  if (avgDailyNeed <= 8) return { label: "🟢 工時正常", className: "good" };
+  if (avgDailyNeed <= 10) return { label: "🟡 工時注意", className: "warn" };
+  return { label: "🔴 工時落後", className: "bad" };
 }
 
 function todaySummaryPanel() {
@@ -582,8 +582,7 @@ function todaySummaryPanel() {
   const remainingDays = year === today.getFullYear() && month === today.getMonth() ? remainingWorkdaysInMonth(today) : workdaysInMonth(year, month);
   const avgDailyNeed = remainingDays ? Math.round(remaining / remainingDays * 10) / 10 : 0;
   const health = workHoursHealth(avgDailyNeed);
-  const todayDone = hours(entriesForDate(today));
-  return `<section class="panel mobile-summary-module summary-dashboard"><div class="summary-dashboard-head"><div><h2>☀️ 今日摘要</h2><div class="muted">${year}/${String(month + 1).padStart(2, "0")}｜每月工時儀表板</div></div><div class="health-badge ${health.className}">${health.label}</div></div><div class="summary-block month-progress"><div class="summary-label">本月工時</div><div class="summary-main"><b>${monthlyDone}</b><span>/ ${monthlyTarget} h</span></div><div class="summary-progress"><div style="width:${progress}%"></div></div><div class="summary-percent">${progress}%</div></div><div class="summary-grid"><div class="summary-tile"><span>距離月底</span><b>${remaining}h</b></div><div class="summary-tile"><span>平均每天需</span><b>${avgDailyNeed}h</b></div><div class="summary-tile"><span>今日</span><b>${todayDone} / 8h</b></div></div></section>`;
+  return `<section class="panel mobile-summary-module summary-dashboard"><div class="summary-dashboard-head"><div><h2>☀️ 今日摘要</h2><div class="muted">${year}/${String(month + 1).padStart(2, "0")}｜每月工時儀表板</div></div><div class="health-badge ${health.className}">${health.label}</div></div><div class="summary-block month-progress"><div class="summary-label">本月工時</div><div class="summary-main"><b>${monthlyDone}</b><span>/ ${monthlyTarget}h</span></div><div class="summary-progress"><div style="width:${progress}%"></div></div><div class="summary-percent">${progress}%</div></div><div class="summary-grid"><div class="summary-tile"><span>本月工時</span><b>${monthlyDone} / ${monthlyTarget}h</b></div><div class="summary-tile"><span>剩餘工時</span><b>${remaining}h</b></div><div class="summary-tile"><span>剩餘工作天</span><b>${remainingDays} 天</b></div><div class="summary-tile"><span>每日目標</span><b>${avgDailyNeed}h</b></div></div></section>`;
 }
 
 function mobileCalendarPanel() {
