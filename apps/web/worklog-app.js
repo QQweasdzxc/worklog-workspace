@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260708-2320";
+const BUILD_TIME = "20260708-2340";
 const root = document.getElementById("app");
 const AUTH_SESSION_KEY = "zhuge_ai_os_google_auth_session_v1";
 const AUTH_CODE_VERIFIER_KEY = "zhuge_ai_os_pkce_code_verifier_v1";
@@ -258,7 +258,11 @@ function normalizeEntries() {
     const next = { ...e };
     if (!next.id) { next.id = uid(); changed = true; }
     if (!next.type) { next.type = "工作"; changed = true; }
-    if (next.task == null) { next.task = ""; changed = true; }
+    if (next.note == null) {
+      next.note = next.task && next.task !== next.title ? next.task : "";
+      changed = true;
+    }
+    if (next.task != null) { delete next.task; changed = true; }
     if (next.ecpTask == null) { next.ecpTask = ""; changed = true; }
     return next;
   });
@@ -268,7 +272,6 @@ function normalizeEntries() {
 
 function validateEntry(item) {
   if (!item.title) return "請輸入工作描述";
-  if (!item.task) return "請輸入工作內容";
   if (!item.ecpTask) return "請選擇 ECP 任務";
   if (!item.at || Number.isNaN(new Date(item.at).getTime())) return "請選擇正確時間";
   if (!item.hours || item.hours <= 0) return "請選擇工時";
@@ -636,7 +639,7 @@ function makeSuggestions() {
   let start = nextStart();
   for (const tag of tags) {
     if (done.some(d => d.includes(tag))) continue;
-    suggestions.push({ id: tag, title: tag, task: tag, hours: 1, at: start, sourceLabel: "🧩 工作模型" });
+    suggestions.push({ id: tag, title: tag, note: "", hours: 1, at: start, sourceLabel: "🧩 工作模型" });
     let d = new Date(start);
     d.setHours(d.getHours() + 1);
     if (d.getHours() === 12) d.setHours(13);
@@ -660,7 +663,6 @@ function center() {
 function workDescriptionSuggestions(query = "") {
   const source = [
     ...entries.map(e => e.title),
-    ...entries.map(e => e.task),
     ...(profile?.tags || []),
     ...defaultTags
   ].map(x => String(x || "").trim()).filter(Boolean);
@@ -679,10 +681,10 @@ function capture(editId = null, seed = null) {
   seed = seed || captureSeed;
   const e = editId ? entries.find(x => x.id === editId) : null;
   const title = e ? e.title : (seed ? seed.title : "");
-  const task = e ? e.task : (seed ? seed.task : "");
+  const note = e ? (e.note || "") : (seed ? seed.note || "" : "");
   const ecpTask = e ? (e.ecpTask || "") : (seed ? seed.ecpTask || firstEcpTaskFor(seed.title) : "");
   const type = e ? (e.type || "工作") : "工作";
-  return `<section class="panel capture-panel" style="margin-top:18px"><div class="panel-head"><div><h2>${e ? "編輯工時" : "➕ 快速紀錄"}</h2></div></div><div class="form capture-form"><label>日期 / 開始時間</label><input class="input" id="dt" type="datetime-local" value="${e ? e.at : captureDefaultStart()}"><label>工作描述（必填）</label><input class="input" id="title" value="${escapeHtml(title)}" placeholder="例如：採購案件處理" autocomplete="off">${descriptionSuggestionChips(title)}<label>ECP 任務（必填）</label><select id="ecpTaskSelect" class="input">${ecpTaskOptions(ecpTask)}</select><div class="work-model-add ecp-task-quick-add" id="ecpTaskQuickAdd" style="display:none"><input class="input" id="newEcpTaskCapture" placeholder="新增 ECP 任務，例如：採購案件處理"><button class="btn2" data-add-capture-ecp-task="1" type="button">＋ 新增</button></div><label>事件類型</label><select id="eventType" class="input">${eventTypes.map(t => `<option ${type === t ? "selected" : ""}>${t}</option>`).join("")}</select><label>工時</label><div class="row hours">${[0.5, 1, 1.5, 2, 3, 4, 8].map(h => `<button class="btn2 hour" data-h="${h}">${h === 0.5 ? "30m" : h + "h"}</button>`).join("")}</div><label>工作內容（必填）</label><input class="input" id="task" value="${escapeHtml(task)}" placeholder="請補充這筆工時內容"><div class="form-actions capture-actions"><button class="btn2" data-capture-cancel="1">取消</button><button class="btn" id="saveEntry">儲存</button></div></div></section>`;
+  return `<section class="panel capture-panel" style="margin-top:18px"><div class="panel-head"><div><h2>${e ? "編輯工時" : "➕ 快速紀錄"}</h2></div></div><div class="form capture-form"><label>日期 / 開始時間</label><input class="input" id="dt" type="datetime-local" value="${e ? e.at : captureDefaultStart()}"><label>工作描述（必填）</label><input class="input" id="title" value="${escapeHtml(title)}" placeholder="例如：採購案件處理" autocomplete="off">${descriptionSuggestionChips(title)}<label>ECP 任務（必填）</label><select id="ecpTaskSelect" class="input">${ecpTaskOptions(ecpTask)}</select><div class="work-model-add ecp-task-quick-add" id="ecpTaskQuickAdd" style="display:none"><input class="input" id="newEcpTaskCapture" placeholder="新增 ECP 任務，例如：採購案件處理"><button class="btn2" data-add-capture-ecp-task="1" type="button">＋ 新增</button></div><label>事件類型</label><select id="eventType" class="input">${eventTypes.map(t => `<option ${type === t ? "selected" : ""}>${t}</option>`).join("")}</select><label>工時</label><div class="row hours">${[0.5, 1, 1.5, 2, 3, 4, 8].map(h => `<button class="btn2 hour" data-h="${h}">${h === 0.5 ? "30m" : h + "h"}</button>`).join("")}</div><label>備註（選填）</label><input class="input" id="note" value="${escapeHtml(note)}" placeholder="補充說明，不參與 ECP 匯出"><div class="form-actions capture-actions"><button class="btn2" data-capture-cancel="1">取消</button><button class="btn" id="saveEntry">儲存</button></div></div></section>`;
 }
 
 function sync() {
@@ -800,7 +802,7 @@ function bind() {
 function acceptSuggestion(id) {
   const s = makeSuggestions().find(x => x.id === id);
   if (!s) return;
-  entries.push({ id: uid(), date: key(), at: s.at, title: s.title, task: s.task, ecpTask: firstEcpTaskFor(s.title), hours: 1, type: "工作", source: "ai-card" });
+  entries.push({ id: uid(), date: key(), at: s.at, title: s.title, note: s.note || "", ecpTask: firstEcpTaskFor(s.title), hours: 1, type: "工作", source: "ai-card" });
   feedback[s.id] = (feedback[s.id] || 0) + 1;
   saveAll(); toast("已加入我的工作"); render();
 }
@@ -826,7 +828,6 @@ function bindCapture(editId = null) {
   const bindDescriptionSuggestions = () => {
     document.querySelectorAll("[data-title-suggestion]").forEach(b => b.onclick = () => {
       titleInput.value = b.dataset.titleSuggestion;
-      if (!document.getElementById("task").value.trim()) document.getElementById("task").value = b.dataset.titleSuggestion;
     });
   };
   bindDescriptionSuggestions();
@@ -862,7 +863,7 @@ function bindCapture(editId = null) {
     const at = document.getElementById("dt").value;
     const description = document.getElementById("title").value.trim();
     const selectedEcpTask = document.getElementById("ecpTaskSelect").value === "__add__" ? "" : document.getElementById("ecpTaskSelect").value.trim();
-    const item = { id: editingEntry ? editingEntry.id : uid(), date: at.slice(0, 10), at, title: description, ecpTask: selectedEcpTask, hours: selectedH, type: document.getElementById("eventType").value, task: document.getElementById("task").value.trim(), source: editingEntry ? editingEntry.source : "manual" };
+    const item = { id: editingEntry ? editingEntry.id : uid(), date: at.slice(0, 10), at, title: description, ecpTask: selectedEcpTask, hours: selectedH, type: document.getElementById("eventType").value, note: document.getElementById("note").value.trim(), source: editingEntry ? editingEntry.source : "manual" };
     const error = validateEntry(item); if (error) return toast(error);
     if (editingEntry) entries[entries.findIndex(e => e.id === editingEntry.id)] = item; else entries.push(item);
     selected = new Date(at); view = "center"; editingEntryId = null; captureSeed = null; saveAll(); toast("已儲存工時"); render();
