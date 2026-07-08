@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260708-2205";
+const BUILD_TIME = "20260708-2247";
 const root = document.getElementById("app");
 const AUTH_SESSION_KEY = "zhuge_ai_os_google_auth_session_v1";
 const AUTH_CODE_VERIFIER_KEY = "zhuge_ai_os_pkce_code_verifier_v1";
@@ -582,6 +582,7 @@ function todaySummaryPanel() {
   const remainingDays = year === today.getFullYear() && month === today.getMonth() ? remainingWorkdaysInMonth(today) : workdaysInMonth(year, month);
   const avgDailyNeed = remainingDays ? Math.round(remaining / remainingDays * 10) / 10 : 0;
   const health = workHoursHealth(avgDailyNeed);
+  const todayDone = hours(entriesForDate(today));
   return `<section class="panel mobile-summary-module summary-dashboard"><div class="summary-dashboard-head"><div><h2>☀️ 今日摘要</h2><div class="muted">${year}/${String(month + 1).padStart(2, "0")}｜每月工時儀表板</div></div><div class="health-badge ${health.className}">${health.label}</div></div><div class="summary-block month-progress"><div class="summary-label">本月工時</div><div class="summary-main"><b>${monthlyDone}</b><span>/ ${monthlyTarget}h</span></div><div class="summary-progress"><div style="width:${progress}%"></div></div><div class="summary-percent">${progress}%</div></div><div class="summary-grid"><div class="summary-tile"><span>剩餘工時</span><b>${remaining}h</b></div><div class="summary-tile"><span>剩餘工作天</span><b>${remainingDays} 天</b></div><div class="summary-tile"><span>每日目標</span><b>${avgDailyNeed}h</b></div><div class="summary-tile"><span>今日工時</span><b>${todayDone} / 8h</b></div></div></section>`;
 }
 
