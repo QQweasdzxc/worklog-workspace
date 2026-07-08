@@ -262,7 +262,7 @@ function normalizeEntries() {
 }
 
 function validateEntry(item) {
-  if (!item.title) return "請輸入工作內容";
+  if (!item.title) return "請選擇工作模型";
   if (!item.at || Number.isNaN(new Date(item.at).getTime())) return "請選擇正確時間";
   if (!item.hours || item.hours <= 0) return "請選擇工時";
   if (item.hours > 8) return "單筆工時不可超過 8 小時";
@@ -337,8 +337,34 @@ function tagsForRole(role) {
   return roleTagMap[role] || defaultTags;
 }
 
+function workModels() {
+  const models = Array.isArray(profile?.tags) && profile.tags.length ? profile.tags : tagsForRole(profile?.role || "採購");
+  return [...new Set(models.map(x => String(x).trim()).filter(Boolean))];
+}
+
 function tagButtons(tags) {
   return tags.map(t => `<button class="btn2 tag-btn" data-tag="${escapeHtml(t)}">${escapeHtml(t)}</button>`).join("");
+}
+
+function workModelChecks(models = [], selectedModels = models) {
+  const selectedSet = new Set(selectedModels);
+  return models.map(model => `<label class="work-model-check"><input type="checkbox" class="work-model-option" value="${escapeHtml(model)}" ${selectedSet.has(model) ? "checked" : ""}><span>${escapeHtml(model)}</span></label>`).join("");
+}
+
+function workModelOptions(selectedModel = "") {
+  const models = workModels();
+  const selectedValue = selectedModel || models[0] || "";
+  const options = selectedValue && !models.includes(selectedValue) ? [selectedValue, ...models] : models;
+  return options.map(model => `<option value="${escapeHtml(model)}" ${model === selectedValue ? "selected" : ""}>${escapeHtml(model)}</option>`).join("");
+}
+
+function addWorkModel(model) {
+  const name = String(model || "").trim();
+  if (!name) return false;
+  if (!profile) profile = { role: "採購", tags: [], sources: ["Google Drive", "Gmail", "Calendar", "手動紀錄"], workHours: "09:00~18:00", lunch: "12:00~13:00", sop: "目前沒有 SOP，先用職務模型" };
+  const models = workModels();
+  if (!models.includes(name)) profile.tags = [...models, name];
+  return true;
 }
 
 function googleConnectionLabel() {
@@ -460,11 +486,11 @@ function osShell() {
 }
 
 function onboardingWorkspace() {
-  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>🪶 初次認識工時營帳</h2><div class="muted">建立工作模型後，即可使用 Calendar、我的工作與推理預測。</div></div></div><div class="profile-grid"><div><label>你的職務</label><select id="role" class="input">${roles.map(r => `<option>${r}</option>`).join("")}</select></div><div><label>每日工時</label><select class="input"><option>09:00~18:00，午休 12:00~13:00</option></select></div></div><label>常見工作內容（可複選）</label><div class="row two" id="tagOptions">${tagButtons(tagsForRole("採購"))}</div><label>SOP 狀態</label><select id="sop" class="input"><option>目前沒有 SOP，先用職務模型</option><option>有 SOP，之後上傳</option></select><label>工作來源</label><div class="row two">${["Google Drive", "Gmail", "Calendar", "手動紀錄"].map(s => `<button class="btn2 src-btn" data-src="${s}">${s}</button>`).join("")}</div><button class="btn full" id="saveProfile">建立我的工作模型</button></section>`;
+  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>🪶 初次認識工時營帳</h2><div class="muted">建立工作模型後，即可使用 Calendar、我的工作與推理預測。</div></div></div><div class="profile-grid"><div><label>你的職務</label><select id="role" class="input">${roles.map(r => `<option>${r}</option>`).join("")}</select></div><div><label>每日工時</label><select class="input"><option>09:00~18:00，午休 12:00~13:00</option></select></div></div><label>工作模型</label><div class="row two" id="tagOptions">${tagButtons(tagsForRole("採購"))}</div><label>SOP 狀態</label><select id="sop" class="input"><option>目前沒有 SOP，先用職務模型</option><option>有 SOP，之後上傳</option></select><label>工作來源</label><div class="row two">${["Google Drive", "Gmail", "Calendar", "手動紀錄"].map(s => `<button class="btn2 src-btn" data-src="${s}">${s}</button>`).join("")}</div><button class="btn full" id="saveProfile">建立我的工作模型</button></section>`;
 }
 
 function onboarding() {
-  return `<div class="wrap"><div class="card"><div class="top"><div><div class="muted">🪶 初次認識</div><h1>你好，我是諸葛先生</h1><div class="muted">我想先了解你的工作，之後才能產生更準的每日工作建議卡。</div></div><div class="header-right">${userBadge()}<div class="tag">${VERSION}</div></div></div><section class="panel" style="margin-top:18px"><div class="profile-grid"><div><label>你的職務</label><select id="role" class="input">${roles.map(r => `<option>${r}</option>`).join("")}</select></div><div><label>每日工時</label><select class="input"><option>09:00~18:00，午休 12:00~13:00</option></select></div></div><label>常見工作內容（可複選）</label><div class="row two" id="tagOptions">${tagButtons(tagsForRole("採購"))}</div><label>SOP 狀態</label><select id="sop" class="input"><option>目前沒有 SOP，先用職務模型</option><option>有 SOP，之後上傳</option></select><label>工作來源</label><div class="row two">${["Google Drive", "Gmail", "Calendar", "手動紀錄"].map(s => `<button class="btn2 src-btn" data-src="${s}">${s}</button>`).join("")}</div><button class="btn full" id="saveProfile">建立我的工作模型</button></section></div></div>`;
+  return `<div class="wrap"><div class="card"><div class="top"><div><div class="muted">🪶 初次認識</div><h1>你好，我是諸葛先生</h1><div class="muted">我想先了解你的工作，之後才能產生更準的每日工作建議卡。</div></div><div class="header-right">${userBadge()}<div class="tag">${VERSION}</div></div></div><section class="panel" style="margin-top:18px"><div class="profile-grid"><div><label>你的職務</label><select id="role" class="input">${roles.map(r => `<option>${r}</option>`).join("")}</select></div><div><label>每日工時</label><select class="input"><option>09:00~18:00，午休 12:00~13:00</option></select></div></div><label>工作模型</label><div class="row two" id="tagOptions">${tagButtons(tagsForRole("採購"))}</div><label>SOP 狀態</label><select id="sop" class="input"><option>目前沒有 SOP，先用職務模型</option><option>有 SOP，之後上傳</option></select><label>工作來源</label><div class="row two">${["Google Drive", "Gmail", "Calendar", "手動紀錄"].map(s => `<button class="btn2 src-btn" data-src="${s}">${s}</button>`).join("")}</div><button class="btn full" id="saveProfile">建立我的工作模型</button></section></div></div>`;
 }
 
 function calendarPanel() {
@@ -521,13 +547,13 @@ function todayPanel() {
 function makeSuggestions() {
   if (!profile) return [];
   const done = dayEntries().map(e => e.title);
-  let tags = [...(profile.tags || defaultTags)];
+  let tags = workModels();
   tags.sort((a, b) => (feedback[b] || 0) - (feedback[a] || 0));
   let suggestions = [];
   let start = nextStart();
   for (const tag of tags) {
     if (done.some(d => d.includes(tag))) continue;
-    suggestions.push({ id: tag, title: tag, task: tag, hours: 1, at: start, sourceLabel: "🤖 AI 推理" });
+    suggestions.push({ id: tag, title: tag, task: tag, hours: 1, at: start, sourceLabel: "🧩 工作模型" });
     let d = new Date(start);
     d.setHours(d.getHours() + 1);
     if (d.getHours() === 12) d.setHours(13);
@@ -555,7 +581,7 @@ function capture(editId = null, seed = null) {
   const title = e ? e.title : (seed ? seed.title : "");
   const task = e ? e.task : (seed ? seed.task : "採購案件處理");
   const type = e ? (e.type || "工作") : "工作";
-  return `<section class="panel capture-panel" style="margin-top:18px"><div class="panel-head"><div><h2>${e ? "編輯工時" : "➕ 快速紀錄"}</h2></div></div><div class="form capture-form"><label>日期 / 開始時間</label><input class="input" id="dt" type="datetime-local" value="${e ? e.at : captureDefaultStart()}"><label>工作標題</label><textarea id="title" placeholder="今天做了什麼？">${escapeHtml(title)}</textarea><label>事件類型</label><select id="eventType" class="input">${eventTypes.map(t => `<option ${type === t ? "selected" : ""}>${t}</option>`).join("")}</select><label>工時</label><div class="row hours">${[0.5, 1, 1.5, 2, 3, 4, 8].map(h => `<button class="btn2 hour" data-h="${h}">${h === 0.5 ? "30m" : h + "h"}</button>`).join("")}</div><label>工作內容（選填）</label><input class="input" id="task" value="${escapeHtml(task)}"><div class="form-actions capture-actions"><button class="btn2" data-capture-cancel="1">取消</button><button class="btn" id="saveEntry">儲存</button></div></div></section>`;
+  return `<section class="panel capture-panel" style="margin-top:18px"><div class="panel-head"><div><h2>${e ? "編輯工時" : "➕ 快速紀錄"}</h2></div></div><div class="form capture-form"><label>日期 / 開始時間</label><input class="input" id="dt" type="datetime-local" value="${e ? e.at : captureDefaultStart()}"><label>工作模型</label><select id="title" class="input">${workModelOptions(title)}</select><div class="work-model-add"><input class="input" id="newModelCapture" placeholder="新增工作模型，例如：ISO 稽核"><button class="btn2" data-add-capture-model="1" type="button">＋ 新增工作模型</button></div><label>事件類型</label><select id="eventType" class="input">${eventTypes.map(t => `<option ${type === t ? "selected" : ""}>${t}</option>`).join("")}</select><label>工時</label><div class="row hours">${[0.5, 1, 1.5, 2, 3, 4, 8].map(h => `<button class="btn2 hour" data-h="${h}">${h === 0.5 ? "30m" : h + "h"}</button>`).join("")}</div><label>工作內容（選填）</label><input class="input" id="task" value="${escapeHtml(task)}"><div class="form-actions capture-actions"><button class="btn2" data-capture-cancel="1">取消</button><button class="btn" id="saveEntry">儲存</button></div></div></section>`;
 }
 
 function sync() {
@@ -597,7 +623,8 @@ function libraryForm(id = null) {
 }
 
 function settings() {
-  return `<section class="panel" style="margin-top:18px"><h2>⚙️ 設定</h2><div class="entry"><b>目前使用者</b><div class="muted">${escapeHtml(session.name)}｜${escapeHtml(session.status || session.email || "")}</div></div><label>角色</label><select id="roleSet" class="input">${roles.map(r => `<option ${profile && profile.role === r ? "selected" : ""}>${r}</option>`).join("")}</select><label>工作標籤</label><textarea id="tagsSet">${profile ? escapeHtml(profile.tags.join("\n")) : ""}</textarea><button class="btn full" id="saveSettings">儲存工作模型</button><button class="btn gray full" id="resetProfile">重新初次認識</button><button class="btn red full" id="logoutBtn">登出</button><div class="entry"><b>版本</b><div class="muted">${VERSION}</div></div></section>`;
+  const models = workModels();
+  return `<section class="panel" style="margin-top:18px"><h2>⚙️ 設定</h2><div class="entry"><b>目前使用者</b><div class="muted">${escapeHtml(session.name)}｜${escapeHtml(session.status || session.email || "")}</div></div><label>角色</label><select id="roleSet" class="input">${roles.map(r => `<option ${profile && profile.role === r ? "selected" : ""}>${r}</option>`).join("")}</select><div class="work-model-section"><label>工作模型</label><div class="work-model-list" id="workModelList">${workModelChecks(models, models)}</div><div class="work-model-add"><input class="input" id="newWorkModel" placeholder="新增工作模型，例如：ISO 稽核"><button class="btn2" id="addWorkModel" type="button">＋ 新增工作模型</button></div><div class="muted">工作模型會成為快速紀錄、推理預測與未來知識來源關聯的共同基礎。</div></div><button class="btn full" id="saveSettings">儲存工作模型</button><button class="btn gray full" id="resetProfile">重新初次認識</button><button class="btn red full" id="logoutBtn">登出</button><div class="entry"><b>版本</b><div class="muted">${VERSION}</div></div></section>`;
 }
 
 function currentViewHtml() {
@@ -693,10 +720,22 @@ function bindCapture(editId = null) {
   const editingEntry = editId ? entries.find(e => e.id === editId) : null;
   let selectedH = editingEntry ? Number(editingEntry.hours) : 1;
   document.querySelectorAll("[data-capture-back],[data-capture-cancel]").forEach(b => b.onclick = () => { view = "center"; editingEntryId = null; captureSeed = null; saveAll(); render(); });
+  const addModelBtn = document.querySelector("[data-add-capture-model]");
+  if (addModelBtn) addModelBtn.onclick = () => {
+    const input = document.getElementById("newModelCapture");
+    if (!addWorkModel(input.value)) return toast("請輸入工作模型名稱");
+    saveAll();
+    const select = document.getElementById("title");
+    select.innerHTML = workModelOptions(input.value.trim());
+    select.value = input.value.trim();
+    input.value = "";
+    toast("已新增工作模型");
+  };
   document.querySelectorAll(".hour").forEach(b => b.onclick = () => { selectedH = Number(b.dataset.h); document.querySelectorAll(".hour").forEach(x => x.classList.remove("selected")); b.classList.add("selected"); });
   document.getElementById("saveEntry").onclick = () => {
     const at = document.getElementById("dt").value;
-    const item = { id: editingEntry ? editingEntry.id : uid(), date: at.slice(0, 10), at, title: document.getElementById("title").value.trim(), hours: selectedH, type: document.getElementById("eventType").value, task: document.getElementById("task").value || "採購案件處理", source: editingEntry ? editingEntry.source : "manual" };
+    const model = document.getElementById("title").value.trim();
+    const item = { id: editingEntry ? editingEntry.id : uid(), date: at.slice(0, 10), at, title: model, hours: selectedH, type: document.getElementById("eventType").value, task: document.getElementById("task").value || model, source: editingEntry ? editingEntry.source : "manual" };
     const error = validateEntry(item); if (error) return toast(error);
     if (editingEntry) entries[entries.findIndex(e => e.id === editingEntry.id)] = item; else entries.push(item);
     selected = new Date(at); view = "center"; editingEntryId = null; captureSeed = null; saveAll(); toast("已儲存工時"); render();
@@ -721,7 +760,30 @@ function bindLibraryForm(id = null) {
 }
 
 function bindSettings() {
-  document.getElementById("saveSettings").onclick = () => { profile.role = document.getElementById("roleSet").value; profile.tags = document.getElementById("tagsSet").value.split("\n").map(x => x.trim()).filter(Boolean); saveAll(); toast("工作模型已更新"); render(); };
+  const renderModelChecks = (models, selectedModels = models) => {
+    const list = document.getElementById("workModelList");
+    if (list) list.innerHTML = workModelChecks(models, selectedModels);
+  };
+  const roleSet = document.getElementById("roleSet");
+  if (roleSet) roleSet.onchange = e => renderModelChecks(tagsForRole(e.target.value), tagsForRole(e.target.value));
+  const add = document.getElementById("addWorkModel");
+  if (add) add.onclick = () => {
+    const input = document.getElementById("newWorkModel");
+    const name = input.value.trim();
+    if (!name) return toast("請輸入工作模型名稱");
+    const current = [...document.querySelectorAll(".work-model-option")].map(x => x.value);
+    const selected = [...document.querySelectorAll(".work-model-option:checked")].map(x => x.value);
+    const models = current.includes(name) ? current : [...current, name];
+    renderModelChecks(models, [...new Set([...selected, name])]);
+    input.value = "";
+    toast("已新增工作模型");
+  };
+  document.getElementById("saveSettings").onclick = () => {
+    profile.role = document.getElementById("roleSet").value;
+    const selectedModels = [...document.querySelectorAll(".work-model-option:checked")].map(x => x.value.trim()).filter(Boolean);
+    profile.tags = selectedModels.length ? [...new Set(selectedModels)] : tagsForRole(profile.role);
+    saveAll(); toast("工作模型已更新"); render();
+  };
   document.getElementById("resetProfile").onclick = () => { profile = null; saveAll(); render(); };
   document.getElementById("logoutBtn").onclick = () => doLogout();
 }

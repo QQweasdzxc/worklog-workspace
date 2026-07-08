@@ -47,6 +47,7 @@ const roleTagMap = {
 };
 const eventTypes = ["工作", "特休", "事假", "病假", "會議", "出差", "教育訓練"];
 const DEFAULT_LIBRARY_READING_STATUS = "🟡 等待閱讀";
+const ECP_EXPORT_PROFILE_PATH = "resources/profiles/ecp-profile.json";
 const workspaceRegistry = {
   worklog: { icon: "🪶", label: "工時營帳", group: "camp", enabled: true },
   investment: { icon: "📈", label: "投資營帳", group: "camp", comingSoon: true },
@@ -254,7 +255,7 @@ function normalizeEntries() {
     const next = { ...e };
     if (!next.id) { next.id = uid(); changed = true; }
     if (!next.type) { next.type = "工作"; changed = true; }
-    if (!next.task) { next.task = next.title || "工作"; changed = true; }
+    if (next.task == null) { next.task = ""; changed = true; }
     return next;
   });
   library = library.map(item => item.id ? item : { ...item, id: uid("lib") });
@@ -262,7 +263,7 @@ function normalizeEntries() {
 }
 
 function validateEntry(item) {
-  if (!item.title) return "請輸入工作內容";
+  if (!item.title) return "請選擇工作模型";
   if (!item.at || Number.isNaN(new Date(item.at).getTime())) return "請選擇正確時間";
   if (!item.hours || item.hours <= 0) return "請選擇工時";
   if (item.hours > 8) return "單筆工時不可超過 8 小時";
@@ -337,8 +338,34 @@ function tagsForRole(role) {
   return roleTagMap[role] || defaultTags;
 }
 
+function workModels() {
+  const models = Array.isArray(profile?.tags) && profile.tags.length ? profile.tags : tagsForRole(profile?.role || "採購");
+  return [...new Set(models.map(x => String(x).trim()).filter(Boolean))];
+}
+
 function tagButtons(tags) {
   return tags.map(t => `<button class="btn2 tag-btn" data-tag="${escapeHtml(t)}">${escapeHtml(t)}</button>`).join("");
+}
+
+function workModelChecks(models = [], selectedModels = models) {
+  const selectedSet = new Set(selectedModels);
+  return models.map(model => `<label class="work-model-check"><input type="checkbox" class="work-model-option" value="${escapeHtml(model)}" ${selectedSet.has(model) ? "checked" : ""}><span>${escapeHtml(model)}</span></label>`).join("");
+}
+
+function workModelOptions(selectedModel = "") {
+  const models = workModels();
+  const selectedValue = selectedModel || models[0] || "";
+  const options = selectedValue && !models.includes(selectedValue) ? [selectedValue, ...models] : models;
+  return options.map(model => `<option value="${escapeHtml(model)}" ${model === selectedValue ? "selected" : ""}>${escapeHtml(model)}</option>`).join("");
+}
+
+function addWorkModel(model) {
+  const name = String(model || "").trim();
+  if (!name) return false;
+  if (!profile) profile = { role: "採購", tags: [], sources: ["Google Drive", "Gmail", "Calendar", "手動紀錄"], workHours: "09:00~18:00", lunch: "12:00~13:00", sop: "目前沒有 SOP，先用職務模型" };
+  const models = workModels();
+  if (!models.includes(name)) profile.tags = [...models, name];
+  return true;
 }
 
 function googleConnectionLabel() {
@@ -460,11 +487,11 @@ function osShell() {
 }
 
 function onboardingWorkspace() {
-  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>🪶 初次認識工時營帳</h2><div class="muted">建立工作模型後，即可使用 Calendar、我的工作與推理預測。</div></div></div><div class="profile-grid"><div><label>你的職務</label><select id="role" class="input">${roles.map(r => `<option>${r}</option>`).join("")}</select></div><div><label>每日工時</label><select class="input"><option>09:00~18:00，午休 12:00~13:00</option></select></div></div><label>常見工作內容（可複選）</label><div class="row two" id="tagOptions">${tagButtons(tagsForRole("採購"))}</div><label>SOP 狀態</label><select id="sop" class="input"><option>目前沒有 SOP，先用職務模型</option><option>有 SOP，之後上傳</option></select><label>工作來源</label><div class="row two">${["Google Drive", "Gmail", "Calendar", "手動紀錄"].map(s => `<button class="btn2 src-btn" data-src="${s}">${s}</button>`).join("")}</div><button class="btn full" id="saveProfile">建立我的工作模型</button></section>`;
+  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>🪶 初次認識工時營帳</h2><div class="muted">建立工作模型後，即可使用 Calendar、我的工作與推理預測。</div></div></div><div class="profile-grid"><div><label>你的職務</label><select id="role" class="input">${roles.map(r => `<option>${r}</option>`).join("")}</select></div><div><label>每日工時</label><select class="input"><option>09:00~18:00，午休 12:00~13:00</option></select></div></div><label>工作模型</label><div class="row two" id="tagOptions">${tagButtons(tagsForRole("採購"))}</div><label>SOP 狀態</label><select id="sop" class="input"><option>目前沒有 SOP，先用職務模型</option><option>有 SOP，之後上傳</option></select><label>工作來源</label><div class="row two">${["Google Drive", "Gmail", "Calendar", "手動紀錄"].map(s => `<button class="btn2 src-btn" data-src="${s}">${s}</button>`).join("")}</div><button class="btn full" id="saveProfile">建立我的工作模型</button></section>`;
 }
 
 function onboarding() {
-  return `<div class="wrap"><div class="card"><div class="top"><div><div class="muted">🪶 初次認識</div><h1>你好，我是諸葛先生</h1><div class="muted">我想先了解你的工作，之後才能產生更準的每日工作建議卡。</div></div><div class="header-right">${userBadge()}<div class="tag">${VERSION}</div></div></div><section class="panel" style="margin-top:18px"><div class="profile-grid"><div><label>你的職務</label><select id="role" class="input">${roles.map(r => `<option>${r}</option>`).join("")}</select></div><div><label>每日工時</label><select class="input"><option>09:00~18:00，午休 12:00~13:00</option></select></div></div><label>常見工作內容（可複選）</label><div class="row two" id="tagOptions">${tagButtons(tagsForRole("採購"))}</div><label>SOP 狀態</label><select id="sop" class="input"><option>目前沒有 SOP，先用職務模型</option><option>有 SOP，之後上傳</option></select><label>工作來源</label><div class="row two">${["Google Drive", "Gmail", "Calendar", "手動紀錄"].map(s => `<button class="btn2 src-btn" data-src="${s}">${s}</button>`).join("")}</div><button class="btn full" id="saveProfile">建立我的工作模型</button></section></div></div>`;
+  return `<div class="wrap"><div class="card"><div class="top"><div><div class="muted">🪶 初次認識</div><h1>你好，我是諸葛先生</h1><div class="muted">我想先了解你的工作，之後才能產生更準的每日工作建議卡。</div></div><div class="header-right">${userBadge()}<div class="tag">${VERSION}</div></div></div><section class="panel" style="margin-top:18px"><div class="profile-grid"><div><label>你的職務</label><select id="role" class="input">${roles.map(r => `<option>${r}</option>`).join("")}</select></div><div><label>每日工時</label><select class="input"><option>09:00~18:00，午休 12:00~13:00</option></select></div></div><label>工作模型</label><div class="row two" id="tagOptions">${tagButtons(tagsForRole("採購"))}</div><label>SOP 狀態</label><select id="sop" class="input"><option>目前沒有 SOP，先用職務模型</option><option>有 SOP，之後上傳</option></select><label>工作來源</label><div class="row two">${["Google Drive", "Gmail", "Calendar", "手動紀錄"].map(s => `<button class="btn2 src-btn" data-src="${s}">${s}</button>`).join("")}</div><button class="btn full" id="saveProfile">建立我的工作模型</button></section></div></div>`;
 }
 
 function calendarPanel() {
@@ -476,7 +503,7 @@ function calendarPanel() {
     const h = entries.filter(e => e.date === dk).reduce((s, e) => s + Number(e.hours || 0), 0);
     html += `<div class="day ${d === selected.getDate() ? "sel" : ""}" data-day="${d}"><b>${d}</b><div class="bar"><div class="fill" style="width:${Math.min(100, h / 8 * 100)}%"></div></div><small>${h ? h + "h" : ""}</small></div>`;
   }
-  html += `</div><div class="month-summary"><b>本月工時</b><span>${hours(monthEntries())}h</span></div><button class="btn full" data-export-month="1">⬇️ 下載本月工時（Excel）</button>`;
+  html += `</div><div class="month-summary"><b>本月工時</b><span>${hours(monthEntries())}h</span></div><button class="btn full" data-export-month="1">⬇️ 下載 ECP 匯入檔</button>`;
   return html;
 }
 
@@ -521,13 +548,13 @@ function todayPanel() {
 function makeSuggestions() {
   if (!profile) return [];
   const done = dayEntries().map(e => e.title);
-  let tags = [...(profile.tags || defaultTags)];
+  let tags = workModels();
   tags.sort((a, b) => (feedback[b] || 0) - (feedback[a] || 0));
   let suggestions = [];
   let start = nextStart();
   for (const tag of tags) {
     if (done.some(d => d.includes(tag))) continue;
-    suggestions.push({ id: tag, title: tag, task: tag, hours: 1, at: start, sourceLabel: "🤖 AI 推理" });
+    suggestions.push({ id: tag, title: tag, task: tag, hours: 1, at: start, sourceLabel: "🧩 工作模型" });
     let d = new Date(start);
     d.setHours(d.getHours() + 1);
     if (d.getHours() === 12) d.setHours(13);
@@ -555,7 +582,7 @@ function capture(editId = null, seed = null) {
   const title = e ? e.title : (seed ? seed.title : "");
   const task = e ? e.task : (seed ? seed.task : "採購案件處理");
   const type = e ? (e.type || "工作") : "工作";
-  return `<section class="panel capture-panel" style="margin-top:18px"><div class="panel-head"><div><h2>${e ? "編輯工時" : "➕ 快速紀錄"}</h2></div></div><div class="form capture-form"><label>日期 / 開始時間</label><input class="input" id="dt" type="datetime-local" value="${e ? e.at : captureDefaultStart()}"><label>工作標題</label><textarea id="title" placeholder="今天做了什麼？">${escapeHtml(title)}</textarea><label>事件類型</label><select id="eventType" class="input">${eventTypes.map(t => `<option ${type === t ? "selected" : ""}>${t}</option>`).join("")}</select><label>工時</label><div class="row hours">${[0.5, 1, 1.5, 2, 3, 4, 8].map(h => `<button class="btn2 hour" data-h="${h}">${h === 0.5 ? "30m" : h + "h"}</button>`).join("")}</div><label>工作內容（選填）</label><input class="input" id="task" value="${escapeHtml(task)}"><div class="form-actions capture-actions"><button class="btn2" data-capture-cancel="1">取消</button><button class="btn" id="saveEntry">儲存</button></div></div></section>`;
+  return `<section class="panel capture-panel" style="margin-top:18px"><div class="panel-head"><div><h2>${e ? "編輯工時" : "➕ 快速紀錄"}</h2></div></div><div class="form capture-form"><label>日期 / 開始時間</label><input class="input" id="dt" type="datetime-local" value="${e ? e.at : captureDefaultStart()}"><label>工作模型</label><select id="title" class="input">${workModelOptions(title)}</select><div class="work-model-add"><input class="input" id="newModelCapture" placeholder="新增工作模型，例如：ISO 稽核"><button class="btn2" data-add-capture-model="1" type="button">＋ 新增工作模型</button></div><label>事件類型</label><select id="eventType" class="input">${eventTypes.map(t => `<option ${type === t ? "selected" : ""}>${t}</option>`).join("")}</select><label>工時</label><div class="row hours">${[0.5, 1, 1.5, 2, 3, 4, 8].map(h => `<button class="btn2 hour" data-h="${h}">${h === 0.5 ? "30m" : h + "h"}</button>`).join("")}</div><label>工作內容（選填）</label><input class="input" id="task" value="${escapeHtml(task)}"><div class="form-actions capture-actions"><button class="btn2" data-capture-cancel="1">取消</button><button class="btn" id="saveEntry">儲存</button></div></div></section>`;
 }
 
 function sync() {
@@ -597,7 +624,8 @@ function libraryForm(id = null) {
 }
 
 function settings() {
-  return `<section class="panel" style="margin-top:18px"><h2>⚙️ 設定</h2><div class="entry"><b>目前使用者</b><div class="muted">${escapeHtml(session.name)}｜${escapeHtml(session.status || session.email || "")}</div></div><label>角色</label><select id="roleSet" class="input">${roles.map(r => `<option ${profile && profile.role === r ? "selected" : ""}>${r}</option>`).join("")}</select><label>工作標籤</label><textarea id="tagsSet">${profile ? escapeHtml(profile.tags.join("\n")) : ""}</textarea><button class="btn full" id="saveSettings">儲存工作模型</button><button class="btn gray full" id="resetProfile">重新初次認識</button><button class="btn red full" id="logoutBtn">登出</button><div class="entry"><b>版本</b><div class="muted">${VERSION}</div></div></section>`;
+  const models = workModels();
+  return `<section class="panel" style="margin-top:18px"><h2>⚙️ 設定</h2><div class="entry"><b>目前使用者</b><div class="muted">${escapeHtml(session.name)}｜${escapeHtml(session.status || session.email || "")}</div></div><label>角色</label><select id="roleSet" class="input">${roles.map(r => `<option ${profile && profile.role === r ? "selected" : ""}>${r}</option>`).join("")}</select><div class="work-model-section"><label>工作模型</label><div class="work-model-list" id="workModelList">${workModelChecks(models, models)}</div><div class="work-model-add"><input class="input" id="newWorkModel" placeholder="新增工作模型，例如：ISO 稽核"><button class="btn2" id="addWorkModel" type="button">＋ 新增工作模型</button></div><div class="muted">工作模型會成為快速紀錄、推理預測與未來知識來源關聯的共同基礎。</div></div><div class="work-model-section"><label>ECP 設定</label><label>ECP 負責人</label><input class="input" id="ecpOwner" value="${escapeHtml(profile?.ecpOwner || "")}" placeholder="例如：陳彥達-UU"><label>ECP 負責部門</label><input class="input" id="ecpDepartment" value="${escapeHtml(profile?.ecpDepartment || "")}" placeholder="例如：UU管理部"><div class="muted">此設定僅用於「下載 ECP 匯入檔」。</div></div><button class="btn full" id="saveSettings">儲存設定</button><button class="btn gray full" id="resetProfile">重新初次認識</button><button class="btn red full" id="logoutBtn">登出</button><div class="entry"><b>版本</b><div class="muted">${VERSION}</div></div></section>`;
 }
 
 function currentViewHtml() {
@@ -656,7 +684,7 @@ function bind() {
   document.querySelectorAll("[data-toggle-mobile-calendar]").forEach(b => b.onclick = () => { mobileCalendarOpen = !mobileCalendarOpen; render(); });
   document.querySelectorAll("[data-action=add]").forEach(b => b.onclick = () => { editingEntryId = null; captureSeed = null; activeWorkspace = "worklog"; if (!openTabs.includes("worklog")) openTabs.push("worklog"); rememberWorkspace("worklog"); view = "capture"; saveAll(); render(); });
   const today = document.querySelector("[data-today]"); if (today) today.onclick = () => { selected = new Date(); saveAll(); render(); };
-  const exportBtn = document.querySelector("[data-export-month]"); if (exportBtn) exportBtn.onclick = () => exportMonthXls();
+  const exportBtn = document.querySelector("[data-export-month]"); if (exportBtn) exportBtn.onclick = () => exportEcpImportFile();
   document.querySelectorAll("[data-accept]").forEach(b => b.onclick = () => acceptSuggestion(b.dataset.accept));
   document.querySelectorAll("[data-adjust]").forEach(b => b.onclick = () => adjustSuggestion(b.dataset.adjust));
   document.querySelectorAll("[data-del-id]").forEach(b => b.onclick = () => { entries = entries.filter(e => e.id !== b.dataset.delId); saveAll(); toast("已刪除"); render(); });
@@ -693,10 +721,22 @@ function bindCapture(editId = null) {
   const editingEntry = editId ? entries.find(e => e.id === editId) : null;
   let selectedH = editingEntry ? Number(editingEntry.hours) : 1;
   document.querySelectorAll("[data-capture-back],[data-capture-cancel]").forEach(b => b.onclick = () => { view = "center"; editingEntryId = null; captureSeed = null; saveAll(); render(); });
+  const addModelBtn = document.querySelector("[data-add-capture-model]");
+  if (addModelBtn) addModelBtn.onclick = () => {
+    const input = document.getElementById("newModelCapture");
+    if (!addWorkModel(input.value)) return toast("請輸入工作模型名稱");
+    saveAll();
+    const select = document.getElementById("title");
+    select.innerHTML = workModelOptions(input.value.trim());
+    select.value = input.value.trim();
+    input.value = "";
+    toast("已新增工作模型");
+  };
   document.querySelectorAll(".hour").forEach(b => b.onclick = () => { selectedH = Number(b.dataset.h); document.querySelectorAll(".hour").forEach(x => x.classList.remove("selected")); b.classList.add("selected"); });
   document.getElementById("saveEntry").onclick = () => {
     const at = document.getElementById("dt").value;
-    const item = { id: editingEntry ? editingEntry.id : uid(), date: at.slice(0, 10), at, title: document.getElementById("title").value.trim(), hours: selectedH, type: document.getElementById("eventType").value, task: document.getElementById("task").value || "採購案件處理", source: editingEntry ? editingEntry.source : "manual" };
+    const model = document.getElementById("title").value.trim();
+    const item = { id: editingEntry ? editingEntry.id : uid(), date: at.slice(0, 10), at, title: model, hours: selectedH, type: document.getElementById("eventType").value, task: document.getElementById("task").value.trim(), source: editingEntry ? editingEntry.source : "manual" };
     const error = validateEntry(item); if (error) return toast(error);
     if (editingEntry) entries[entries.findIndex(e => e.id === editingEntry.id)] = item; else entries.push(item);
     selected = new Date(at); view = "center"; editingEntryId = null; captureSeed = null; saveAll(); toast("已儲存工時"); render();
@@ -721,23 +761,349 @@ function bindLibraryForm(id = null) {
 }
 
 function bindSettings() {
-  document.getElementById("saveSettings").onclick = () => { profile.role = document.getElementById("roleSet").value; profile.tags = document.getElementById("tagsSet").value.split("\n").map(x => x.trim()).filter(Boolean); saveAll(); toast("工作模型已更新"); render(); };
+  const renderModelChecks = (models, selectedModels = models) => {
+    const list = document.getElementById("workModelList");
+    if (list) list.innerHTML = workModelChecks(models, selectedModels);
+  };
+  const roleSet = document.getElementById("roleSet");
+  if (roleSet) roleSet.onchange = e => renderModelChecks(tagsForRole(e.target.value), tagsForRole(e.target.value));
+  const add = document.getElementById("addWorkModel");
+  if (add) add.onclick = () => {
+    const input = document.getElementById("newWorkModel");
+    const name = input.value.trim();
+    if (!name) return toast("請輸入工作模型名稱");
+    const current = [...document.querySelectorAll(".work-model-option")].map(x => x.value);
+    const selected = [...document.querySelectorAll(".work-model-option:checked")].map(x => x.value);
+    const models = current.includes(name) ? current : [...current, name];
+    renderModelChecks(models, [...new Set([...selected, name])]);
+    input.value = "";
+    toast("已新增工作模型");
+  };
+  document.getElementById("saveSettings").onclick = () => {
+    profile.role = document.getElementById("roleSet").value;
+    const selectedModels = [...document.querySelectorAll(".work-model-option:checked")].map(x => x.value.trim()).filter(Boolean);
+    profile.tags = selectedModels.length ? [...new Set(selectedModels)] : tagsForRole(profile.role);
+    profile.ecpOwner = document.getElementById("ecpOwner").value.trim();
+    profile.ecpDepartment = document.getElementById("ecpDepartment").value.trim();
+    saveAll(); toast("工作模型已更新"); render();
+  };
   document.getElementById("resetProfile").onclick = () => { profile = null; saveAll(); render(); };
   document.getElementById("logoutBtn").onclick = () => doLogout();
 }
 
-function exportMonthXls() {
-  const rows = monthEntries();
-  const ym = monthKey();
-  const trs = rows.length ? rows.map(e => `<tr><td>${escapeHtml(e.date)}</td><td>${fmt(e.at)}</td><td>${escapeHtml(e.type || "工作")}</td><td>${escapeHtml(e.title)}</td><td>${escapeHtml(e.task || "")}</td><td>${Number(e.hours || 0)}</td></tr>`).join("") : `<tr><td colspan="6">本月尚無工時資料</td></tr>`;
-  const html = `<!doctype html><html><head><meta charset="utf-8"></head><body><table border="1"><tr><th colspan="6">WorkLog ${ym} 本月工時</th></tr><tr><th>日期</th><th>時間</th><th>類型</th><th>工作內容</th><th>任務</th><th>工時</th></tr>${trs}<tr><td colspan="5">合計</td><td>${hours(rows)}</td></tr></table></body></html>`;
-  const blob = new Blob([html], { type: "application/vnd.ms-excel;charset=utf-8" });
+const CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
+
+function crc32(bytes) {
+  let c = 0xffffffff;
+  for (const b of bytes) c = CRC_TABLE[(c ^ b) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+function u16(view, offset) { return view.getUint16(offset, true); }
+function u32(view, offset) { return view.getUint32(offset, true); }
+function setU16(view, offset, value) { view.setUint16(offset, value, true); }
+function setU32(view, offset, value) { view.setUint32(offset, value, true); }
+
+function parseZip(arrayBuffer) {
+  const bytes = new Uint8Array(arrayBuffer);
+  const view = new DataView(arrayBuffer);
+  let eocd = -1;
+  for (let i = bytes.length - 22; i >= 0; i--) {
+    if (u32(view, i) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error("找不到 XLSX ZIP 結尾資料");
+  const total = u16(view, eocd + 10);
+  let ptr = u32(view, eocd + 16);
+  const decoder = new TextDecoder();
+  const entries = [];
+  for (let i = 0; i < total; i++) {
+    if (u32(view, ptr) !== 0x02014b50) throw new Error("XLSX ZIP 中央目錄格式錯誤");
+    const method = u16(view, ptr + 10);
+    const compressedSize = u32(view, ptr + 20);
+    const uncompressedSize = u32(view, ptr + 24);
+    const nameLen = u16(view, ptr + 28);
+    const extraLen = u16(view, ptr + 30);
+    const commentLen = u16(view, ptr + 32);
+    const localOffset = u32(view, ptr + 42);
+    const name = decoder.decode(bytes.slice(ptr + 46, ptr + 46 + nameLen));
+    if (u32(view, localOffset) !== 0x04034b50) throw new Error(`XLSX ZIP local header 錯誤：${name}`);
+    const localNameLen = u16(view, localOffset + 26);
+    const localExtraLen = u16(view, localOffset + 28);
+    const dataStart = localOffset + 30 + localNameLen + localExtraLen;
+    if (method !== 0) throw new Error(`Template 必須使用未壓縮 ZIP entry：${name}`);
+    const data = bytes.slice(dataStart, dataStart + compressedSize);
+    if (data.length !== uncompressedSize) throw new Error(`Template entry 長度不一致：${name}`);
+    entries.push({ name, data });
+    ptr += 46 + nameLen + extraLen + commentLen;
+  }
+  return entries;
+}
+
+function writeZip(entries) {
+  const encoder = new TextEncoder();
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+  for (const entry of entries) {
+    const nameBytes = encoder.encode(entry.name);
+    const data = entry.data instanceof Uint8Array ? entry.data : encoder.encode(String(entry.data));
+    const crc = crc32(data);
+    const local = new Uint8Array(30 + nameBytes.length);
+    const localView = new DataView(local.buffer);
+    setU32(localView, 0, 0x04034b50);
+    setU16(localView, 4, 20);
+    setU16(localView, 6, 0x0800);
+    setU16(localView, 8, 0);
+    setU32(localView, 14, crc);
+    setU32(localView, 18, data.length);
+    setU32(localView, 22, data.length);
+    setU16(localView, 26, nameBytes.length);
+    local.set(nameBytes, 30);
+    localParts.push(local, data);
+
+    const central = new Uint8Array(46 + nameBytes.length);
+    const centralView = new DataView(central.buffer);
+    setU32(centralView, 0, 0x02014b50);
+    setU16(centralView, 4, 20);
+    setU16(centralView, 6, 20);
+    setU16(centralView, 8, 0x0800);
+    setU16(centralView, 10, 0);
+    setU32(centralView, 16, crc);
+    setU32(centralView, 20, data.length);
+    setU32(centralView, 24, data.length);
+    setU16(centralView, 28, nameBytes.length);
+    setU32(centralView, 42, offset);
+    central.set(nameBytes, 46);
+    centralParts.push(central);
+    offset += local.length + data.length;
+  }
+  const centralOffset = offset;
+  const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0);
+  const eocd = new Uint8Array(22);
+  const eocdView = new DataView(eocd.buffer);
+  setU32(eocdView, 0, 0x06054b50);
+  setU16(eocdView, 8, entries.length);
+  setU16(eocdView, 10, entries.length);
+  setU32(eocdView, 12, centralSize);
+  setU32(eocdView, 16, centralOffset);
+  return new Blob([...localParts, ...centralParts, eocd], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+}
+
+async function fetchResource(path) {
+  const candidates = [path, `../${path}`, `../../${path}`, `/${path}`];
+  for (const url of candidates) {
+    try {
+      const res = await fetch(url);
+      if (res.ok) return res;
+    } catch {}
+  }
+  throw new Error(`找不到資源：${path}`);
+}
+
+async function loadExportProfile(path) {
+  const res = await fetchResource(path);
+  return res.json();
+}
+
+async function loadTemplateEntries(path) {
+  const res = await fetchResource(path);
+  return parseZip(await res.arrayBuffer());
+}
+
+function findZipEntry(entries, name) {
+  const entry = entries.find(e => e.name === name);
+  if (!entry) throw new Error(`Template 缺少檔案：${name}`);
+  return entry;
+}
+
+function xmlText(entries, name) {
+  return new TextDecoder().decode(findZipEntry(entries, name).data);
+}
+
+function updateZipText(entries, name, text) {
+  findZipEntry(entries, name).data = new TextEncoder().encode(text);
+}
+
+function parseXml(text) {
+  const doc = new DOMParser().parseFromString(text, "application/xml");
+  if (doc.querySelector("parsererror")) throw new Error("Template XML 解析失敗");
+  return doc;
+}
+
+function spreadsheetNs(doc, tag) {
+  return doc.createElementNS("http://schemas.openxmlformats.org/spreadsheetml/2006/main", tag);
+}
+
+function columnName(index) {
+  let name = "";
+  while (index > 0) {
+    const mod = (index - 1) % 26;
+    name = String.fromCharCode(65 + mod) + name;
+    index = Math.floor((index - mod) / 26);
+  }
+  return name;
+}
+
+function columnIndexFromRef(ref) {
+  return ref.replace(/[0-9]/g, "").split("").reduce((sum, ch) => sum * 26 + ch.charCodeAt(0) - 64, 0);
+}
+
+function cellText(cell) {
+  const inlineText = cell.getElementsByTagNameNS("http://schemas.openxmlformats.org/spreadsheetml/2006/main", "t")[0];
+  const v = cell.getElementsByTagNameNS("http://schemas.openxmlformats.org/spreadsheetml/2006/main", "v")[0];
+  return (inlineText?.textContent ?? v?.textContent ?? "").trim();
+}
+
+function resolveSheetPath(entries, sheetName) {
+  const workbook = parseXml(xmlText(entries, "xl/workbook.xml"));
+  const sheets = [...workbook.getElementsByTagNameNS("http://schemas.openxmlformats.org/spreadsheetml/2006/main", "sheet")];
+  const sheet = sheets.find(s => s.getAttribute("name") === sheetName);
+  if (!sheet) throw new Error(`Template 找不到 Sheet：${sheetName}`);
+  const relId = sheet.getAttribute("r:id") || sheet.getAttribute("id");
+  const rels = parseXml(xmlText(entries, "xl/_rels/workbook.xml.rels"));
+  const relationships = [...rels.getElementsByTagName("Relationship")];
+  const rel = relationships.find(r => r.getAttribute("Id") === relId);
+  if (!rel) throw new Error(`Template 找不到 Sheet 關聯：${sheetName}`);
+  return `xl/${rel.getAttribute("Target").replace(new RegExp("^/"), "")}`.replace("xl/xl/", "xl/");
+}
+
+function buildHeaderMap(sheetDoc, headerRow) {
+  const rows = [...sheetDoc.getElementsByTagNameNS("http://schemas.openxmlformats.org/spreadsheetml/2006/main", "row")];
+  const row = rows.find(r => Number(r.getAttribute("r")) === headerRow);
+  if (!row) throw new Error(`Template 找不到 Header Row：${headerRow}`);
+  const map = {};
+  [...row.getElementsByTagNameNS("http://schemas.openxmlformats.org/spreadsheetml/2006/main", "c")].forEach(cell => {
+    const header = cellText(cell);
+    if (header) map[header] = columnIndexFromRef(cell.getAttribute("r"));
+  });
+  return map;
+}
+
+function makeInlineStringCell(doc, ref, value) {
+  const cell = spreadsheetNs(doc, "c");
+  cell.setAttribute("r", ref);
+  cell.setAttribute("t", "inlineStr");
+  if (value !== "") {
+    const is = spreadsheetNs(doc, "is");
+    const t = spreadsheetNs(doc, "t");
+    t.textContent = String(value);
+    is.appendChild(t);
+    cell.appendChild(is);
+  }
+  return cell;
+}
+
+function makeNumberCell(doc, ref, value) {
+  const cell = spreadsheetNs(doc, "c");
+  cell.setAttribute("r", ref);
+  cell.setAttribute("t", "n");
+  const v = spreadsheetNs(doc, "v");
+  v.textContent = String(Number(value || 0));
+  cell.appendChild(v);
+  return cell;
+}
+
+function exportFieldValue(rule, row) {
+  if (!rule || rule.type === "blank") return "";
+  if (rule.type === "literal") return rule.value || "";
+  if (rule.type === "field") return row[rule.field] ?? "";
+  return "";
+}
+
+function clearDataRows(sheetDoc, dataStartRow) {
+  const sheetData = sheetDoc.getElementsByTagNameNS("http://schemas.openxmlformats.org/spreadsheetml/2006/main", "sheetData")[0];
+  [...sheetData.getElementsByTagNameNS("http://schemas.openxmlformats.org/spreadsheetml/2006/main", "row")]
+    .filter(row => Number(row.getAttribute("r")) >= dataStartRow)
+    .forEach(row => sheetData.removeChild(row));
+  return sheetData;
+}
+
+function writeRowsByHeaderName(sheetDoc, profile, rows) {
+  const headerMap = buildHeaderMap(sheetDoc, profile.headerRow);
+  const missing = Object.keys(profile.fieldMapping).filter(header => !(header in headerMap));
+  if (missing.length) throw new Error(`Template 缺少欄位：${missing.join("、")}`);
+  const sheetData = clearDataRows(sheetDoc, profile.dataStartRow);
+  rows.forEach((data, i) => {
+    const rowNumber = profile.dataStartRow + i;
+    const row = spreadsheetNs(sheetDoc, "row");
+    row.setAttribute("r", rowNumber);
+    Object.entries(profile.fieldMapping).forEach(([header, rule]) => {
+      const col = headerMap[header];
+      const ref = `${columnName(col)}${rowNumber}`;
+      const value = exportFieldValue(rule, data);
+      row.appendChild(header === "時數" ? makeNumberCell(sheetDoc, ref, value) : makeInlineStringCell(sheetDoc, ref, value));
+    });
+    sheetData.appendChild(row);
+  });
+  const dimension = sheetDoc.getElementsByTagNameNS("http://schemas.openxmlformats.org/spreadsheetml/2006/main", "dimension")[0];
+  if (dimension) {
+    const maxCol = Math.max(...Object.values(headerMap));
+    const lastRow = Math.max(profile.headerRow, profile.dataStartRow + rows.length - 1);
+    dimension.setAttribute("ref", `A1:${columnName(maxCol)}${lastRow}`);
+  }
+}
+
+function formatEcpDateTime(value) {
+  const d = safeDate(value);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+function addHoursToDate(value, h) {
+  const d = safeDate(value);
+  d.setMinutes(d.getMinutes() + Math.round(Number(h || 0) * 60));
+  return d;
+}
+
+function workLogRowsForEcp() {
+  return monthEntries().map(entry => ({
+    title: entry.title || "",
+    task: entry.task || "",
+    startAt: formatEcpDateTime(entry.at),
+    endAt: formatEcpDateTime(addHoursToDate(entry.at, entry.hours)),
+    hours: Number(entry.hours || 0),
+    ecpOwner: profile?.ecpOwner || "",
+    ecpDepartment: profile?.ecpDepartment || ""
+  }));
+}
+
+function profileFileName(profileConfig) {
+  return profileConfig.filename.replace("{YYYYMM}", monthKey().replace("-", ""));
+}
+
+async function exportByProfile(rows, profileConfig) {
+  const entries = await loadTemplateEntries(profileConfig.template);
+  const sheetPath = resolveSheetPath(entries, profileConfig.sheet);
+  const sheetDoc = parseXml(xmlText(entries, sheetPath));
+  writeRowsByHeaderName(sheetDoc, profileConfig, rows);
+  updateZipText(entries, sheetPath, new XMLSerializer().serializeToString(sheetDoc));
+  const blob = writeZip(entries);
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `WorkLog-${ym}-工時.xls`;
+  a.download = profileFileName(profileConfig);
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  toast("已下載本月工時 Excel");
+}
+
+async function exportEcpImportFile() {
+  try {
+    if (!profile?.ecpOwner || !profile?.ecpDepartment) return toast("請先完成 ECP 設定。");
+    const rows = workLogRowsForEcp();
+    if (!rows.length) return toast("本月份尚無工時資料可匯出。");
+    const profileConfig = await loadExportProfile(ECP_EXPORT_PROFILE_PATH);
+    await exportByProfile(rows, profileConfig);
+    toast("已下載 ECP 匯入檔");
+  } catch (error) {
+    console.error(error);
+    toast(`ECP 匯出失敗：${error.message || "請稍後再試"}`);
+  }
 }
 
 async function boot() {
