@@ -1,4 +1,5 @@
 const VERSION = "1.0.0-rc3.1-sp3";
+const HEADER_VERSION = "RC3.3-sp4";
 const root = document.getElementById("app");
 const AUTH_SESSION_KEY = "zhuge_ai_os_google_auth_session_v1";
 const AUTH_CODE_VERIFIER_KEY = "zhuge_ai_os_pkce_code_verifier_v1";
@@ -263,7 +264,8 @@ function normalizeEntries() {
 }
 
 function validateEntry(item) {
-  if (!item.title) return "請選擇工作模型";
+  if (!item.title) return "請輸入工作描述";
+  if (!item.task) return "請輸入工作內容";
   if (!item.at || Number.isNaN(new Date(item.at).getTime())) return "請選擇正確時間";
   if (!item.hours || item.hours <= 0) return "請選擇工時";
   if (item.hours > 8) return "單筆工時不可超過 8 小時";
@@ -389,7 +391,7 @@ function userBadge() {
 }
 
 function header() {
-  return `<div class="top"><div class="brand-row"><button class="mini adaptive-menu" data-toggle-sidebar="1">☰</button><h1>🧠 Zhuge AI OS</h1></div><div class="header-right">${userBadge()}<div class="tag">${VERSION}</div></div></div>`;
+  return `<div class="top"><div class="brand-row"><button class="mini adaptive-menu" data-toggle-sidebar="1">☰</button><h1>🧠 Zhuge AI OS</h1><span class="header-version">${HEADER_VERSION}</span></div><div class="header-right">${userBadge()}<div class="tag full-version">${VERSION}</div></div></div>`;
 }
 
 function authScreen() {
@@ -525,24 +527,28 @@ function todaySummaryPanel() {
   const list = entriesForDate(today);
   const done = hours(list);
   const total = 8;
-  const remain = Math.max(0, total - done);
   const rate = Math.min(100, Math.round(done / total * 100));
-  return `<section class="panel mobile-summary-module"><div class="panel-head"><div><h2>☀️ 今日摘要</h2><div class="muted">${fmt(today).slice(0, 10)}｜今天還剩哪些工作要完成？</div></div><div class="tag">${rate}%</div></div><div class="summary-metrics"><div><b>${total}h</b><span>今日預計</span></div><div><b>${done}h</b><span>已完成</span></div><div><b>${rate}%</b><span>完成率</span></div></div><div class="summary-remaining">尚餘：${remain} 小時</div></section>`;
+  return `<section class="panel mobile-summary-module"><div class="panel-head"><div><h2>☀️ 今日摘要</h2><div class="muted">${fmt(today).slice(0, 10)}｜今天還剩哪些工作要完成？</div></div><div class="tag">${rate}%</div></div><div class="summary-metrics"><div><b>${total}h</b><span>今日預計</span></div><div><b>${done}h</b><span>已完成</span></div><div><b>${rate}%</b><span>完成率</span></div></div></section>`;
 }
 
 function mobileCalendarPanel() {
   const today = new Date();
-  const start = startOfWeek(today);
-  const days = Array.from({ length: 14 }, (_, i) => addDays(start, i));
+  const y = selected.getFullYear(), m = selected.getMonth();
+  const first = new Date(y, m, 1);
+  const start = startOfWeek(first);
+  const last = new Date(y, m + 1, 0);
+  const end = addDays(last, 6 - last.getDay());
+  const days = [];
+  for (let d = new Date(start); d <= end; d = addDays(d, 1)) days.push(d);
   const summaryHours = hours(entriesForDate(today));
   if (!mobileCalendarOpen) return `<div class="mobile-calendar-head"><button class="btn2" data-toggle-mobile-calendar="1">▼ 月曆</button><span class="muted">今日 ${String(today.getMonth() + 1).padStart(2, "0")}/${String(today.getDate()).padStart(2, "0")}｜${summaryHours} / 8h</span></div>`;
-  return `<div class="mobile-calendar-head"><button class="btn2" data-toggle-mobile-calendar="1">▲ 月曆</button><span class="muted">本週 + 下週快速查看</span></div><div class="mobile-two-week">${days.map(d => { const h = hours(entriesForDate(d)); const isToday = key(d) === key(today); const isSelected = key(d) === key(selected); return `<button class="mobile-day ${isToday ? "today" : ""} ${isSelected ? "sel" : ""}" data-mobile-date="${key(d)}"><span>${["日", "一", "二", "三", "四", "五", "六"][d.getDay()]}</span><b>${d.getDate()}</b><small>${h ? h + "h" : ""}</small></button>`; }).join("")}</div>`;
+  return `<div class="mobile-calendar-head"><button class="btn2" data-toggle-mobile-calendar="1">▲ 月曆</button><span class="muted">${y} / ${String(m + 1).padStart(2, "0")}｜上下滑查看整月</span></div><div class="mobile-month-scroll"><div class="mobile-week-head">${["日", "一", "二", "三", "四", "五", "六"].map(x => `<span>${x}</span>`).join("")}</div><div class="mobile-two-week">${days.map(d => { const h = hours(entriesForDate(d)); const isToday = key(d) === key(today); const isSelected = key(d) === key(selected); const out = d.getMonth() !== m; return `<button class="mobile-day ${isToday ? "today" : ""} ${isSelected ? "sel" : ""} ${out ? "out" : ""}" data-mobile-date="${key(d)}"><b>${d.getDate()}</b><small>${h ? h + "h" : ""}</small></button>`; }).join("")}</div></div>`;
 }
 
 function todayPanel() {
   const list = dayEntries();
   const h = hours(list);
-  return `<div class="panel-head"><h2>我的工作</h2><div class="tag">${h} / 8h</div></div>${list.length ? list.map(e => `<div class="entry"><div class="entry-main"><b>${escapeHtml(e.title)}</b><div class="muted">${fmt(e.at)}｜${Number(e.hours || 0)}h</div></div><div class="actions compact entry-actions"><button class="btn amber" data-edit-id="${e.id}">編輯</button><button class="btn red" data-del-id="${e.id}">刪除</button></div></div>`).join("") : `<div class="empty"><b>尚無工時紀錄</b><div class="muted">可採納推理預測，或按右下角 + 新增。</div></div>`}<button class="btn full" data-action="add">➕ 新增工作</button>`;
+  return `<div class="panel-head"><h2>我的工作</h2><div class="tag">${h} / 8h</div></div>${list.length ? list.map(e => `<div class="entry"><div class="entry-main"><b>${escapeHtml(e.title)}</b><div class="muted">${fmt(e.at)}｜${Number(e.hours || 0)}h</div></div><div class="actions compact entry-actions"><button class="btn amber" data-edit-id="${e.id}">編輯</button><button class="btn red" data-del-id="${e.id}">刪除</button></div></div>`).join("") : `<div class="empty"><b>尚無工時紀錄</b><div class="muted">可採納推理預測，或使用下方按鈕新增工作。</div></div>`}<button class="btn full" data-action="add">➕ 新增工作</button>`;
 }
 
 function makeSuggestions() {
@@ -572,7 +578,24 @@ function suggestionPanel() {
 }
 
 function center() {
-  return `<div class="workbench-grid">${todaySummaryPanel()}<section class="panel module calendar-module"><div class="desktop-calendar">${calendarPanel()}</div><div class="mobile-calendar">${mobileCalendarPanel()}</div></section><section class="panel module today-module">${todayPanel()}</section><section class="panel module suggestion-module">${suggestionPanel()}</section></div><button class="fab" data-action="add">+</button>`;
+  return `<div class="workbench-grid">${todaySummaryPanel()}<section class="panel module calendar-module"><div class="desktop-calendar">${calendarPanel()}</div><div class="mobile-calendar">${mobileCalendarPanel()}</div></section><section class="panel module today-module">${todayPanel()}</section><section class="panel module suggestion-module">${suggestionPanel()}</section></div>`;
+}
+
+function workDescriptionSuggestions(query = "") {
+  const source = [
+    ...entries.map(e => e.title),
+    ...entries.map(e => e.task),
+    ...(profile?.tags || []),
+    ...defaultTags
+  ].map(x => String(x || "").trim()).filter(Boolean);
+  const unique = [...new Set(source)];
+  const q = query.trim().toLowerCase();
+  return unique.filter(x => !q || x.toLowerCase().includes(q)).slice(0, 6);
+}
+
+function descriptionSuggestionChips(query = "") {
+  const list = workDescriptionSuggestions(query);
+  return `<div class="history-suggestions" id="descriptionSuggestions">${list.map(x => `<button class="btn2 suggestion-chip" type="button" data-title-suggestion="${escapeHtml(x)}">${escapeHtml(x)}</button>`).join("")}</div>`;
 }
 
 function capture(editId = null, seed = null) {
@@ -580,9 +603,9 @@ function capture(editId = null, seed = null) {
   seed = seed || captureSeed;
   const e = editId ? entries.find(x => x.id === editId) : null;
   const title = e ? e.title : (seed ? seed.title : "");
-  const task = e ? e.task : (seed ? seed.task : "採購案件處理");
+  const task = e ? e.task : (seed ? seed.task : "");
   const type = e ? (e.type || "工作") : "工作";
-  return `<section class="panel capture-panel" style="margin-top:18px"><div class="panel-head"><div><h2>${e ? "編輯工時" : "➕ 快速紀錄"}</h2></div></div><div class="form capture-form"><label>日期 / 開始時間</label><input class="input" id="dt" type="datetime-local" value="${e ? e.at : captureDefaultStart()}"><label>工作模型</label><select id="title" class="input">${workModelOptions(title)}</select><div class="work-model-add"><input class="input" id="newModelCapture" placeholder="新增工作模型，例如：ISO 稽核"><button class="btn2" data-add-capture-model="1" type="button">＋ 新增工作模型</button></div><label>事件類型</label><select id="eventType" class="input">${eventTypes.map(t => `<option ${type === t ? "selected" : ""}>${t}</option>`).join("")}</select><label>工時</label><div class="row hours">${[0.5, 1, 1.5, 2, 3, 4, 8].map(h => `<button class="btn2 hour" data-h="${h}">${h === 0.5 ? "30m" : h + "h"}</button>`).join("")}</div><label>工作內容（選填）</label><input class="input" id="task" value="${escapeHtml(task)}"><div class="form-actions capture-actions"><button class="btn2" data-capture-cancel="1">取消</button><button class="btn" id="saveEntry">儲存</button></div></div></section>`;
+  return `<section class="panel capture-panel" style="margin-top:18px"><div class="panel-head"><div><h2>${e ? "編輯工時" : "➕ 快速紀錄"}</h2></div></div><div class="form capture-form"><label>日期 / 開始時間</label><input class="input" id="dt" type="datetime-local" value="${e ? e.at : captureDefaultStart()}"><label>工作描述（必填）</label><input class="input" id="title" value="${escapeHtml(title)}" placeholder="例如：採購案件處理" autocomplete="off">${descriptionSuggestionChips(title)}<label>事件類型</label><select id="eventType" class="input">${eventTypes.map(t => `<option ${type === t ? "selected" : ""}>${t}</option>`).join("")}</select><label>工時</label><div class="row hours">${[0.5, 1, 1.5, 2, 3, 4, 8].map(h => `<button class="btn2 hour" data-h="${h}">${h === 0.5 ? "30m" : h + "h"}</button>`).join("")}</div><label>工作內容（必填）</label><input class="input" id="task" value="${escapeHtml(task)}" placeholder="請填寫 ECP 任務內容"><div class="form-actions capture-actions"><button class="btn2" data-capture-cancel="1">取消</button><button class="btn" id="saveEntry">儲存</button></div></div></section>`;
 }
 
 function sync() {
@@ -721,22 +744,26 @@ function bindCapture(editId = null) {
   const editingEntry = editId ? entries.find(e => e.id === editId) : null;
   let selectedH = editingEntry ? Number(editingEntry.hours) : 1;
   document.querySelectorAll("[data-capture-back],[data-capture-cancel]").forEach(b => b.onclick = () => { view = "center"; editingEntryId = null; captureSeed = null; saveAll(); render(); });
-  const addModelBtn = document.querySelector("[data-add-capture-model]");
-  if (addModelBtn) addModelBtn.onclick = () => {
-    const input = document.getElementById("newModelCapture");
-    if (!addWorkModel(input.value)) return toast("請輸入工作模型名稱");
-    saveAll();
-    const select = document.getElementById("title");
-    select.innerHTML = workModelOptions(input.value.trim());
-    select.value = input.value.trim();
-    input.value = "";
-    toast("已新增工作模型");
+  const titleInput = document.getElementById("title");
+  const bindDescriptionSuggestions = () => {
+    document.querySelectorAll("[data-title-suggestion]").forEach(b => b.onclick = () => {
+      titleInput.value = b.dataset.titleSuggestion;
+      if (!document.getElementById("task").value.trim()) document.getElementById("task").value = b.dataset.titleSuggestion;
+    });
+  };
+  bindDescriptionSuggestions();
+  if (titleInput) titleInput.oninput = () => {
+    const box = document.getElementById("descriptionSuggestions");
+    if (box) {
+      box.outerHTML = descriptionSuggestionChips(titleInput.value);
+      bindDescriptionSuggestions();
+    }
   };
   document.querySelectorAll(".hour").forEach(b => b.onclick = () => { selectedH = Number(b.dataset.h); document.querySelectorAll(".hour").forEach(x => x.classList.remove("selected")); b.classList.add("selected"); });
   document.getElementById("saveEntry").onclick = () => {
     const at = document.getElementById("dt").value;
-    const model = document.getElementById("title").value.trim();
-    const item = { id: editingEntry ? editingEntry.id : uid(), date: at.slice(0, 10), at, title: model, hours: selectedH, type: document.getElementById("eventType").value, task: document.getElementById("task").value.trim(), source: editingEntry ? editingEntry.source : "manual" };
+    const description = document.getElementById("title").value.trim();
+    const item = { id: editingEntry ? editingEntry.id : uid(), date: at.slice(0, 10), at, title: description, hours: selectedH, type: document.getElementById("eventType").value, task: document.getElementById("task").value.trim(), source: editingEntry ? editingEntry.source : "manual" };
     const error = validateEntry(item); if (error) return toast(error);
     if (editingEntry) entries[entries.findIndex(e => e.id === editingEntry.id)] = item; else entries.push(item);
     selected = new Date(at); view = "center"; editingEntryId = null; captureSeed = null; saveAll(); toast("已儲存工時"); render();
