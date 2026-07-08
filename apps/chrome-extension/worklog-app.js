@@ -21,7 +21,7 @@ let hasOsShellState = localStorage.getItem(OS_OPEN_TABS_KEY) !== null;
 let openTabs = readJson(OS_OPEN_TABS_KEY, []);
 let activeWorkspace = localStorage.getItem(OS_ACTIVE_WORKSPACE_KEY) || "dashboard";
 let recentWorkspaces = readJson(OS_RECENT_WORKSPACES_KEY, []);
-let selected = new Date(localStorage.getItem("wl_selected") || Date.now());
+let selected = new Date();
 let entries = readJson("wl_entries", []);
 let profile = readJson("wl_profile", null);
 let feedback = readJson("wl_feedback", {});
@@ -352,6 +352,10 @@ function nextStart() {
   return `${key()}T${String(h).padStart(2, "0")}:00`;
 }
 
+function captureDefaultStart() {
+  return `${key()}T09:00`;
+}
+
 function userBadge() {
   if (!session) return "";
   return `<div class="identity-badge"><span>👤 ${escapeHtml(session.name)}</span><small>${escapeHtml(session.status || session.email || "")}</small><button class="mini" data-logout="1">登出</button></div>`;
@@ -496,7 +500,7 @@ function todaySummaryPanel() {
   const total = 8;
   const remain = Math.max(0, total - done);
   const rate = Math.min(100, Math.round(done / total * 100));
-  return `<section class="panel mobile-summary-module"><div class="panel-head"><div><h2>☀️ 今日摘要</h2><div class="muted">${fmt(today).slice(0, 10)}｜今天還剩哪些工作要完成？</div></div><div class="tag">${rate}%</div></div><div class="summary-metrics"><div><b>${total}h</b><span>今日預計</span></div><div><b>${done}h</b><span>已完成</span></div><div><b>${remain}h</b><span>尚餘</span></div><div><b>${rate}%</b><span>完成率</span></div></div></section>`;
+  return `<section class="panel mobile-summary-module"><div class="panel-head"><div><h2>☀️ 今日摘要</h2><div class="muted">${fmt(today).slice(0, 10)}｜今天還剩哪些工作要完成？</div></div><div class="tag">${rate}%</div></div><div class="summary-metrics"><div><b>${total}h</b><span>今日預計</span></div><div><b>${done}h</b><span>已完成</span></div><div><b>${rate}%</b><span>完成率</span></div></div><div class="summary-remaining">尚餘：${remain} 小時</div></section>`;
 }
 
 function mobileCalendarPanel() {
@@ -541,7 +545,7 @@ function suggestionPanel() {
 }
 
 function center() {
-  return `<div class="workbench-grid">${todaySummaryPanel()}<section class="panel module today-module">${todayPanel()}</section><section class="panel module suggestion-module">${suggestionPanel()}</section><section class="panel module calendar-module"><div class="desktop-calendar">${calendarPanel()}</div><div class="mobile-calendar">${mobileCalendarPanel()}</div></section></div><button class="fab" data-action="add">+</button>`;
+  return `<div class="workbench-grid">${todaySummaryPanel()}<section class="panel module calendar-module"><div class="desktop-calendar">${calendarPanel()}</div><div class="mobile-calendar">${mobileCalendarPanel()}</div></section><section class="panel module today-module">${todayPanel()}</section><section class="panel module suggestion-module">${suggestionPanel()}</section></div><button class="fab" data-action="add">+</button>`;
 }
 
 function capture(editId = null, seed = null) {
@@ -551,7 +555,7 @@ function capture(editId = null, seed = null) {
   const title = e ? e.title : (seed ? seed.title : "");
   const task = e ? e.task : (seed ? seed.task : "採購案件處理");
   const type = e ? (e.type || "工作") : "工作";
-  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>${e ? "編輯工時" : "➕ 快速紀錄"}</h2></div><button class="btn2" data-capture-back="1">返回</button></div><div class="form"><input class="input" id="dt" type="datetime-local" value="${e ? e.at : nextStart()}"><textarea id="title" placeholder="今天做了什麼？">${escapeHtml(title)}</textarea><label>事件類型</label><select id="eventType" class="input">${eventTypes.map(t => `<option ${type === t ? "selected" : ""}>${t}</option>`).join("")}</select><div class="row hours">${[0.5, 1, 1.5, 2, 3, 4, 8].map(h => `<button class="btn2 hour" data-h="${h}">${h === 0.5 ? "30m" : h + "h"}</button>`).join("")}</div><input class="input" id="task" value="${escapeHtml(task)}"><div class="form-actions"><button class="btn2" data-capture-cancel="1">取消</button><button class="btn" id="saveEntry">儲存</button></div></div></section>`;
+  return `<section class="panel capture-panel" style="margin-top:18px"><div class="panel-head"><div><h2>${e ? "編輯工時" : "➕ 快速紀錄"}</h2><div class="muted">Today First：預設 09:00，編輯既有工作時保留原時間。</div></div><button class="btn2" data-capture-back="1">返回</button></div><div class="form capture-form"><label>日期 / 開始時間</label><input class="input" id="dt" type="datetime-local" value="${e ? e.at : captureDefaultStart()}"><label>工作名稱</label><textarea id="title" placeholder="今天做了什麼？">${escapeHtml(title)}</textarea><label>事件類型</label><select id="eventType" class="input">${eventTypes.map(t => `<option ${type === t ? "selected" : ""}>${t}</option>`).join("")}</select><label>工時</label><div class="row hours">${[0.5, 1, 1.5, 2, 3, 4, 8].map(h => `<button class="btn2 hour" data-h="${h}">${h === 0.5 ? "30m" : h + "h"}</button>`).join("")}</div><label>工作內容</label><input class="input" id="task" value="${escapeHtml(task)}"><div class="form-actions capture-actions"><button class="btn2" data-capture-back="1">返回</button><button class="btn2" data-capture-cancel="1">取消</button><button class="btn" id="saveEntry">儲存</button></div></div></section>`;
 }
 
 function sync() {
