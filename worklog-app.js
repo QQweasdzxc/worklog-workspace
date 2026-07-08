@@ -1,5 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
-const HEADER_VERSION = "RC3.3-sp4";
+const RELEASE_VERSION = "RC3.3";
+const BUILD_TIME = "20260708-2205";
 const root = document.getElementById("app");
 const AUTH_SESSION_KEY = "zhuge_ai_os_google_auth_session_v1";
 const AUTH_CODE_VERIFIER_KEY = "zhuge_ai_os_pkce_code_verifier_v1";
@@ -413,7 +414,7 @@ function userBadge() {
 }
 
 function header() {
-  return `<div class="top"><div class="brand-row"><button class="mini adaptive-menu" data-toggle-sidebar="1">☰</button><h1>🧠 Zhuge AI OS</h1><span class="header-version">${HEADER_VERSION}</span></div><div class="header-right">${userBadge()}<div class="tag full-version">${VERSION}</div></div></div>`;
+  return `<div class="top"><div class="brand-row"><button class="mini adaptive-menu" data-toggle-sidebar="1">☰</button><h1>🧠 Zhuge AI OS</h1><span class="header-version">${RELEASE_VERSION}</span></div><div class="header-right">${userBadge()}</div></div>`;
 }
 
 function authScreen() {
@@ -479,7 +480,7 @@ function sidebarSection(title, group) {
 }
 
 function osSidebar() {
-  return `<aside class="os-sidebar"><button class="mini sidebar-close" data-close-sidebar="1">×</button>${agentStatusPanel()}${sidebarSection("🏕️ 營帳", "camp")}${sidebarSection("⚙️ 系統", "system")}</aside>`;
+  return `<aside class="os-sidebar"><button class="mini sidebar-close" data-close-sidebar="1">×</button>${agentStatusPanel()}${sidebarSection("🏕️ 營帳", "camp")}${sidebarSection("⚙️ 系統", "system")}<div class="developer-build-info"><div>${RELEASE_VERSION}</div><div>${BUILD_TIME}</div></div></aside>`;
 }
 
 function workspaceTabs() {
