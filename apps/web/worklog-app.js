@@ -30,6 +30,8 @@ let library = readJson("wl_library", []);
 let editingLibraryId = null;
 let editingEntryId = null;
 let captureSeed = null;
+let sidebarOpen = false;
+let mobileCalendarOpen = false;
 const AI_REASON_QUEUE_SIZE = 5;
 
 const roles = ["採購", "行政", "人資", "業務", "行銷", "IT", "自訂"];
@@ -322,6 +324,11 @@ function monthEntries() {
   return entries.filter(e => String(e.date || "").startsWith(monthKey())).sort((a, b) => new Date(a.at) - new Date(b.at));
 }
 
+function entriesForDate(d) {
+  const dk = key(d);
+  return entries.filter(e => e.date === dk).sort((a, b) => new Date(a.at) - new Date(b.at));
+}
+
 function hours(list = dayEntries()) {
   return list.reduce((s, e) => s + Number(e.hours || 0), 0);
 }
@@ -351,7 +358,7 @@ function userBadge() {
 }
 
 function header() {
-  return `<div class="top"><div><h1>🧠 Zhuge AI OS</h1></div><div class="header-right">${userBadge()}<div class="tag">${VERSION}</div></div></div>`;
+  return `<div class="top"><div class="brand-row"><button class="mini adaptive-menu" data-toggle-sidebar="1">☰</button><h1>🧠 Zhuge AI OS</h1></div><div class="header-right">${userBadge()}<div class="tag">${VERSION}</div></div></div>`;
 }
 
 function authScreen() {
@@ -417,7 +424,7 @@ function sidebarSection(title, group) {
 }
 
 function osSidebar() {
-  return `<aside class="os-sidebar">${agentStatusPanel()}${sidebarSection("🏕️ 營帳", "camp")}${sidebarSection("⚙️ 系統", "system")}</aside>`;
+  return `<aside class="os-sidebar"><button class="mini sidebar-close" data-close-sidebar="1">×</button>${agentStatusPanel()}${sidebarSection("🏕️ 營帳", "camp")}${sidebarSection("⚙️ 系統", "system")}</aside>`;
 }
 
 function workspaceTabs() {
@@ -445,7 +452,7 @@ function workspaceContent() {
 
 function osShell() {
   normalizeWorkspaceState();
-  return `<div class="os-shell"><div class="os-topbar">${header()}</div><div class="os-body">${osSidebar()}<main class="os-main">${workspaceTabs()}<div class="workspace-canvas">${workspaceContent()}</div></main></div></div>`;
+  return `<div class="os-shell ${sidebarOpen ? "sidebar-open" : ""}"><div class="os-topbar">${header()}</div><div class="os-body">${osSidebar()}<div class="sidebar-backdrop" data-close-sidebar="1"></div><main class="os-main">${workspaceTabs()}<div class="workspace-canvas">${workspaceContent()}</div></main></div></div>`;
 }
 
 function onboardingWorkspace() {
@@ -467,6 +474,38 @@ function calendarPanel() {
   }
   html += `</div><div class="month-summary"><b>本月工時</b><span>${hours(monthEntries())}h</span></div><button class="btn full" data-export-month="1">⬇️ 下載本月工時（Excel）</button>`;
   return html;
+}
+
+function addDays(d, days) {
+  const x = new Date(d);
+  x.setDate(x.getDate() + days);
+  return x;
+}
+
+function startOfWeek(d) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  x.setDate(x.getDate() - x.getDay());
+  return x;
+}
+
+function todaySummaryPanel() {
+  const today = new Date();
+  const list = entriesForDate(today);
+  const done = hours(list);
+  const total = 8;
+  const remain = Math.max(0, total - done);
+  const rate = Math.min(100, Math.round(done / total * 100));
+  return `<section class="panel mobile-summary-module"><div class="panel-head"><div><h2>☀️ 今日摘要</h2><div class="muted">${fmt(today).slice(0, 10)}｜今天還剩哪些工作要完成？</div></div><div class="tag">${rate}%</div></div><div class="summary-metrics"><div><b>${total}h</b><span>今日預計</span></div><div><b>${done}h</b><span>已完成</span></div><div><b>${remain}h</b><span>尚餘</span></div><div><b>${rate}%</b><span>完成率</span></div></div></section>`;
+}
+
+function mobileCalendarPanel() {
+  const today = new Date();
+  const start = startOfWeek(today);
+  const days = Array.from({ length: 14 }, (_, i) => addDays(start, i));
+  const summaryHours = hours(entriesForDate(today));
+  if (!mobileCalendarOpen) return `<div class="mobile-calendar-head"><button class="btn2" data-toggle-mobile-calendar="1">▼ 月曆</button><span class="muted">今日 ${String(today.getMonth() + 1).padStart(2, "0")}/${String(today.getDate()).padStart(2, "0")}｜${summaryHours} / 8h</span></div>`;
+  return `<div class="mobile-calendar-head"><button class="btn2" data-toggle-mobile-calendar="1">▲ 月曆</button><span class="muted">本週 + 下週快速查看</span></div><div class="mobile-two-week">${days.map(d => { const h = hours(entriesForDate(d)); const isToday = key(d) === key(today); const isSelected = key(d) === key(selected); return `<button class="mobile-day ${isToday ? "today" : ""} ${isSelected ? "sel" : ""}" data-mobile-date="${key(d)}"><span>${["日", "一", "二", "三", "四", "五", "六"][d.getDay()]}</span><b>${d.getDate()}</b><small>${h ? h + "h" : ""}</small></button>`; }).join("")}</div>`;
 }
 
 function todayPanel() {
@@ -502,7 +541,7 @@ function suggestionPanel() {
 }
 
 function center() {
-  return `<div class="workbench-grid"><section class="panel module calendar-module">${calendarPanel()}</section><section class="panel module today-module">${todayPanel()}</section><section class="panel module suggestion-module">${suggestionPanel()}</section></div><button class="fab" data-action="add">+</button>`;
+  return `<div class="workbench-grid">${todaySummaryPanel()}<section class="panel module today-module">${todayPanel()}</section><section class="panel module suggestion-module">${suggestionPanel()}</section><section class="panel module calendar-module"><div class="desktop-calendar">${calendarPanel()}</div><div class="mobile-calendar">${mobileCalendarPanel()}</div></section></div><button class="fab" data-action="add">+</button>`;
 }
 
 function capture(editId = null, seed = null) {
@@ -603,10 +642,14 @@ function bindOnboarding() {
 }
 
 function bind() {
-  document.querySelectorAll("[data-open-workspace]").forEach(b => b.onclick = () => openWorkspace(b.dataset.openWorkspace));
+  document.querySelectorAll("[data-toggle-sidebar]").forEach(b => b.onclick = () => { sidebarOpen = !sidebarOpen; render(); });
+  document.querySelectorAll("[data-close-sidebar]").forEach(b => b.onclick = () => { sidebarOpen = false; render(); });
+  document.querySelectorAll("[data-open-workspace]").forEach(b => b.onclick = () => { sidebarOpen = false; openWorkspace(b.dataset.openWorkspace); });
   document.querySelectorAll("[data-activate-workspace]").forEach(b => b.onclick = () => activateWorkspace(b.dataset.activateWorkspace));
   document.querySelectorAll("[data-close-workspace]").forEach(b => b.onclick = e => { e.stopPropagation(); closeWorkspace(b.dataset.closeWorkspace); });
   document.querySelectorAll("[data-day]").forEach(b => b.onclick = () => { selected.setDate(Number(b.dataset.day)); saveAll(); render(); });
+  document.querySelectorAll("[data-mobile-date]").forEach(b => b.onclick = () => { selected = new Date(`${b.dataset.mobileDate}T00:00:00`); saveAll(); render(); });
+  document.querySelectorAll("[data-toggle-mobile-calendar]").forEach(b => b.onclick = () => { mobileCalendarOpen = !mobileCalendarOpen; render(); });
   document.querySelectorAll("[data-action=add]").forEach(b => b.onclick = () => { editingEntryId = null; captureSeed = null; activeWorkspace = "worklog"; if (!openTabs.includes("worklog")) openTabs.push("worklog"); rememberWorkspace("worklog"); view = "capture"; saveAll(); render(); });
   const today = document.querySelector("[data-today]"); if (today) today.onclick = () => { selected = new Date(); saveAll(); render(); };
   const exportBtn = document.querySelector("[data-export-month]"); if (exportBtn) exportBtn.onclick = () => exportMonthXls();
