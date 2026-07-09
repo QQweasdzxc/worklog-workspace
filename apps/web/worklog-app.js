@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260709-1428";
+const BUILD_TIME = "20260709-1500";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const AUTH_SESSION_KEY = "zhuge_ai_os_google_auth_session_v1";
@@ -885,15 +885,59 @@ function cloudSyncDetail() {
   return `最後同步：${fmt(cloudSync.lastSyncedAt)}`;
 }
 
-function nextStart() {
-  let h = 9 + Math.floor(hours());
-  if (h >= 12) h += 1;
-  if (h >= 18) h = 17;
-  return `${key()}T${String(h).padStart(2, "0")}:00`;
+function minutesFromTime(value = "09:00") {
+  const [h = 9, m = 0] = String(value || "09:00").slice(0, 5).split(":").map(Number);
+  return h * 60 + (m || 0);
 }
 
-function captureDefaultStart() {
-  return `${key()}T09:00`;
+function timeFromMinutes(total = 540) {
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+function profileWorkSchedule() {
+  const work = parseWorkTimeRange(profile?.workHours || "09:00~18:00");
+  const lunch = parseWorkTimeRange(profile?.lunch || "12:00~13:00");
+  return {
+    workStart: minutesFromTime(work.start || "09:00"),
+    workEnd: minutesFromTime(work.end || "18:00"),
+    lunchStart: minutesFromTime(lunch.start || "12:00"),
+    lunchEnd: minutesFromTime(lunch.end || "13:00")
+  };
+}
+
+function normalizeStartMinutes(minutes, durationHours = 1) {
+  const s = profileWorkSchedule();
+  let start = Math.max(minutes, s.workStart);
+  const duration = Math.round(Number(durationHours || 1) * 60);
+  if (start >= s.lunchStart && start < s.lunchEnd) start = s.lunchEnd;
+  if (start < s.lunchStart && start + duration > s.lunchStart) start = s.lunchEnd;
+  if (start >= s.workEnd) start = Math.max(s.workStart, s.workEnd - duration);
+  return start;
+}
+
+function nextAvailableStart(dateKey = key(), durationHours = 1, excludeId = null) {
+  const list = entries
+    .filter(e => e.date === dateKey && e.id !== excludeId && e.status !== "deleted")
+    .map(e => addHoursToDate(e.at, e.hours))
+    .sort((a, b) => a - b);
+  const lastEnd = list.length ? list[list.length - 1] : null;
+  const base = lastEnd ? lastEnd.getHours() * 60 + lastEnd.getMinutes() : profileWorkSchedule().workStart;
+  const start = normalizeStartMinutes(base, durationHours);
+  return `${dateKey}T${timeFromMinutes(start)}`;
+}
+
+function nextStart() {
+  return nextAvailableStart(key(), 1);
+}
+
+function captureDefaultStart(durationHours = 1) {
+  return nextAvailableStart(key(), durationHours, editingEntryId);
+}
+
+function defaultEcpTaskName(title = "") {
+  return firstEcpTaskFor(title) || ecpTasks()[0] || "";
 }
 
 function userBadge() {
@@ -1118,7 +1162,7 @@ function mobileCalendarPanel() {
 function todayPanel() {
   const list = dayEntries();
   const h = hours(list);
-  return `<div class="panel-head"><h2>我的工作</h2><div class="tag">${h} / 8h</div></div>${list.length ? list.map(e => `<div class="entry"><div class="entry-main"><b>${escapeHtml(e.title)}</b><div class="muted">${fmt(e.at)}｜${Number(e.hours || 0)}h</div></div><div class="actions compact entry-actions"><button class="btn amber" data-edit-id="${e.id}">編輯</button><button class="btn red" data-del-id="${e.id}">刪除</button></div></div>`).join("") : `<div class="empty"><b>尚無工時紀錄</b><div class="muted">可採納推理預測，或使用下方按鈕新增工作。</div></div>`}<button class="btn full" data-action="add">➕ 新增工作</button>`;
+  return `<div class="panel-head"><h2>我的工作</h2><div class="tag">${h} / 8h</div></div>${list.length ? list.map(e => `<div class="entry"><div class="entry-main"><b>${escapeHtml(e.title)}</b><div class="muted">${fmt(e.at)}｜${Number(e.hours || 0)}h${e.ecpTask ? `｜🏷 任務` : ""}</div></div><div class="actions compact entry-actions"><button class="btn amber" data-edit-id="${e.id}">編輯</button><button class="btn red" data-del-id="${e.id}">刪除</button></div></div>`).join("") : `<div class="empty"><b>尚無工時紀錄</b><div class="muted">可採納推理預測，或使用下方按鈕新增工作。</div></div>`}<button class="btn full" data-action="add">➕ 新增工作</button>`;
 }
 
 function makeSuggestions() {
@@ -1127,14 +1171,13 @@ function makeSuggestions() {
   let tags = workModels();
   tags.sort((a, b) => (feedback[b] || 0) - (feedback[a] || 0));
   let suggestions = [];
-  let start = nextStart();
+  let cursor = nextAvailableStart(key(), 1);
   for (const tag of tags) {
     if (done.some(d => d.includes(tag))) continue;
-    suggestions.push({ id: tag, title: tag, note: "", hours: 1, at: start, sourceLabel: "🧩 工作模型" });
-    let d = new Date(start);
-    d.setHours(d.getHours() + 1);
-    if (d.getHours() === 12) d.setHours(13);
-    start = `${key()}T${String(d.getHours()).padStart(2, "0")}:00`;
+    suggestions.push({ id: tag, title: tag, note: "", hours: 1, at: cursor, ecpTask: defaultEcpTaskName(tag), sourceLabel: "🧩 工作模型" });
+    const d = addHoursToDate(cursor, 1);
+    const nextMinutes = normalizeStartMinutes(d.getHours() * 60 + d.getMinutes(), 1);
+    cursor = `${key()}T${timeFromMinutes(nextMinutes)}`;
   }
   return suggestions;
 }
@@ -1153,7 +1196,6 @@ function center() {
 
 function workDescriptionSuggestions(query = "") {
   const source = [
-    ...entries.map(e => e.title),
     ...(profile?.tags || []),
     ...defaultTags
   ].map(x => String(x || "").trim()).filter(Boolean);
@@ -1173,7 +1215,7 @@ function capture(editId = null, seed = null) {
   const e = editId ? entries.find(x => x.id === editId) : null;
   const title = e ? e.title : (seed ? seed.title : "");
   const note = e ? (e.note || "") : (seed ? seed.note || "" : "");
-  const ecpTask = e ? (e.ecpTask || "") : (seed ? seed.ecpTask || firstEcpTaskFor(seed.title) : "");
+  const ecpTask = e ? (e.ecpTask || "") : (seed ? seed.ecpTask || defaultEcpTaskName(seed.title) : defaultEcpTaskName(title));
   return `<section class="panel capture-panel" style="margin-top:18px"><div class="panel-head"><div><h2>${e ? "編輯工時" : "➕ 快速紀錄"}</h2></div></div><div class="form capture-form"><label>日期 / 開始時間</label><input class="input" id="dt" type="datetime-local" value="${e ? e.at : captureDefaultStart()}"><label>工作描述（必填）</label><input class="input" id="title" value="${escapeHtml(title)}" placeholder="例如：採購案件處理" autocomplete="off">${descriptionSuggestionChips(title)}<label>ECP 任務（選填）</label><select id="ecpTaskSelect" class="input">${ecpTaskOptions(ecpTask)}</select><div class="work-model-add ecp-task-quick-add" id="ecpTaskQuickAdd" style="display:none"><input class="input" id="newEcpTaskCapture" placeholder="新增 ECP 任務，例如：採購案件處理"><button class="btn2" data-add-capture-ecp-task="1" type="button">＋ 新增</button></div><label>工時</label><div class="row hours">${[0.5, 1, 1.5, 2, 3, 4, 8].map(h => `<button class="btn2 hour" data-h="${h}">${h === 0.5 ? "30m" : h + "h"}</button>`).join("")}</div><label>備註（選填）</label><input class="input" id="note" value="${escapeHtml(note)}" placeholder="補充說明，不參與 ECP 匯出"><div class="form-actions capture-actions"><button class="btn2" data-capture-cancel="1">取消</button><button class="btn" id="saveEntry">儲存</button></div></div></section>`;
 }
 
@@ -1219,7 +1261,7 @@ function libraryForm(id = null) {
 function settings() {
   const models = workModels();
   const tasks = ecpTasks();
-  return `<section class="panel" style="margin-top:18px"><h2>⚙️ 設定</h2><div class="entry"><b>目前使用者</b><div class="muted">${escapeHtml(session.name)}｜${escapeHtml(session.status || session.email || "")}</div></div><label>角色</label><select id="roleSet" class="input">${roles.map(r => `<option ${profile && profile.role === r ? "selected" : ""}>${r}</option>`).join("")}</select><div class="work-model-section"><label>工作模型</label><div class="work-model-list" id="workModelList">${workModelChecks(models, models)}</div><div class="work-model-add"><input class="input" id="newWorkModel" placeholder="新增工作模型，例如：ISO 稽核"><button class="btn2" id="addWorkModel" type="button">＋ 新增工作模型</button></div><div class="muted">工作模型給 AI 學習、推理與推薦使用，不直接等於 ECP 匯入欄位。</div></div><div class="work-model-section"><label>ECP 設定</label><label>ECP 負責人</label><input class="input" id="ecpOwner" value="${escapeHtml(profile?.ecpOwner || "")}" placeholder="例如：陳彥達-UU"><label>ECP 負責部門</label><input class="input" id="ecpDepartment" value="${escapeHtml(profile?.ecpDepartment || "")}" placeholder="例如：UU管理部"><label>ECP 任務</label>${ecpTaskList(tasks)}<div class="work-model-add"><input class="input" id="newEcpTask" placeholder="新增 ECP 任務，例如：採購案件處理"><button class="btn2" id="addEcpTask" type="button">＋ 新增 ECP 任務</button></div><div class="muted">ECP 任務專供匯出使用，快速紀錄每筆工時需選擇一個 ECP 任務，並寫入 Excel「任務」欄位。</div></div><button class="btn full" id="saveSettings">儲存設定</button><button class="btn gray full" id="resetProfile">重新初次認識</button><button class="btn red full" id="logoutBtn">登出</button><div class="entry"><b>版本</b><div class="muted">${VERSION}</div></div></section>`;
+  return `<section class="panel" style="margin-top:18px"><h2>⚙️ 設定</h2><div class="entry"><b>目前使用者</b><div class="muted">${escapeHtml(session.name)}｜${escapeHtml(session.status || session.email || "")}</div></div><label>角色</label><select id="roleSet" class="input">${roles.map(r => `<option ${profile && profile.role === r ? "selected" : ""}>${r}</option>`).join("")}</select><div class="work-model-section"><label>工作模型</label><div class="work-model-list" id="workModelList">${workModelChecks(models, models)}</div><div class="work-model-add"><input class="input" id="newWorkModel" placeholder="新增工作模型，例如：ISO 稽核"><button class="btn2" id="addWorkModel" type="button">＋ 新增工作模型</button></div><div class="muted">工作模型給 AI 學習、推理與推薦使用，不直接等於 ECP 匯入欄位。</div></div><div class="work-model-section"><label>ECP 設定</label><label>ECP 負責人</label><input class="input" id="ecpOwner" value="${escapeHtml(profile?.ecpOwner || "")}" placeholder="例如：陳彥達-UU"><label>ECP 負責部門</label><input class="input" id="ecpDepartment" value="${escapeHtml(profile?.ecpDepartment || "")}" placeholder="例如：UU管理部"><label>ECP 任務</label>${ecpTaskList(tasks)}<div class="work-model-add"><input class="input" id="newEcpTask" placeholder="新增 ECP 任務，例如：採購案件處理"><button class="btn2" id="addEcpTask" type="button">＋ 新增 ECP 任務</button></div><div class="muted">ECP 任務專供匯出使用，可設定常用 ECP 任務；快速紀錄可選「不指定 ECP 任務」。</div></div><button class="btn full" id="saveSettings">儲存設定</button><button class="btn gray full" id="resetProfile">重新初次認識</button><button class="btn red full" id="logoutBtn">登出</button><div class="entry"><b>版本</b><div class="muted">${VERSION}</div></div></section>`;
 }
 
 function currentViewHtml() {
@@ -1300,12 +1342,58 @@ function bind() {
   if (activeWorkspace === "settings") bindSettings();
 }
 
-function acceptSuggestion(id) {
+
+function createEntry(input = {}) {
+  const at = input.at || nextAvailableStart(input.date || key(), input.hours || 1, input.id || null);
+  const date = input.date || String(at).slice(0, 10);
+  return {
+    id: input.id || uid(),
+    date,
+    at,
+    title: String(input.title || "").trim(),
+    note: String(input.note || "").trim(),
+    ecpTask: input.ecpTask == null ? defaultEcpTaskName(input.title || "") : String(input.ecpTask || "").trim(),
+    hours: Number(input.hours || 1),
+    type: input.type || "工作",
+    source: input.source || "manual",
+    status: input.status || "completed",
+    cloudId: input.cloudId || undefined
+  };
+}
+
+async function persistEntry(item, options = {}) {
+  const index = entries.findIndex(e => e.id === item.id);
+  if (index >= 0) entries[index] = item;
+  else entries.push(item);
+  selected = new Date(item.at);
+  saveAll({ skipSync: true });
+  if (hasGoogleOAuthSession() && dataServiceReady && !dataServiceHydrating && !migrationRequired && !migrationRunning) {
+    try {
+      DataService.setStatus("syncing");
+      const saved = await SupabaseRepository.saveEntry(item);
+      if (saved?.id) item.cloudId = saved.id;
+      await DataService.loadAll();
+      DataService.setStatus("synced");
+    } catch (error) {
+      console.error("Persist entry cloud sync failed", error);
+      DataService.setStatus("failed", error.message || "Entry sync failed");
+      if (options.requireCloud) throw error;
+    }
+  } else {
+    LocalCache.saveAll();
+  }
+  return item;
+}
+
+async function acceptSuggestion(id) {
   const s = makeSuggestions().find(x => x.id === id);
   if (!s) return;
-  entries.push({ id: uid(), date: key(), at: s.at, title: s.title, note: s.note || "", ecpTask: firstEcpTaskFor(s.title), hours: 1, type: "工作", source: "ai-card" });
+  const item = createEntry({ title: s.title, note: s.note || "", hours: s.hours || 1, at: s.at, ecpTask: s.ecpTask || defaultEcpTaskName(s.title), source: "ai-card" });
+  const error = validateEntry(item); if (error) return toast(error);
   feedback[s.id] = (feedback[s.id] || 0) + 1;
-  saveAll(); toast("已加入我的工作"); render();
+  await persistEntry(item);
+  toast("已加入我的工作");
+  render();
 }
 
 function adjustSuggestion(id) {
@@ -1412,11 +1500,10 @@ function bindCapture(editId = null) {
     const at = document.getElementById("dt").value;
     const description = document.getElementById("title").value.trim();
     const selectedEcpTask = document.getElementById("ecpTaskSelect").value === "__add__" ? "" : document.getElementById("ecpTaskSelect").value.trim();
-    const item = { id: editingEntry ? editingEntry.id : uid(), date: at.slice(0, 10), at, title: description, ecpTask: selectedEcpTask, hours: selectedH, type: editingEntry ? editingEntry.type || "工作" : "工作", note: document.getElementById("note").value.trim(), source: editingEntry ? editingEntry.source : "manual" };
+    const item = createEntry({ id: editingEntry ? editingEntry.id : undefined, date: at.slice(0, 10), at, title: description, ecpTask: selectedEcpTask, hours: selectedH, type: editingEntry ? editingEntry.type || "工作" : "工作", note: document.getElementById("note").value.trim(), source: editingEntry ? editingEntry.source : "manual", cloudId: editingEntry?.cloudId });
     const error = validateEntry(item); if (error) return toast(error);
-    await saveWorkModel(description);
-    if (editingEntry) entries[entries.findIndex(e => e.id === editingEntry.id)] = item; else entries.push(item);
-    selected = new Date(at); view = "center"; editingEntryId = null; captureSeed = null; saveAll(); toast("已儲存工時"); render();
+    await persistEntry(item);
+    view = "center"; editingEntryId = null; captureSeed = null; toast("已儲存工時"); render();
   };
 }
 
