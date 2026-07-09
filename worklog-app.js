@@ -1,6 +1,7 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260709-0917";
+const BUILD_TIME = "20260709-1019";
+const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const AUTH_SESSION_KEY = "zhuge_ai_os_google_auth_session_v1";
 const AUTH_CODE_VERIFIER_KEY = "zhuge_ai_os_pkce_code_verifier_v1";
@@ -944,7 +945,8 @@ function sidebarSection(title, group) {
 }
 
 function osSidebar() {
-  return `<aside class="os-sidebar"><button class="mini sidebar-close" data-close-sidebar="1">×</button>${agentStatusPanel()}${sidebarSection("🏕️ 營帳", "camp")}${sidebarSection("⚙️ 系統", "system")}<div class="developer-build-info"><div>${RELEASE_VERSION}</div><div>${BUILD_TIME}</div></div></aside>`;
+  const checked = new Date().toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false });
+  return `<aside class="os-sidebar"><button class="mini sidebar-close" data-close-sidebar="1">×</button>${agentStatusPanel()}${sidebarSection("🏕️ 營帳", "camp")}${sidebarSection("⚙️ 系統", "system")}<div class="developer-build-info"><div>${RELEASE_VERSION}</div><div>Build ${BUILD_TIME}</div><div>GitHub Pages：最後檢查 ${checked}</div><div>Source：${DEPLOY_SOURCE}</div></div></aside>`;
 }
 
 function workspaceTabs() {
