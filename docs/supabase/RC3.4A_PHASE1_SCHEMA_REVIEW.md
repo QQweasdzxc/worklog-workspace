@@ -133,6 +133,7 @@ Columns:
 
 Key indexes:
 
+- unique `user_profiles(user_uuid)`
 - `user_work_models(user_uuid, is_active)`
 - `user_work_models(user_uuid, role_code)`
 - unique `user_work_models(user_uuid, name)`

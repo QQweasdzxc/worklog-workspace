@@ -87,6 +87,12 @@ group by table_schema, table_name, grantee
 order by table_name;
 
 -- 5. Indexes.
+-- Required unique indexes include:
+--   user_profiles_user_uuid_uidx
+--   user_work_models_user_name_uidx
+--   user_export_settings_user_profile_uidx
+--   user_ecp_tasks_user_name_uidx
+--   sync_migrations_user_key_uidx
 select
   tablename,
   indexname,

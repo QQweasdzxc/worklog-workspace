@@ -171,6 +171,9 @@ alter table public.work_entries
 -- Uniqueness and relationship safety.
 -- The composite unique constraints allow work_entries to reference an ECP task
 -- or work model owned by the same user_uuid, preventing cross-user references.
+create unique index if not exists user_profiles_user_uuid_uidx
+  on public.user_profiles(user_uuid);
+
 create unique index if not exists user_work_models_user_id_uidx
   on public.user_work_models(user_uuid, id);
 

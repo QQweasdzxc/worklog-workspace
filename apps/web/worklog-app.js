@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260709-1019";
+const BUILD_TIME = "20260709-1031";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const AUTH_SESSION_KEY = "zhuge_ai_os_google_auth_session_v1";
@@ -183,6 +183,9 @@ const SupabaseRepository = {
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
+      let payload = null;
+      try { payload = options.body ? JSON.parse(options.body) : null; } catch { payload = options.body || null; }
+      console.error("Supabase request failed", { path, status: res.status, body, payload });
       throw new Error(`Supabase ${res.status}: ${body || res.statusText}`);
     }
     if (res.status === 204) return null;
@@ -821,7 +824,6 @@ async function addWorkDescription(model) {
   try {
     if (dataServiceReady && !dataServiceHydrating && !migrationRequired && !migrationRunning) {
       DataService.setStatus("syncing");
-      await SupabaseRepository.upsertUserProfile(profile);
       await SupabaseRepository.saveWorkModels(workModels(), profile);
       LocalCache.saveAll();
       DataService.setStatus("synced");
