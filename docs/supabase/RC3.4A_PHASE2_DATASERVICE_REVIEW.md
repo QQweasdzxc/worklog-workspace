@@ -179,7 +179,6 @@ IT → IT
 
 The following remain intentionally out of scope:
 
-- Migration Dry Run UI
 - Pending Queue
 - Offline Sync
 - Conflict Resolution
@@ -189,7 +188,7 @@ The following remain intentionally out of scope:
 
 Important note:
 
-Existing RC3.3 LocalStorage data is not automatically migrated on first boot in this Phase 2 skeleton. It is kept as local/cache state. When the user saves settings or creates/updates entries, the current active core data is synced through DataService. A formal migration dry-run screen can be added as a separate RC3.4A migration step after this skeleton is PM-reviewed.
+Migration Dry Run and one-time migration are implemented in Phase 2.1. If legacy RC3.3 LocalStorage core data exists and `sync_migrations` does not contain `localstorage_rc33_to_rc34a_v1`, the app blocks normal WorkLog entry and shows Migration Preview first.
 
 ## Impact Analysis
 

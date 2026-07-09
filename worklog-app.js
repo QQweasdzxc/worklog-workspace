@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260709-0918";
+const BUILD_TIME = "20260709-0856";
 const root = document.getElementById("app");
 const AUTH_SESSION_KEY = "zhuge_ai_os_google_auth_session_v1";
 const AUTH_CODE_VERIFIER_KEY = "zhuge_ai_os_pkce_code_verifier_v1";
@@ -55,6 +55,7 @@ const eventTypeCodeMap = { "工作": "WORK", "會議": "MEETING", "教育訓練"
 const eventTypeNameMap = { WORK: "工作", MEETING: "會議", TRAINING: "教育訓練", LEAVE: "特休", BUSINESS_TRIP: "出差" };
 const DEFAULT_LIBRARY_READING_STATUS = "🟡 等待閱讀";
 const ECP_EXPORT_PROFILE_PATH = "resources/profiles/ecp-profile.json";
+const CLOUD_MIGRATION_KEY = "localstorage_rc33_to_rc34a_v1";
 const workspaceRegistry = {
   worklog: { icon: "🪶", label: "工時營帳", group: "camp", enabled: true },
   investment: { icon: "📈", label: "投資營帳", group: "camp", comingSoon: true },
@@ -118,10 +119,39 @@ function cacheKey(name) {
   return `wl_cache:${uuid}:${name}`;
 }
 
+function legacyInventory() {
+  const legacyEntries = readJson("wl_entries", []);
+  const legacyProfile = readJson("wl_profile", null);
+  const legacyFeedback = readJson("wl_feedback", {});
+  const legacyLibrary = readJson("wl_library", []);
+  const workModels = Array.isArray(legacyProfile?.tags) ? legacyProfile.tags.filter(Boolean) : [];
+  const ecpTasksSource = Array.isArray(legacyProfile?.ecpTasks) ? legacyProfile.ecpTasks : (legacyProfile?.ecpTask ? [legacyProfile.ecpTask] : []);
+  const ecpTasksCount = [...new Set(ecpTasksSource.map(x => String(x || "").trim()).filter(Boolean))].length;
+  return {
+    entries: Array.isArray(legacyEntries) ? legacyEntries.length : 0,
+    workModels: [...new Set(workModels.map(x => String(x || "").trim()).filter(Boolean))].length,
+    ecpTasks: ecpTasksCount,
+    ecpSettings: !!(legacyProfile?.ecpOwner || legacyProfile?.ecpDepartment),
+    feedback: legacyFeedback && typeof legacyFeedback === "object" ? Object.keys(legacyFeedback).length : 0,
+    library: Array.isArray(legacyLibrary) ? legacyLibrary.length : 0,
+    hasCoreData: !!legacyProfile || (Array.isArray(legacyEntries) && legacyEntries.length > 0) || ecpTasksCount > 0
+  };
+}
+
+async function sha256Text(value) {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
 let cloudSync = readJson("wl_cloud_sync_status_v1", { status: "idle", lastSyncedAt: "", error: "" });
 let dataServiceReady = false;
 let dataServiceHydrating = false;
 let dataServiceSyncing = false;
+let migrationRequired = false;
+let migrationPreview = null;
+let migrationRunning = false;
+let migrationError = "";
 
 const LocalCache = {
   load(name, fallback) { return readJson(cacheKey(name), fallback); },
@@ -223,8 +253,16 @@ const SupabaseRepository = {
     return this.syncNameList("user_ecp_tasks", names);
   },
   async loadEntries(month = monthKey()) {
-    const rows = await this.select("work_entries", `?select=*,user_ecp_tasks(name)&work_date=gte.${month}-01&work_date=lt.${nextMonthKey(month)}-01&status=neq.deleted&order=started_at.asc`);
+    const rows = await this.select("work_entries", `?select=*&work_date=gte.${month}-01&work_date=lt.${nextMonthKey(month)}-01&status=neq.deleted&order=started_at.asc`);
     return rows || [];
+  },
+  async loadMigration(key = CLOUD_MIGRATION_KEY) {
+    const rows = await this.select("sync_migrations", `?select=*&migration_key=eq.${encodeURIComponent(key)}&limit=1`);
+    return rows?.[0] || null;
+  },
+  async completeMigration(sourceHash, key = CLOUD_MIGRATION_KEY) {
+    const payload = { user_uuid: session.user_uuid, migration_key: key, source_hash: sourceHash, completed_at: new Date().toISOString() };
+    return this.request("sync_migrations?on_conflict=user_uuid,migration_key", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=representation" }, body: JSON.stringify(payload) });
   },
   async saveEntry(entry) {
     const ecpRows = await this.loadEcpTasks();
@@ -288,7 +326,7 @@ function entryFromCloud(row) {
     at: String(row.started_at || "").slice(0, 16),
     title: row.title || "",
     note: row.note || "",
-    ecpTask: row.ecp_task_name_snapshot || row.user_ecp_tasks?.name || "",
+    ecpTask: row.ecp_task_name_snapshot || "",
     hours: Number(row.hours || 0),
     type: eventTypeName(row.event_type || "WORK"),
     status: row.status || "completed",
@@ -301,6 +339,8 @@ const DataService = {
     if (!hasGoogleOAuthSession()) return;
     dataServiceReady = true;
     LocalCache.hydrate();
+    await this.prepareMigration();
+    if (migrationRequired) return;
     await this.loadAll();
   },
   setStatus(status, error = "") {
@@ -329,6 +369,65 @@ const DataService = {
       this.setStatus("failed", error.message || "Cloud Sync failed");
     } finally {
       dataServiceHydrating = false;
+    }
+  },
+  async prepareMigration() {
+    const inventory = legacyInventory();
+    if (!inventory.hasCoreData) return false;
+    try {
+      const existing = await SupabaseRepository.loadMigration();
+      if (existing?.completed_at) return false;
+      migrationPreview = inventory;
+      migrationRequired = true;
+      migrationError = "";
+      this.setStatus("migration_required");
+      return true;
+    } catch (error) {
+      console.error("Cloud Sync migration check failed", error);
+      migrationError = error.message || "Migration check failed";
+      this.setStatus("failed", migrationError);
+      return false;
+    }
+  },
+  async runMigration() {
+    if (!migrationPreview || migrationRunning) return;
+    migrationRunning = true;
+    migrationError = "";
+    this.setStatus("migrating");
+    try {
+      entries = readJson("wl_entries", []);
+      profile = readJson("wl_profile", profile);
+      normalizeEntries();
+      if (profile) {
+        await SupabaseRepository.upsertUserProfile(profile);
+        await SupabaseRepository.upsertExportSettings(profile);
+        await SupabaseRepository.saveWorkModels(workModels(), profile);
+        await SupabaseRepository.saveEcpTasks(ecpTasks());
+      }
+      for (const entry of entries.filter(e => e.status !== "deleted")) {
+        const saved = await SupabaseRepository.saveEntry(entry);
+        if (saved?.id) entry.cloudId = saved.id;
+      }
+      const sourceHash = await sha256Text(JSON.stringify({
+        entries: readJson("wl_entries", []),
+        profile: readJson("wl_profile", null),
+        key: CLOUD_MIGRATION_KEY
+      }));
+      await SupabaseRepository.completeMigration(sourceHash);
+      migrationRequired = false;
+      migrationPreview = null;
+      await this.loadAll();
+      LocalCache.saveAll();
+      this.setStatus("synced");
+      toast("Cloud Sync Migration 完成");
+    } catch (error) {
+      console.error("Cloud Sync migration failed", error);
+      migrationError = error.message || "Migration failed";
+      this.setStatus("failed", migrationError);
+      toast("Migration 失敗，legacy data 已保留");
+    } finally {
+      migrationRunning = false;
+      render();
     }
   },
   async syncAll() {
@@ -597,7 +696,7 @@ function saveAll() {
   localStorage.setItem("wl_view", view);
   localStorage.setItem("wl_selected", selected.toISOString());
   LocalCache.saveAll();
-  if (dataServiceReady && !dataServiceHydrating) DataService.syncAll();
+  if (dataServiceReady && !dataServiceHydrating && !migrationRequired && !migrationRunning) DataService.syncAll();
 }
 
 function toast(t) {
@@ -704,12 +803,16 @@ function googleConnectionLabel() {
 function cloudSyncLabel() {
   if (cloudSync.status === "synced") return "🟢 已同步";
   if (cloudSync.status === "syncing") return "🟡 同步中";
+  if (cloudSync.status === "migration_required") return "🟡 等待資料搬移";
+  if (cloudSync.status === "migrating") return "🟡 資料搬移中";
   if (cloudSync.status === "failed") return "🔴 同步失敗";
   return "⚪ 尚未同步";
 }
 
 function cloudSyncDetail() {
   if (cloudSync.status === "failed") return cloudSync.error || "請稍後再試";
+  if (cloudSync.status === "migration_required") return "請先確認 Migration Preview";
+  if (cloudSync.status === "migrating") return "正在搬移 RC3.3 本機資料";
   if (!cloudSync.lastSyncedAt) return "等待 Cloud Sync";
   return `最後同步：${fmt(cloudSync.lastSyncedAt)}`;
 }
@@ -736,6 +839,11 @@ function header() {
 
 function authScreen() {
   return `<div class="wrap"><div class="card"><section class="panel" style="margin-top:18px"><h1>🧠 Zhuge AI OS</h1><button class="btn full" id="googleLoginBtn">使用 Google 登入</button></section></div></div>`;
+}
+
+function migrationScreen() {
+  const p = migrationPreview || legacyInventory();
+  return `<div class="wrap"><div class="card"><div class="top"><div><div class="muted">☁ RC3.4A Cloud Sync</div><h1>資料上雲確認</h1><div class="muted">系統偵測到 RC3.3 本機資料。請確認後執行一次性搬移，完成後正式資料將以 Supabase 為準，LocalStorage 僅保留安全備份與快取。</div></div><div class="header-right">${userBadge()}</div></div><section class="panel" style="margin-top:18px"><h2>Migration Preview</h2><div class="dashboard-grid"><div class="entry"><b>工時</b><div class="muted">${p.entries} 筆</div></div><div class="entry"><b>工作模型</b><div class="muted">${p.workModels} 筆</div></div><div class="entry"><b>ECP 任務</b><div class="muted">${p.ecpTasks} 筆</div></div><div class="entry"><b>ECP 設定</b><div class="muted">${p.ecpSettings ? "有" : "無"}</div></div><div class="entry"><b>AI Feedback</b><div class="muted">${p.feedback} 筆，本階段僅盤點</div></div><div class="entry"><b>藏書閣</b><div class="muted">${p.library} 筆，本階段僅盤點</div></div></div>${migrationError ? `<div class="empty" style="margin-top:12px"><b>Migration 失敗</b><div class="muted">${escapeHtml(migrationError)}</div></div>` : ""}<div class="form-actions"><button class="btn2" data-logout="1">先不要，登出</button><button class="btn" data-run-migration="1" ${migrationRunning ? "disabled" : ""}>${migrationRunning ? "搬移中..." : "開始 Cloud Sync Migration"}</button></div><div class="muted" style="margin-top:10px">失敗時不會清除 legacy LocalStorage。請確認 Supabase Phase 1 SQL 已套用。</div></section></div></div>`;
 }
 
 function zhugeDashboard() {
@@ -1058,6 +1166,7 @@ function render() {
   normalizeEntries();
   clearInvalidAuthState();
   if (!session) { root.innerHTML = authScreen(); bindAuth(); return; }
+  if (migrationRequired) { root.innerHTML = migrationScreen(); bindMigration(); bindGlobal(); return; }
   root.innerHTML = osShell();
   bind();
   bindGlobal();
@@ -1065,6 +1174,10 @@ function render() {
 
 function bindAuth() {
   document.getElementById("googleLoginBtn").onclick = () => signInWithGoogle();
+}
+
+function bindMigration() {
+  document.querySelectorAll("[data-run-migration]").forEach(b => b.onclick = () => DataService.runMigration());
 }
 
 function bindDashboard() {}
