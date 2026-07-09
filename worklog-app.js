@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260709-1358";
+const BUILD_TIME = "20260709-1428";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const AUTH_SESSION_KEY = "zhuge_ai_os_google_auth_session_v1";
@@ -256,6 +256,16 @@ const SupabaseRepository = {
   saveEcpTasks(names) {
     return this.syncNameList("user_ecp_tasks", names);
   },
+  async hasCloudCoreData() {
+    const checks = await Promise.allSettled([
+      this.select("user_profiles", "?select=user_uuid&limit=1"),
+      this.select("user_work_models", "?select=id&limit=1"),
+      this.select("user_ecp_tasks", "?select=id&limit=1"),
+      this.select("user_export_settings", "?select=id&limit=1"),
+      this.select("work_entries", "?select=id&status=neq.deleted&limit=1")
+    ]);
+    return checks.some(result => result.status === "fulfilled" && Array.isArray(result.value) && result.value.length > 0);
+  },
   async loadEntries(month = monthKey()) {
     const rows = await this.select("work_entries", `?select=*&work_date=gte.${month}-01&work_date=lt.${nextMonthKey(month)}-01&status=neq.deleted&order=started_at.asc`);
     return rows || [];
@@ -307,21 +317,23 @@ function nextMonthKey(month = monthKey()) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
-function profileFromCloud(cloudProfile, exportSettings, workModels, ecpTaskRows) {
+function profileFromCloud(cloudProfile, exportSettings, workModels, ecpTaskRows, options = {}) {
   const workHours = `${String(cloudProfile?.work_start_time || "09:00").slice(0, 5)}~${String(cloudProfile?.work_end_time || "18:00").slice(0, 5)}`;
   const lunch = `${String(cloudProfile?.lunch_start_time || "12:00").slice(0, 5)}~${String(cloudProfile?.lunch_end_time || "13:00").slice(0, 5)}`;
   const fallbackRole = profile?.role || "採購";
   const fallbackTags = Array.isArray(profile?.tags) && profile.tags.length ? profile.tags : tagsForRole(fallbackRole);
   const fallbackEcpTasks = Array.isArray(profile?.ecpTasks) && profile.ecpTasks.length ? profile.ecpTasks : defaultEcpTasks;
+  const cloudWorkModels = Array.isArray(workModels) ? workModels.map(row => row.name).filter(Boolean) : [];
+  const cloudEcpTasks = Array.isArray(ecpTaskRows) ? ecpTaskRows.map(row => row.name).filter(Boolean) : [];
   return {
     ...(profile || {}),
     role: roleName(cloudProfile?.role_code || roleCode(fallbackRole)),
-    tags: workModels?.length ? workModels.map(row => row.name) : fallbackTags,
+    tags: options.workModelsLoaded ? cloudWorkModels : fallbackTags,
     workHours,
     lunch,
     ecpOwner: exportSettings?.ecp_owner || profile?.ecpOwner || "",
     ecpDepartment: exportSettings?.ecp_department || profile?.ecpDepartment || "",
-    ecpTasks: ecpTaskRows?.length ? ecpTaskRows.map(row => row.name) : fallbackEcpTasks
+    ecpTasks: options.ecpTasksLoaded ? cloudEcpTasks : fallbackEcpTasks
   };
 }
 
@@ -375,8 +387,11 @@ const DataService = {
       const workModelsRows = await safeLoad("work_models", () => SupabaseRepository.loadWorkModels(), []);
       const ecpTaskRows = await safeLoad("ecp_tasks", () => SupabaseRepository.loadEcpTasks(), []);
       const entryRows = await safeLoad("entries", () => SupabaseRepository.loadEntries(monthKey()), []);
-      if (cloudProfile || exportSettings || workModelsRows?.length || ecpTaskRows?.length) {
-        profile = profileFromCloud(cloudProfile, exportSettings, workModelsRows || [], ecpTaskRows || []);
+      if (cloudProfile || exportSettings || !failedLoads.has("work_models") || !failedLoads.has("ecp_tasks")) {
+        profile = profileFromCloud(cloudProfile, exportSettings, workModelsRows || [], ecpTaskRows || [], {
+          workModelsLoaded: !failedLoads.has("work_models"),
+          ecpTasksLoaded: !failedLoads.has("ecp_tasks")
+        });
       }
       if (!failedLoads.has("entries")) entries = Array.isArray(entryRows) ? entryRows.map(entryFromCloud) : entries;
       normalizeEntries();
@@ -392,10 +407,17 @@ const DataService = {
   },
   async prepareMigration() {
     const inventory = legacyInventory();
+    migrationRequired = false;
+    migrationPreview = null;
     if (!inventory.hasCoreData) return false;
     try {
       const existing = await SupabaseRepository.loadMigration();
       if (existing?.completed_at) return false;
+      const hasCloudData = await SupabaseRepository.hasCloudCoreData();
+      if (hasCloudData) {
+        console.info("Cloud Sync: cloud data exists; skip legacy migration prompt and use Supabase as source of truth");
+        return false;
+      }
       migrationPreview = inventory;
       migrationRequired = true;
       migrationError = "";
