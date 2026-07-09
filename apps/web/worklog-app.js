@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260709-1031";
+const BUILD_TIME = "20260709-1340";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const AUTH_SESSION_KEY = "zhuge_ai_os_google_auth_session_v1";
@@ -689,7 +689,6 @@ function normalizeEntries() {
 
 function validateEntry(item) {
   if (!item.title) return "請輸入工作描述";
-  if (!item.ecpTask) return "請選擇 ECP 任務";
   if (!item.at || Number.isNaN(new Date(item.at).getTime())) return "請選擇正確時間";
   if (!item.hours || item.hours <= 0) return "請選擇工時";
   if (item.hours > 8) return "單筆工時不可超過 8 小時";
@@ -778,7 +777,7 @@ function ecpTasks() {
 
 function ecpTaskOptions(selectedTask = "") {
   const tasks = ecpTasks();
-  return `<option value="">請選擇 ECP 任務</option>${tasks.map(task => `<option value="${escapeHtml(task)}" ${task === selectedTask ? "selected" : ""}>${escapeHtml(task)}</option>`).join("")}<option value="__add__">＋新增 ECP 任務</option>`;
+  return `<option value="">不指定 ECP 任務</option>${tasks.map(task => `<option value="${escapeHtml(task)}" ${task === selectedTask ? "selected" : ""}>${escapeHtml(task)}</option>`).join("")}<option value="__add__">＋新增 ECP 任務</option>`;
 }
 
 function ecpTaskList(tasks = ecpTasks()) {
@@ -815,7 +814,7 @@ function addWorkModel(model) {
   return true;
 }
 
-async function addWorkDescription(model) {
+async function saveWorkModel(model) {
   const name = String(model || "").trim();
   if (!name) return false;
   const previousTags = Array.isArray(profile?.tags) ? [...profile.tags] : null;
@@ -837,6 +836,8 @@ async function addWorkDescription(model) {
   }
   return true;
 }
+
+const addWorkDescription = saveWorkModel;
 
 function googleConnectionLabel() {
   return "⚪ 尚未連接";
@@ -1148,7 +1149,7 @@ function capture(editId = null, seed = null) {
   const title = e ? e.title : (seed ? seed.title : "");
   const note = e ? (e.note || "") : (seed ? seed.note || "" : "");
   const ecpTask = e ? (e.ecpTask || "") : (seed ? seed.ecpTask || firstEcpTaskFor(seed.title) : "");
-  return `<section class="panel capture-panel" style="margin-top:18px"><div class="panel-head"><div><h2>${e ? "編輯工時" : "➕ 快速紀錄"}</h2></div></div><div class="form capture-form"><label>日期 / 開始時間</label><input class="input" id="dt" type="datetime-local" value="${e ? e.at : captureDefaultStart()}"><label>工作描述（必填）</label><input class="input" id="title" value="${escapeHtml(title)}" placeholder="例如：採購案件處理" autocomplete="off">${descriptionSuggestionChips(title)}<label>ECP 任務（必填）</label><select id="ecpTaskSelect" class="input">${ecpTaskOptions(ecpTask)}</select><div class="work-model-add ecp-task-quick-add" id="ecpTaskQuickAdd" style="display:none"><input class="input" id="newEcpTaskCapture" placeholder="新增 ECP 任務，例如：採購案件處理"><button class="btn2" data-add-capture-ecp-task="1" type="button">＋ 新增</button></div><label>工時</label><div class="row hours">${[0.5, 1, 1.5, 2, 3, 4, 8].map(h => `<button class="btn2 hour" data-h="${h}">${h === 0.5 ? "30m" : h + "h"}</button>`).join("")}</div><label>備註（選填）</label><input class="input" id="note" value="${escapeHtml(note)}" placeholder="補充說明，不參與 ECP 匯出"><div class="form-actions capture-actions"><button class="btn2" data-capture-cancel="1">取消</button><button class="btn" id="saveEntry">儲存</button></div></div></section>`;
+  return `<section class="panel capture-panel" style="margin-top:18px"><div class="panel-head"><div><h2>${e ? "編輯工時" : "➕ 快速紀錄"}</h2></div></div><div class="form capture-form"><label>日期 / 開始時間</label><input class="input" id="dt" type="datetime-local" value="${e ? e.at : captureDefaultStart()}"><label>工作描述（必填）</label><input class="input" id="title" value="${escapeHtml(title)}" placeholder="例如：採購案件處理" autocomplete="off">${descriptionSuggestionChips(title)}<label>ECP 任務（選填）</label><select id="ecpTaskSelect" class="input">${ecpTaskOptions(ecpTask)}</select><div class="work-model-add ecp-task-quick-add" id="ecpTaskQuickAdd" style="display:none"><input class="input" id="newEcpTaskCapture" placeholder="新增 ECP 任務，例如：採購案件處理"><button class="btn2" data-add-capture-ecp-task="1" type="button">＋ 新增</button></div><label>工時</label><div class="row hours">${[0.5, 1, 1.5, 2, 3, 4, 8].map(h => `<button class="btn2 hour" data-h="${h}">${h === 0.5 ? "30m" : h + "h"}</button>`).join("")}</div><label>備註（選填）</label><input class="input" id="note" value="${escapeHtml(note)}" placeholder="補充說明，不參與 ECP 匯出"><div class="form-actions capture-actions"><button class="btn2" data-capture-cancel="1">取消</button><button class="btn" id="saveEntry">儲存</button></div></div></section>`;
 }
 
 function sync() {
@@ -1326,7 +1327,7 @@ function bindCapture(editId = null) {
       if (!name) return toast("請輸入工作描述名稱");
       b.disabled = true;
       try {
-        await addWorkDescription(name);
+        await saveWorkModel(name);
         titleInput.value = name;
         const box = document.getElementById("descriptionSuggestions");
         if (box) {
@@ -1336,7 +1337,7 @@ function bindCapture(editId = null) {
         const nextDialog = document.getElementById("workDescriptionDialog");
         if (nextDialog) nextDialog.style.display = "none";
         if (dialog) dialog.style.display = "none";
-        toast("已新增工作描述並同步");
+        toast("已選取工作描述並同步");
       } catch (error) {
         console.error("Add work description failed", error);
         toast("工作描述同步失敗，請稍後再試");
@@ -1382,12 +1383,18 @@ function bindCapture(editId = null) {
     toast("已新增 ECP 任務");
   };
   document.querySelectorAll(".hour").forEach(b => b.onclick = () => { selectedH = Number(b.dataset.h); document.querySelectorAll(".hour").forEach(x => x.classList.remove("selected")); b.classList.add("selected"); });
-  document.getElementById("saveEntry").onclick = () => {
+  document.getElementById("saveEntry").onclick = async () => {
     const at = document.getElementById("dt").value;
     const description = document.getElementById("title").value.trim();
     const selectedEcpTask = document.getElementById("ecpTaskSelect").value === "__add__" ? "" : document.getElementById("ecpTaskSelect").value.trim();
     const item = { id: editingEntry ? editingEntry.id : uid(), date: at.slice(0, 10), at, title: description, ecpTask: selectedEcpTask, hours: selectedH, type: editingEntry ? editingEntry.type || "工作" : "工作", note: document.getElementById("note").value.trim(), source: editingEntry ? editingEntry.source : "manual" };
     const error = validateEntry(item); if (error) return toast(error);
+    try {
+      await saveWorkModel(description);
+    } catch (error) {
+      console.error("Save work model failed", error);
+      return toast("工作描述同步失敗，請稍後再試");
+    }
     if (editingEntry) entries[entries.findIndex(e => e.id === editingEntry.id)] = item; else entries.push(item);
     selected = new Date(at); view = "center"; editingEntryId = null; captureSeed = null; saveAll(); toast("已儲存工時"); render();
   };
@@ -1771,10 +1778,9 @@ async function exportByProfile(rows, profileConfig) {
 
 async function exportEcpImportFile() {
   try {
-    if (!profile?.ecpOwner || !profile?.ecpDepartment || !ecpTasks().length) return toast("請先完成 ECP 設定。");
+    if (!profile?.ecpOwner || !profile?.ecpDepartment) return toast("請先完成 ECP 設定。");
     const rows = workLogRowsForEcp();
     if (!rows.length) return toast("本月份尚無工時資料可匯出。");
-    if (rows.some(row => !row.ecpTask)) return toast("請確認每筆工時皆已選擇 ECP 任務。");
     const profileConfig = await loadExportProfile(ECP_EXPORT_PROFILE_PATH);
     await exportByProfile(rows, profileConfig);
     toast("已下載 ECP 匯入檔");
@@ -1791,6 +1797,8 @@ async function boot() {
       session = googleSessionFromUser(googleAuth.user, googleAuth.authSession);
       if (authCallbackCaptured) { activeModule = "dashboard"; activeWorkspace = "worklog"; openTabs = ["worklog"]; recentWorkspaces = ["worklog"]; view = "center"; hasOsShellState = true; }
       saveAll();
+      await DataService.init();
+    } else if (hasGoogleOAuthSession()) {
       await DataService.init();
     }
   } catch {
