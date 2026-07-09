@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260709-0856";
+const BUILD_TIME = "20260709-0917";
 const root = document.getElementById("app");
 const AUTH_SESSION_KEY = "zhuge_ai_os_google_auth_session_v1";
 const AUTH_CODE_VERIFIER_KEY = "zhuge_ai_os_pkce_code_verifier_v1";
@@ -306,15 +306,18 @@ function nextMonthKey(month = monthKey()) {
 function profileFromCloud(cloudProfile, exportSettings, workModels, ecpTaskRows) {
   const workHours = `${String(cloudProfile?.work_start_time || "09:00").slice(0, 5)}~${String(cloudProfile?.work_end_time || "18:00").slice(0, 5)}`;
   const lunch = `${String(cloudProfile?.lunch_start_time || "12:00").slice(0, 5)}~${String(cloudProfile?.lunch_end_time || "13:00").slice(0, 5)}`;
+  const fallbackRole = profile?.role || "採購";
+  const fallbackTags = Array.isArray(profile?.tags) && profile.tags.length ? profile.tags : tagsForRole(fallbackRole);
+  const fallbackEcpTasks = Array.isArray(profile?.ecpTasks) && profile.ecpTasks.length ? profile.ecpTasks : defaultEcpTasks;
   return {
     ...(profile || {}),
-    role: roleName(cloudProfile?.role_code || roleCode(profile?.role || "採購")),
-    tags: workModels?.length ? workModels.map(row => row.name) : (profile?.tags || []),
+    role: roleName(cloudProfile?.role_code || roleCode(fallbackRole)),
+    tags: workModels?.length ? workModels.map(row => row.name) : fallbackTags,
     workHours,
     lunch,
     ecpOwner: exportSettings?.ecp_owner || profile?.ecpOwner || "",
     ecpDepartment: exportSettings?.ecp_department || profile?.ecpDepartment || "",
-    ecpTasks: ecpTaskRows?.length ? ecpTaskRows.map(row => row.name) : (profile?.ecpTasks || [])
+    ecpTasks: ecpTaskRows?.length ? ecpTaskRows.map(row => row.name) : fallbackEcpTasks
   };
 }
 
@@ -351,19 +354,31 @@ const DataService = {
     if (!dataServiceReady || dataServiceHydrating) return;
     dataServiceHydrating = true;
     this.setStatus("syncing");
+    const errors = [];
+    const failedLoads = new Set();
     try {
-      const [cloudProfile, exportSettings, workModelsRows, ecpTaskRows, entryRows] = await Promise.all([
-        SupabaseRepository.loadUserProfile(),
-        SupabaseRepository.loadExportSettings(),
-        SupabaseRepository.loadWorkModels(),
-        SupabaseRepository.loadEcpTasks(),
-        SupabaseRepository.loadEntries(monthKey())
-      ]);
-      if (cloudProfile || exportSettings || workModelsRows?.length || ecpTaskRows?.length) profile = profileFromCloud(cloudProfile, exportSettings, workModelsRows || [], ecpTaskRows || []);
-      if (entryRows?.length) entries = mergeEntries(entries, entryRows.map(entryFromCloud));
+      const safeLoad = async (label, loader, fallback) => {
+        try { return await loader(); }
+        catch (error) {
+          errors.push(`${label}: ${error.message || error}`);
+          failedLoads.add(label);
+          console.error(`Cloud Sync ${label} load failed`, error);
+          return fallback;
+        }
+      };
+      const cloudProfile = await safeLoad("profile", () => SupabaseRepository.loadUserProfile(), null);
+      const exportSettings = await safeLoad("export_settings", () => SupabaseRepository.loadExportSettings(), null);
+      const workModelsRows = await safeLoad("work_models", () => SupabaseRepository.loadWorkModels(), []);
+      const ecpTaskRows = await safeLoad("ecp_tasks", () => SupabaseRepository.loadEcpTasks(), []);
+      const entryRows = await safeLoad("entries", () => SupabaseRepository.loadEntries(monthKey()), []);
+      if (cloudProfile || exportSettings || workModelsRows?.length || ecpTaskRows?.length) {
+        profile = profileFromCloud(cloudProfile, exportSettings, workModelsRows || [], ecpTaskRows || []);
+      }
+      if (!failedLoads.has("entries")) entries = Array.isArray(entryRows) ? entryRows.map(entryFromCloud) : entries;
       normalizeEntries();
       LocalCache.saveAll();
-      this.setStatus("synced");
+      if (errors.length) this.setStatus("failed", errors.join(" | "));
+      else this.setStatus("synced");
     } catch (error) {
       console.error("Cloud Sync load failed", error);
       this.setStatus("failed", error.message || "Cloud Sync failed");
@@ -1105,8 +1120,7 @@ function capture(editId = null, seed = null) {
   const title = e ? e.title : (seed ? seed.title : "");
   const note = e ? (e.note || "") : (seed ? seed.note || "" : "");
   const ecpTask = e ? (e.ecpTask || "") : (seed ? seed.ecpTask || firstEcpTaskFor(seed.title) : "");
-  const type = e ? (e.type || "工作") : "工作";
-  return `<section class="panel capture-panel" style="margin-top:18px"><div class="panel-head"><div><h2>${e ? "編輯工時" : "➕ 快速紀錄"}</h2></div></div><div class="form capture-form"><label>日期 / 開始時間</label><input class="input" id="dt" type="datetime-local" value="${e ? e.at : captureDefaultStart()}"><label>工作描述（必填）</label><input class="input" id="title" value="${escapeHtml(title)}" placeholder="例如：採購案件處理" autocomplete="off">${descriptionSuggestionChips(title)}<label>ECP 任務（必填）</label><select id="ecpTaskSelect" class="input">${ecpTaskOptions(ecpTask)}</select><div class="work-model-add ecp-task-quick-add" id="ecpTaskQuickAdd" style="display:none"><input class="input" id="newEcpTaskCapture" placeholder="新增 ECP 任務，例如：採購案件處理"><button class="btn2" data-add-capture-ecp-task="1" type="button">＋ 新增</button></div><label>事件類型</label><select id="eventType" class="input">${eventTypes.map(t => `<option ${type === t ? "selected" : ""}>${t}</option>`).join("")}</select><label>工時</label><div class="row hours">${[0.5, 1, 1.5, 2, 3, 4, 8].map(h => `<button class="btn2 hour" data-h="${h}">${h === 0.5 ? "30m" : h + "h"}</button>`).join("")}</div><label>備註（選填）</label><input class="input" id="note" value="${escapeHtml(note)}" placeholder="補充說明，不參與 ECP 匯出"><div class="form-actions capture-actions"><button class="btn2" data-capture-cancel="1">取消</button><button class="btn" id="saveEntry">儲存</button></div></div></section>`;
+  return `<section class="panel capture-panel" style="margin-top:18px"><div class="panel-head"><div><h2>${e ? "編輯工時" : "➕ 快速紀錄"}</h2></div></div><div class="form capture-form"><label>日期 / 開始時間</label><input class="input" id="dt" type="datetime-local" value="${e ? e.at : captureDefaultStart()}"><label>工作描述（必填）</label><input class="input" id="title" value="${escapeHtml(title)}" placeholder="例如：採購案件處理" autocomplete="off">${descriptionSuggestionChips(title)}<label>ECP 任務（必填）</label><select id="ecpTaskSelect" class="input">${ecpTaskOptions(ecpTask)}</select><div class="work-model-add ecp-task-quick-add" id="ecpTaskQuickAdd" style="display:none"><input class="input" id="newEcpTaskCapture" placeholder="新增 ECP 任務，例如：採購案件處理"><button class="btn2" data-add-capture-ecp-task="1" type="button">＋ 新增</button></div><label>工時</label><div class="row hours">${[0.5, 1, 1.5, 2, 3, 4, 8].map(h => `<button class="btn2 hour" data-h="${h}">${h === 0.5 ? "30m" : h + "h"}</button>`).join("")}</div><label>備註（選填）</label><input class="input" id="note" value="${escapeHtml(note)}" placeholder="補充說明，不參與 ECP 匯出"><div class="form-actions capture-actions"><button class="btn2" data-capture-cancel="1">取消</button><button class="btn" id="saveEntry">儲存</button></div></div></section>`;
 }
 
 function sync() {
@@ -1296,7 +1310,7 @@ function bindCapture(editId = null) {
     const at = document.getElementById("dt").value;
     const description = document.getElementById("title").value.trim();
     const selectedEcpTask = document.getElementById("ecpTaskSelect").value === "__add__" ? "" : document.getElementById("ecpTaskSelect").value.trim();
-    const item = { id: editingEntry ? editingEntry.id : uid(), date: at.slice(0, 10), at, title: description, ecpTask: selectedEcpTask, hours: selectedH, type: document.getElementById("eventType").value, note: document.getElementById("note").value.trim(), source: editingEntry ? editingEntry.source : "manual" };
+    const item = { id: editingEntry ? editingEntry.id : uid(), date: at.slice(0, 10), at, title: description, ecpTask: selectedEcpTask, hours: selectedH, type: editingEntry ? editingEntry.type || "工作" : "工作", note: document.getElementById("note").value.trim(), source: editingEntry ? editingEntry.source : "manual" };
     const error = validateEntry(item); if (error) return toast(error);
     if (editingEntry) entries[entries.findIndex(e => e.id === editingEntry.id)] = item; else entries.push(item);
     selected = new Date(at); view = "center"; editingEntryId = null; captureSeed = null; saveAll(); toast("已儲存工時"); render();
