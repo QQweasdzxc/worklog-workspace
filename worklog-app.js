@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260709-1340";
+const BUILD_TIME = "20260709-1358";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const AUTH_SESSION_KEY = "zhuge_ai_os_google_auth_session_v1";
@@ -814,25 +814,28 @@ function addWorkModel(model) {
   return true;
 }
 
-async function saveWorkModel(model) {
+async function saveWorkModel(model, options = {}) {
   const name = String(model || "").trim();
   if (!name) return false;
-  const previousTags = Array.isArray(profile?.tags) ? [...profile.tags] : null;
   addWorkModel(name);
   saveAll({ skipSync: true });
   try {
-    if (dataServiceReady && !dataServiceHydrating && !migrationRequired && !migrationRunning) {
+    if (hasGoogleOAuthSession() && !dataServiceHydrating && !migrationRunning) {
+      dataServiceReady = true;
       DataService.setStatus("syncing");
       await SupabaseRepository.saveWorkModels(workModels(), profile);
       LocalCache.saveAll();
       DataService.setStatus("synced");
     } else {
-      throw new Error("Cloud Sync 尚未就緒");
+      const reason = !hasGoogleOAuthSession() ? "尚未登入 Google" : "Cloud Sync 正在初始化";
+      console.warn("Work model saved locally; cloud sync deferred", { name, reason });
+      LocalCache.saveAll();
+      if (options.requireCloud) throw new Error(reason);
     }
   } catch (error) {
-    if (profile && previousTags) profile.tags = previousTags;
-    saveAll({ skipSync: true });
-    throw error;
+    console.error("Save work model cloud sync failed", error);
+    DataService.setStatus("failed", error.message || "Work model sync failed");
+    if (options.requireCloud) throw error;
   }
   return true;
 }
@@ -1389,12 +1392,7 @@ function bindCapture(editId = null) {
     const selectedEcpTask = document.getElementById("ecpTaskSelect").value === "__add__" ? "" : document.getElementById("ecpTaskSelect").value.trim();
     const item = { id: editingEntry ? editingEntry.id : uid(), date: at.slice(0, 10), at, title: description, ecpTask: selectedEcpTask, hours: selectedH, type: editingEntry ? editingEntry.type || "工作" : "工作", note: document.getElementById("note").value.trim(), source: editingEntry ? editingEntry.source : "manual" };
     const error = validateEntry(item); if (error) return toast(error);
-    try {
-      await saveWorkModel(description);
-    } catch (error) {
-      console.error("Save work model failed", error);
-      return toast("工作描述同步失敗，請稍後再試");
-    }
+    await saveWorkModel(description);
     if (editingEntry) entries[entries.findIndex(e => e.id === editingEntry.id)] = item; else entries.push(item);
     selected = new Date(at); view = "center"; editingEntryId = null; captureSeed = null; saveAll(); toast("已儲存工時"); render();
   };
