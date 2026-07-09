@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260708-2340";
+const BUILD_TIME = "20260709-0918";
 const root = document.getElementById("app");
 const AUTH_SESSION_KEY = "zhuge_ai_os_google_auth_session_v1";
 const AUTH_CODE_VERIFIER_KEY = "zhuge_ai_os_pkce_code_verifier_v1";
@@ -49,6 +49,10 @@ const roleTagMap = {
   "自訂": ["自訂工作", "Mail處理", "資料整理", "會議", "專案追蹤", "跨部門溝通", "文件整理", "待辦追蹤"]
 };
 const eventTypes = ["工作", "特休", "事假", "病假", "會議", "出差", "教育訓練"];
+const roleCodeMap = { "採購": "PROCUREMENT", "行政": "ADMIN", "人資": "HR", "業務": "SALES", "行銷": "MARKETING", "IT": "IT", "自訂": "CUSTOM" };
+const roleNameMap = Object.fromEntries(Object.entries(roleCodeMap).map(([name, code]) => [code, name]));
+const eventTypeCodeMap = { "工作": "WORK", "會議": "MEETING", "教育訓練": "TRAINING", "特休": "LEAVE", "事假": "LEAVE", "病假": "LEAVE", "出差": "BUSINESS_TRIP" };
+const eventTypeNameMap = { WORK: "工作", MEETING: "會議", TRAINING: "教育訓練", LEAVE: "特休", BUSINESS_TRIP: "出差" };
 const DEFAULT_LIBRARY_READING_STATUS = "🟡 等待閱讀";
 const ECP_EXPORT_PROFILE_PATH = "resources/profiles/ecp-profile.json";
 const workspaceRegistry = {
@@ -71,8 +75,303 @@ function readJson(key, fallback) {
   catch { return fallback; }
 }
 
+function writeJson(key, value) {
+  localStorage.setItem(key, JSON.stringify(value));
+}
+
 function authHeaders(token) {
   return { apikey: AUTH_CONFIG.supabaseAnonKey, Authorization: `Bearer ${token || AUTH_CONFIG.supabaseAnonKey}`, "Content-Type": "application/json" };
+}
+
+function cloudHeaders(extra = {}) {
+  return {
+    apikey: AUTH_CONFIG.supabaseAnonKey,
+    Authorization: `Bearer ${session?.access_token || AUTH_CONFIG.supabaseAnonKey}`,
+    "Content-Type": "application/json",
+    ...extra
+  };
+}
+
+function roleCode(roleName = "採購") {
+  return roleCodeMap[roleName] || roleName || "PROCUREMENT";
+}
+
+function roleName(code = "PROCUREMENT") {
+  return roleNameMap[code] || code || "採購";
+}
+
+function eventTypeCode(label = "工作") {
+  return eventTypeCodeMap[label] || label || "WORK";
+}
+
+function eventTypeName(code = "WORK") {
+  return eventTypeNameMap[code] || code || "工作";
+}
+
+function parseWorkTimeRange(range = "09:00~18:00") {
+  const [start = "09:00", end = "18:00"] = String(range).split("~").map(x => x.trim());
+  return { start, end };
+}
+
+function cacheKey(name) {
+  const uuid = session?.user_uuid || session?.uuid || "anonymous";
+  return `wl_cache:${uuid}:${name}`;
+}
+
+let cloudSync = readJson("wl_cloud_sync_status_v1", { status: "idle", lastSyncedAt: "", error: "" });
+let dataServiceReady = false;
+let dataServiceHydrating = false;
+let dataServiceSyncing = false;
+
+const LocalCache = {
+  load(name, fallback) { return readJson(cacheKey(name), fallback); },
+  save(name, value) { writeJson(cacheKey(name), value); },
+  saveAll() {
+    if (!hasGoogleOAuthSession()) return;
+    this.save("profile", profile);
+    this.save("entries", entries);
+    this.save("work_models", profile?.tags || []);
+    this.save("ecp_settings", { ecpOwner: profile?.ecpOwner || "", ecpDepartment: profile?.ecpDepartment || "" });
+    this.save("ecp_tasks", profile?.ecpTasks || []);
+  },
+  hydrate() {
+    if (!hasGoogleOAuthSession()) return false;
+    const cachedProfile = this.load("profile", null);
+    const cachedEntries = this.load("entries", []);
+    if (cachedProfile) profile = cachedProfile;
+    if (Array.isArray(cachedEntries) && cachedEntries.length) entries = cachedEntries;
+    return !!cachedProfile || cachedEntries.length > 0;
+  }
+};
+
+const SupabaseRepository = {
+  async request(path, options = {}) {
+    const res = await fetch(`${AUTH_CONFIG.supabaseUrl}/rest/v1/${path}`, {
+      ...options,
+      headers: cloudHeaders(options.headers || {})
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`Supabase ${res.status}: ${body || res.statusText}`);
+    }
+    if (res.status === 204) return null;
+    const text = await res.text();
+    return text ? JSON.parse(text) : null;
+  },
+  select(table, query = "") {
+    return this.request(`${table}${query}`, { method: "GET" });
+  },
+  insert(table, payload) {
+    return this.request(`${table}`, { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify(payload) });
+  },
+  patch(table, query, payload) {
+    return this.request(`${table}${query}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(payload) });
+  },
+  async upsertUserProfile(profileValue) {
+    const work = parseWorkTimeRange(profileValue?.workHours);
+    const lunch = parseWorkTimeRange(profileValue?.lunch || "12:00~13:00");
+    const payload = {
+      user_uuid: session.user_uuid,
+      display_name: session.name || "",
+      email: session.email || "",
+      role_code: roleCode(profileValue?.role || "採購"),
+      work_start_time: work.start,
+      work_end_time: work.end,
+      lunch_start_time: lunch.start,
+      lunch_end_time: lunch.end,
+      timezone: "Asia/Taipei"
+    };
+    return this.request("user_profiles?on_conflict=user_uuid", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=representation" }, body: JSON.stringify(payload) });
+  },
+  async loadUserProfile() {
+    const rows = await this.select("user_profiles", "?select=*&limit=1");
+    return rows?.[0] || null;
+  },
+  async upsertExportSettings(profileValue) {
+    const payload = { user_uuid: session.user_uuid, export_profile: "ecp", ecp_owner: profileValue?.ecpOwner || "", ecp_department: profileValue?.ecpDepartment || "" };
+    return this.request("user_export_settings?on_conflict=user_uuid,export_profile", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=representation" }, body: JSON.stringify(payload) });
+  },
+  async loadExportSettings() {
+    const rows = await this.select("user_export_settings", "?select=*&export_profile=eq.ecp&limit=1");
+    return rows?.[0] || null;
+  },
+  async syncNameList(table, names, extra = {}) {
+    const rows = await this.select(table, "?select=id,name,is_active,sort_order");
+    const current = rows || [];
+    const wanted = [...new Set((names || []).map(x => String(x).trim()).filter(Boolean))];
+    for (const [index, name] of wanted.entries()) {
+      const existing = current.find(row => row.name === name);
+      const payload = { user_uuid: session.user_uuid, name, is_active: true, sort_order: index, ...extra };
+      if (existing) await this.patch(table, `?id=eq.${encodeURIComponent(existing.id)}`, payload);
+      else await this.insert(table, payload);
+    }
+    for (const row of current) {
+      if (row.is_active && !wanted.includes(row.name)) await this.patch(table, `?id=eq.${encodeURIComponent(row.id)}`, { is_active: false });
+    }
+    return this.select(table, "?select=*&is_active=eq.true&order=sort_order.asc,name.asc");
+  },
+  loadWorkModels() {
+    return this.select("user_work_models", "?select=*&is_active=eq.true&order=sort_order.asc,name.asc");
+  },
+  saveWorkModels(names, profileValue = profile) {
+    return this.syncNameList("user_work_models", names, { role_code: roleCode(profileValue?.role || "採購"), source: "manual" });
+  },
+  loadEcpTasks() {
+    return this.select("user_ecp_tasks", "?select=*&is_active=eq.true&order=sort_order.asc,name.asc");
+  },
+  saveEcpTasks(names) {
+    return this.syncNameList("user_ecp_tasks", names);
+  },
+  async loadEntries(month = monthKey()) {
+    const rows = await this.select("work_entries", `?select=*,user_ecp_tasks(name)&work_date=gte.${month}-01&work_date=lt.${nextMonthKey(month)}-01&status=neq.deleted&order=started_at.asc`);
+    return rows || [];
+  },
+  async saveEntry(entry) {
+    const ecpRows = await this.loadEcpTasks();
+    const ecpTask = ecpRows.find(row => row.name === entry.ecpTask);
+    const existing = entry.cloudId ? [{ id: entry.cloudId }] : await this.select("work_entries", `?select=id&legacy_id=eq.${encodeURIComponent(entry.id)}&limit=1`);
+    const started = safeDate(entry.at);
+    const ended = addHoursToDate(entry.at, entry.hours);
+    const payload = {
+      user_uuid: session.user_uuid,
+      work_date: entry.date,
+      started_at: started.toISOString(),
+      ended_at: ended.toISOString(),
+      hours: Number(entry.hours || 0),
+      title: entry.title || "",
+      note: entry.note || "",
+      event_type: eventTypeCode(entry.type || "工作"),
+      status: entry.status || "completed",
+      source: entry.source || "manual",
+      ecp_task_id: ecpTask?.id || null,
+      ecp_task_name_snapshot: entry.ecpTask || "",
+      legacy_id: entry.id
+    };
+    const saved = existing?.[0]?.id
+      ? await this.patch("work_entries", `?id=eq.${encodeURIComponent(existing[0].id)}`, payload)
+      : await this.insert("work_entries", payload);
+    return saved?.[0] || null;
+  },
+  async deleteEntry(entry) {
+    const existing = entry.cloudId ? [{ id: entry.cloudId }] : await this.select("work_entries", `?select=id&legacy_id=eq.${encodeURIComponent(entry.id)}&limit=1`);
+    if (!existing?.[0]?.id) return null;
+    return this.patch("work_entries", `?id=eq.${encodeURIComponent(existing[0].id)}`, { status: "deleted", deleted_at: new Date().toISOString() });
+  }
+};
+
+function nextMonthKey(month = monthKey()) {
+  const [year, m] = month.split("-").map(Number);
+  const d = new Date(year, m, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function profileFromCloud(cloudProfile, exportSettings, workModels, ecpTaskRows) {
+  const workHours = `${String(cloudProfile?.work_start_time || "09:00").slice(0, 5)}~${String(cloudProfile?.work_end_time || "18:00").slice(0, 5)}`;
+  const lunch = `${String(cloudProfile?.lunch_start_time || "12:00").slice(0, 5)}~${String(cloudProfile?.lunch_end_time || "13:00").slice(0, 5)}`;
+  return {
+    ...(profile || {}),
+    role: roleName(cloudProfile?.role_code || roleCode(profile?.role || "採購")),
+    tags: workModels?.length ? workModels.map(row => row.name) : (profile?.tags || []),
+    workHours,
+    lunch,
+    ecpOwner: exportSettings?.ecp_owner || profile?.ecpOwner || "",
+    ecpDepartment: exportSettings?.ecp_department || profile?.ecpDepartment || "",
+    ecpTasks: ecpTaskRows?.length ? ecpTaskRows.map(row => row.name) : (profile?.ecpTasks || [])
+  };
+}
+
+function entryFromCloud(row) {
+  return {
+    id: row.legacy_id || row.id,
+    cloudId: row.id,
+    date: row.work_date,
+    at: String(row.started_at || "").slice(0, 16),
+    title: row.title || "",
+    note: row.note || "",
+    ecpTask: row.ecp_task_name_snapshot || row.user_ecp_tasks?.name || "",
+    hours: Number(row.hours || 0),
+    type: eventTypeName(row.event_type || "WORK"),
+    status: row.status || "completed",
+    source: row.source || "manual"
+  };
+}
+
+const DataService = {
+  async init() {
+    if (!hasGoogleOAuthSession()) return;
+    dataServiceReady = true;
+    LocalCache.hydrate();
+    await this.loadAll();
+  },
+  setStatus(status, error = "") {
+    cloudSync = { status, error, lastSyncedAt: status === "synced" ? new Date().toISOString() : cloudSync.lastSyncedAt || "" };
+    writeJson("wl_cloud_sync_status_v1", cloudSync);
+  },
+  async loadAll() {
+    if (!dataServiceReady || dataServiceHydrating) return;
+    dataServiceHydrating = true;
+    this.setStatus("syncing");
+    try {
+      const [cloudProfile, exportSettings, workModelsRows, ecpTaskRows, entryRows] = await Promise.all([
+        SupabaseRepository.loadUserProfile(),
+        SupabaseRepository.loadExportSettings(),
+        SupabaseRepository.loadWorkModels(),
+        SupabaseRepository.loadEcpTasks(),
+        SupabaseRepository.loadEntries(monthKey())
+      ]);
+      if (cloudProfile || exportSettings || workModelsRows?.length || ecpTaskRows?.length) profile = profileFromCloud(cloudProfile, exportSettings, workModelsRows || [], ecpTaskRows || []);
+      if (entryRows?.length) entries = mergeEntries(entries, entryRows.map(entryFromCloud));
+      normalizeEntries();
+      LocalCache.saveAll();
+      this.setStatus("synced");
+    } catch (error) {
+      console.error("Cloud Sync load failed", error);
+      this.setStatus("failed", error.message || "Cloud Sync failed");
+    } finally {
+      dataServiceHydrating = false;
+    }
+  },
+  async syncAll() {
+    if (!dataServiceReady || dataServiceHydrating || dataServiceSyncing || !hasGoogleOAuthSession()) return;
+    dataServiceSyncing = true;
+    this.setStatus("syncing");
+    try {
+      if (profile) {
+        await SupabaseRepository.upsertUserProfile(profile);
+        await SupabaseRepository.upsertExportSettings(profile);
+        await SupabaseRepository.saveWorkModels(workModels(), profile);
+        await SupabaseRepository.saveEcpTasks(ecpTasks());
+      }
+      for (const entry of entries.filter(e => e.status !== "deleted")) {
+        const saved = await SupabaseRepository.saveEntry(entry);
+        if (saved?.id) entry.cloudId = saved.id;
+      }
+      LocalCache.saveAll();
+      this.setStatus("synced");
+    } catch (error) {
+      console.error("Cloud Sync save failed", error);
+      this.setStatus("failed", error.message || "Cloud Sync failed");
+    } finally {
+      dataServiceSyncing = false;
+    }
+  },
+  async deleteEntry(entry) {
+    if (!dataServiceReady || !hasGoogleOAuthSession()) return;
+    try {
+      await SupabaseRepository.deleteEntry(entry);
+      this.setStatus("synced");
+    } catch (error) {
+      console.error("Cloud Sync delete failed", error);
+      this.setStatus("failed", error.message || "Cloud Sync delete failed");
+    }
+  }
+};
+
+function mergeEntries(localEntries, cloudEntries) {
+  const map = new Map();
+  localEntries.forEach(entry => map.set(entry.id, entry));
+  cloudEntries.forEach(entry => map.set(entry.id, { ...(map.get(entry.id) || {}), ...entry }));
+  return [...map.values()].sort((a, b) => new Date(a.at) - new Date(b.at));
 }
 
 function getStoredAuthSession() {
@@ -297,6 +596,8 @@ function saveAll() {
   hasOsShellState = true;
   localStorage.setItem("wl_view", view);
   localStorage.setItem("wl_selected", selected.toISOString());
+  LocalCache.saveAll();
+  if (dataServiceReady && !dataServiceHydrating) DataService.syncAll();
 }
 
 function toast(t) {
@@ -398,6 +699,19 @@ function addWorkModel(model) {
 
 function googleConnectionLabel() {
   return "⚪ 尚未連接";
+}
+
+function cloudSyncLabel() {
+  if (cloudSync.status === "synced") return "🟢 已同步";
+  if (cloudSync.status === "syncing") return "🟡 同步中";
+  if (cloudSync.status === "failed") return "🔴 同步失敗";
+  return "⚪ 尚未同步";
+}
+
+function cloudSyncDetail() {
+  if (cloudSync.status === "failed") return cloudSync.error || "請稍後再試";
+  if (!cloudSync.lastSyncedAt) return "等待 Cloud Sync";
+  return `最後同步：${fmt(cloudSync.lastSyncedAt)}`;
 }
 
 function nextStart() {
@@ -698,6 +1012,7 @@ function sync() {
     ["Google Drive", googleState.replace("尚未連接", "尚未授權"), `最後檢查：${checkedAt}`, authButton(googleState)],
     ["Gmail", googleState.replace("尚未連接", "尚未授權"), `最後檢查：${checkedAt}`, authButton(googleState)],
     ["Calendar", googleState.replace("尚未連接", "尚未授權"), `最後檢查：${checkedAt}`, authButton(googleState)],
+    ["Cloud Sync", cloudSyncLabel(), cloudSyncDetail(), ""],
     ["AI 引擎", "🟢 正常", "目前模型：GPT-5.5", ""],
     ["Supabase", session ? "🟢 已連線" : "⚪ 尚未登入", session ? "Auth Session OK" : "需要先完成 Google Login", ""],
     ["本機資料", "🟢 正常", `最後同步：${checkedDate}`, ""]
@@ -790,7 +1105,12 @@ function bind() {
   const exportBtn = document.querySelector("[data-export-month]"); if (exportBtn) exportBtn.onclick = () => exportEcpImportFile();
   document.querySelectorAll("[data-accept]").forEach(b => b.onclick = () => acceptSuggestion(b.dataset.accept));
   document.querySelectorAll("[data-adjust]").forEach(b => b.onclick = () => adjustSuggestion(b.dataset.adjust));
-  document.querySelectorAll("[data-del-id]").forEach(b => b.onclick = () => { entries = entries.filter(e => e.id !== b.dataset.delId); saveAll(); toast("已刪除"); render(); });
+  document.querySelectorAll("[data-del-id]").forEach(b => b.onclick = () => {
+    const removed = entries.find(e => e.id === b.dataset.delId);
+    entries = entries.filter(e => e.id !== b.dataset.delId);
+    if (removed) DataService.deleteEntry(removed);
+    saveAll(); toast("已刪除"); render();
+  });
   document.querySelectorAll("[data-edit-id]").forEach(b => b.onclick = () => { editingEntryId = b.dataset.editId; captureSeed = null; activeWorkspace = "worklog"; if (!openTabs.includes("worklog")) openTabs.push("worklog"); rememberWorkspace("worklog"); view = "capture"; saveAll(); render(); });
   bindLibrary();
   if (activeWorkspace === "worklog" && view === "capture") bindCapture();
@@ -1268,6 +1588,7 @@ async function boot() {
       session = googleSessionFromUser(googleAuth.user, googleAuth.authSession);
       if (authCallbackCaptured) { activeModule = "dashboard"; activeWorkspace = "worklog"; openTabs = ["worklog"]; recentWorkspaces = ["worklog"]; view = "center"; hasOsShellState = true; }
       saveAll();
+      await DataService.init();
     }
   } catch {
     clearStoredAuthSession();
