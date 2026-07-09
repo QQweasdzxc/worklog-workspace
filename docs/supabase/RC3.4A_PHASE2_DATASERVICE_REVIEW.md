@@ -21,6 +21,13 @@ This phase does not modify:
 - Cloud Sync status
 - Current WorkLog profile / ECP / work model / entry save flow
 
+## Cloud Sync Version
+
+```text
+Cloud Sync Schema: RC3.4A-v1
+Migration Key: localstorage_rc33_to_rc34a_v1
+```
+
 ## DataService Architecture
 
 ```text
@@ -84,6 +91,22 @@ Provides:
 - `loadAll()`
 - `syncAll()`
 - `deleteEntry()`
+
+## Cloud Sync Status Display Rules
+
+```text
+🟢 已同步
+🟡 同步中
+🔴 同步失敗
+⚪ 尚未同步
+```
+
+Migration-specific intermediate states:
+
+```text
+🟡 等待資料搬移
+🟡 資料搬移中
+```
 
 ## Cloud Sync Flow
 

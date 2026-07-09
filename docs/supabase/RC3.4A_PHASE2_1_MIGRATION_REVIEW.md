@@ -17,6 +17,13 @@ This phase does not modify:
 - Pending Queue
 - Offline Sync
 
+## Cloud Sync Version
+
+```text
+Cloud Sync Schema: RC3.4A-v1
+Migration Key: localstorage_rc33_to_rc34a_v1
+```
+
 ## Legacy Data Inventory
 
 The app detects these legacy LocalStorage keys:
@@ -50,6 +57,22 @@ The app checks `sync_migrations` for this key.
 If completed, migration preview is skipped.
 
 If not completed and legacy core data exists, migration preview is shown.
+
+## Cloud Sync Status Display Rules
+
+```text
+🟢 已同步
+🟡 同步中
+🔴 同步失敗
+⚪ 尚未同步
+```
+
+Migration-specific intermediate states:
+
+```text
+🟡 等待資料搬移
+🟡 資料搬移中
+```
 
 ## Migration Preview
 

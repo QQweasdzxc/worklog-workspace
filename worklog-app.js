@@ -696,7 +696,7 @@ function validateEntry(item) {
   return "";
 }
 
-function saveAll() {
+function saveAll(options = {}) {
   localStorage.setItem("wl_entries", JSON.stringify(entries));
   localStorage.setItem("wl_profile", JSON.stringify(profile));
   localStorage.setItem("wl_feedback", JSON.stringify(feedback));
@@ -711,7 +711,7 @@ function saveAll() {
   localStorage.setItem("wl_view", view);
   localStorage.setItem("wl_selected", selected.toISOString());
   LocalCache.saveAll();
-  if (dataServiceReady && !dataServiceHydrating && !migrationRequired && !migrationRunning) DataService.syncAll();
+  if (!options.skipSync && dataServiceReady && !dataServiceHydrating && !migrationRequired && !migrationRunning) DataService.syncAll();
 }
 
 function toast(t) {
@@ -808,6 +808,30 @@ function addWorkModel(model) {
   if (!profile) profile = { role: "採購", tags: [], sources: ["Google Drive", "Gmail", "Calendar", "手動紀錄"], workHours: "09:00~18:00", lunch: "12:00~13:00", sop: "目前沒有 SOP，先用職務模型" };
   const models = workModels();
   if (!models.includes(name)) profile.tags = [...models, name];
+  return true;
+}
+
+async function addWorkDescription(model) {
+  const name = String(model || "").trim();
+  if (!name) return false;
+  const previousTags = Array.isArray(profile?.tags) ? [...profile.tags] : null;
+  addWorkModel(name);
+  saveAll({ skipSync: true });
+  try {
+    if (dataServiceReady && !dataServiceHydrating && !migrationRequired && !migrationRunning) {
+      DataService.setStatus("syncing");
+      await SupabaseRepository.upsertUserProfile(profile);
+      await SupabaseRepository.saveWorkModels(workModels(), profile);
+      LocalCache.saveAll();
+      DataService.setStatus("synced");
+    } else {
+      throw new Error("Cloud Sync 尚未就緒");
+    }
+  } catch (error) {
+    if (profile && previousTags) profile.tags = previousTags;
+    saveAll({ skipSync: true });
+    throw error;
+  }
   return true;
 }
 
@@ -1110,7 +1134,7 @@ function workDescriptionSuggestions(query = "") {
 
 function descriptionSuggestionChips(query = "") {
   const list = workDescriptionSuggestions(query);
-  return `<div class="history-suggestions" id="descriptionSuggestions">${list.map(x => `<button class="btn2 suggestion-chip" type="button" data-title-suggestion="${escapeHtml(x)}">${escapeHtml(x)}</button>`).join("")}</div>`;
+  return `<div class="history-suggestions" id="descriptionSuggestions">${list.map(x => `<button class="btn2 suggestion-chip" type="button" data-title-suggestion="${escapeHtml(x)}">${escapeHtml(x)}</button>`).join("")}<button class="btn2 suggestion-chip add-chip" type="button" data-open-work-description-dialog="1">＋新增</button></div><div class="quick-add-dialog" id="workDescriptionDialog" style="display:none"><div class="quick-add-card"><h3>新增工作描述</h3><label>名稱：</label><input class="input" id="newWorkDescription" placeholder="例如：請假-特休、會議、主管交辦"><div class="form-actions"><button class="btn2" type="button" data-cancel-work-description="1">取消</button><button class="btn" type="button" data-add-work-description="1">新增</button></div></div></div>`;
 }
 
 function capture(editId = null, seed = null) {
@@ -1276,6 +1300,54 @@ function bindCapture(editId = null) {
     document.querySelectorAll("[data-title-suggestion]").forEach(b => b.onclick = () => {
       titleInput.value = b.dataset.titleSuggestion;
     });
+    document.querySelectorAll("[data-open-work-description-dialog]").forEach(b => b.onclick = () => {
+      const dialog = document.getElementById("workDescriptionDialog");
+      const input = document.getElementById("newWorkDescription");
+      if (dialog) dialog.style.display = "grid";
+      if (input) {
+        input.value = "";
+        setTimeout(() => input.focus(), 0);
+      }
+    });
+    document.querySelectorAll("[data-cancel-work-description]").forEach(b => b.onclick = () => {
+      const dialog = document.getElementById("workDescriptionDialog");
+      const input = document.getElementById("newWorkDescription");
+      if (input) input.value = "";
+      if (dialog) dialog.style.display = "none";
+    });
+    document.querySelectorAll("[data-add-work-description]").forEach(b => b.onclick = async () => {
+      const dialog = document.getElementById("workDescriptionDialog");
+      const input = document.getElementById("newWorkDescription");
+      const name = input?.value.trim() || "";
+      if (!name) return toast("請輸入工作描述名稱");
+      b.disabled = true;
+      try {
+        await addWorkDescription(name);
+        titleInput.value = name;
+        const box = document.getElementById("descriptionSuggestions");
+        if (box) {
+          box.outerHTML = descriptionSuggestionChips(titleInput.value);
+          bindDescriptionSuggestions();
+        }
+        const nextDialog = document.getElementById("workDescriptionDialog");
+        if (nextDialog) nextDialog.style.display = "none";
+        if (dialog) dialog.style.display = "none";
+        toast("已新增工作描述並同步");
+      } catch (error) {
+        console.error("Add work description failed", error);
+        toast("工作描述同步失敗，請稍後再試");
+      } finally {
+        b.disabled = false;
+      }
+    });
+    const input = document.getElementById("newWorkDescription");
+    if (input) input.onkeydown = e => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        document.querySelector("[data-add-work-description]")?.click();
+      }
+      if (e.key === "Escape") document.querySelector("[data-cancel-work-description]")?.click();
+    };
   };
   bindDescriptionSuggestions();
   if (titleInput) titleInput.oninput = () => {
