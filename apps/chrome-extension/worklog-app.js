@@ -1,11 +1,15 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260710-2107";
+const BUILD_TIME = "20260711-0710";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
+const IS_EXTENSION_ENTRY = document.body?.classList.contains("extension");
+const WEB_APP_URL = "https://qqweasdzxc.github.io/worklog-workspace/";
 const AUTH_SESSION_KEY = "zhuge_ai_os_google_auth_session_v1";
 const AUTH_CODE_VERIFIER_KEY = "zhuge_ai_os_pkce_code_verifier_v1";
 const AI_OS_SESSION_KEY = "zhuge_ai_os_session_v1";
+const WORKLOG_WELCOME_KEY = "zhuge_worklog_welcome_seen_v1";
+const WORKLOG_CHAT_KEY = "zhuge_worklog_chat_v1";
 const ACTIVE_MODULE_KEY = "zhuge_active_module_v1";
 const OS_OPEN_TABS_KEY = "zhuge_os_open_tabs_v1";
 const OS_ACTIVE_WORKSPACE_KEY = "zhuge_os_active_workspace_v1";
@@ -205,6 +209,10 @@ function parseWorkTimeRange(range = "09:00~18:00") {
 function cacheKey(name) {
   const uuid = currentUserUuid() || "anonymous";
   return `wl_cache:${uuid}:${name}`;
+}
+
+function scopedLocalKey(name) {
+  return `${name}:${currentUserUuid() || "anonymous"}`;
 }
 
 function legacyInventory() {
@@ -1558,6 +1566,155 @@ function defaultEcpTaskName(title = "") {
   return firstEcpTaskFor(title) || ecpTasks()[0] || "";
 }
 
+function assistantGreeting() {
+  return { role: "assistant", text: "您好，我是諸葛工時助手。今天想完成什麼？" };
+}
+
+function conversationKey() {
+  return scopedLocalKey(WORKLOG_CHAT_KEY);
+}
+
+function conversationMessages() {
+  const messages = readJson(conversationKey(), []);
+  return Array.isArray(messages) && messages.length ? messages : [assistantGreeting()];
+}
+
+function saveConversationMessages(messages = []) {
+  writeJson(conversationKey(), messages.slice(-20));
+}
+
+function addConversationMessage(role, text) {
+  const messages = conversationMessages();
+  messages.push({ role, text: String(text || ""), at: new Date().toISOString() });
+  saveConversationMessages(messages);
+}
+
+const chineseNumberMap = { "零": 0, "一": 1, "二": 2, "兩": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10 };
+
+function parseNumberToken(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  if (/^\d+(\.\d+)?$/.test(text)) return Number(text);
+  if (text === "半") return 0.5;
+  if (text === "十") return 10;
+  if (text.length === 1 && text in chineseNumberMap) return chineseNumberMap[text];
+  const tenMatch = text.match(/^十([一二兩三四五六七八九])$/);
+  if (tenMatch) return 10 + chineseNumberMap[tenMatch[1]];
+  const compound = text.match(/^([一二兩三四五六七八九])十([一二兩三四五六七八九])?$/);
+  if (compound) return chineseNumberMap[compound[1]] * 10 + (compound[2] ? chineseNumberMap[compound[2]] : 0);
+  return null;
+}
+
+function parseAssistantDate(text = "") {
+  const base = new Date();
+  if (/明天|明日/.test(text)) base.setDate(base.getDate() + 1);
+  if (/昨天|昨日/.test(text)) base.setDate(base.getDate() - 1);
+  const explicit = String(text).match(/(\d{1,2})[/-](\d{1,2})/);
+  if (explicit) {
+    base.setMonth(Number(explicit[1]) - 1);
+    base.setDate(Number(explicit[2]));
+  }
+  return key(base);
+}
+
+function parseAssistantTimeToken(period = "", hourToken = "", minuteToken = "") {
+  let hour = parseNumberToken(hourToken);
+  if (hour == null) return null;
+  let minute = minuteToken === "半" ? 30 : Number(minuteToken || 0);
+  if (/下午|晚上|晚間/.test(period) && hour < 12) hour += 12;
+  if (/中午/.test(period) && hour < 12) hour += 12;
+  if (/凌晨/.test(period) && hour === 12) hour = 0;
+  return { hour, minute: Number.isFinite(minute) ? minute : 0 };
+}
+
+function parseAssistantTimeRange(text = "", dateKey = key()) {
+  const pattern = /(上午|下午|晚上|晚間|中午|凌晨)?\s*([0-9一二兩三四五六七八九十]{1,3})\s*(?:點|:)\s*(半|\d{1,2})?\s*(?:到|至|-|~)\s*(上午|下午|晚上|晚間|中午|凌晨)?\s*([0-9一二兩三四五六七八九十]{1,3})\s*(?:點|:)?\s*(半|\d{1,2})?/;
+  const match = String(text).match(pattern);
+  if (!match) return null;
+  const start = parseAssistantTimeToken(match[1] || "", match[2], match[3] || "");
+  const end = parseAssistantTimeToken(match[4] || match[1] || "", match[5], match[6] || "");
+  if (!start || !end) return null;
+  const startMinutes = start.hour * 60 + start.minute;
+  let endMinutes = end.hour * 60 + end.minute;
+  if (endMinutes <= startMinutes && end.hour < 12) endMinutes += 12 * 60;
+  const hoursValue = Math.max(0.5, Math.round((endMinutes - startMinutes) / 30) / 2);
+  return { at: `${dateKey}T${String(start.hour).padStart(2, "0")}:${String(start.minute).padStart(2, "0")}`, hours: hoursValue };
+}
+
+function parseAssistantDuration(text = "") {
+  const half = String(text).match(/半\s*(?:小時|h|H)/);
+  if (half) return 0.5;
+  const match = String(text).match(/([0-9]+(?:\.[0-9]+)?|[一二兩三四五六七八九十]+)\s*(?:小時|h|H)/);
+  if (!match) return null;
+  return parseNumberToken(match[1]);
+}
+
+function assistantFallbackText() {
+  return "目前我是工時助手。目前僅支援工時相關操作。未來會逐步擴充更多能力。";
+}
+
+function parseWorklogIntent(text = "") {
+  const raw = String(text || "").trim();
+  if (!raw) return { type: "empty" };
+  if (/(今天|今日).*(工時|完成)|工時.*(今天|今日)/.test(raw)) return { type: "query_today" };
+  if (/(本週|本周|這週|這周).*(工時|完成)|工時.*(本週|本周|這週|這周)/.test(raw)) return { type: "query_week" };
+  if (/刪除|移除/.test(raw)) return { type: /最後|上一筆|剛剛/.test(raw) ? "delete_last" : "unsupported_delete" };
+  if (/修改|改成|調整/.test(raw)) return { type: /最後|上一筆|剛剛/.test(raw) ? "update_last" : "unsupported_update", hours: parseAssistantDuration(raw) };
+  if (/(新增|記錄|紀錄|補|請假|特休|病假|事假|公假|婚假|喪假|補休|會議|工時|開會|教育訓練)/.test(raw)) {
+    const dateKey = parseAssistantDate(raw);
+    const range = parseAssistantTimeRange(raw, dateKey);
+    const duration = parseAssistantDuration(raw);
+    const entryType = entryTypeFromDescription(raw);
+    const hoursValue = range?.hours || duration || (entryType === "leave" ? 8 : 1);
+    const at = range?.at || (entryType === "leave" ? `${dateKey}T09:00` : nextAvailableStart(dateKey, hoursValue));
+    const title = raw
+      .replace(/^(新增|記錄|紀錄|補)/, "")
+      .replace(/今天|今日|明天|明日|昨天|昨日/g, "")
+      .replace(/上午|下午|晚上|晚間|中午|凌晨/g, "")
+      .replace(/[0-9一二兩三四五六七八九十半]+點(半|\d{1,2})?(到|至|-|~)?[0-9一二兩三四五六七八九十半]*點?(半|\d{1,2})?/g, "")
+      .replace(/[0-9一二兩三四五六七八九十半]+(小時|h|H)/g, "")
+      .replace(/工時/g, "")
+      .trim() || (entryType === "leave" ? "請假" : "工時紀錄");
+    return { type: "add_entry", title, at, hours: hoursValue, entryType };
+  }
+  return { type: "unsupported" };
+}
+
+async function executeWorklogCommand(intent) {
+  if (intent.type === "empty") return "請直接告訴我想記錄的工時，例如：今天下午三點到四點開會。";
+  if (intent.type === "query_today") return `今天已記錄 ${hours(entriesForDate(new Date()))}h。`;
+  if (intent.type === "query_week") return `本週已記錄 ${hours(weekEntries(new Date()))}h。`;
+  if (intent.type === "delete_last") {
+    const list = dayEntries();
+    const last = list[list.length - 1];
+    if (!last) return "今天目前沒有可刪除的工時。";
+    await DataService.deleteEntry(last);
+    return `已刪除最後一筆工時：${last.title}。`;
+  }
+  if (intent.type === "update_last") {
+    const list = dayEntries();
+    const last = list[list.length - 1];
+    if (!last) return "今天目前沒有可修改的工時。";
+    if (!intent.hours) return "請告訴我要把最後一筆改成幾小時。";
+    const item = createEntry({ ...last, hours: intent.hours, id: last.id, cloudId: last.cloudId });
+    const error = validateEntry(item); if (error) return error;
+    await persistEntry(item, { requireCloud: true });
+    return `已將最後一筆「${last.title}」調整為 ${intent.hours}h。`;
+  }
+  if (intent.type === "unsupported_delete") return "刪除工時目前請指定「刪除最後一筆」，或先到我的工作列表操作。";
+  if (intent.type === "unsupported_update") return "修改工時目前請指定「修改最後一筆為 X 小時」，或先到我的工作列表操作。";
+  if (intent.type === "add_entry") {
+    if (!session || !hasGoogleOAuthSession()) return "請先登入 ZhuGe AI OS Web，完成 Google Login 後我才能幫您寫入工時。";
+    if (!profile) return "請先完成基本設定，我才能幫您建立工時。";
+    const item = createEntry({ title: intent.title, at: intent.at, date: intent.at.slice(0, 10), hours: intent.hours, entryType: intent.entryType, source: "assistant" });
+    const error = validateEntry(item); if (error) return error;
+    if (!confirmOvertimeEntry(item)) return "已取消儲存。";
+    await persistEntry(item, { requireCloud: true });
+    return `已新增工時：${item.title}｜${fmt(item.at)}｜${item.hours}h。`;
+  }
+  return assistantFallbackText();
+}
+
 function userBadge() {
   if (!session) return "";
   return `<div class="identity-badge"><span>👤 ${escapeHtml(session.name)}</span><small>${escapeHtml(session.status || session.email || "")}</small><button class="mini" data-logout="1">登出</button></div>`;
@@ -1569,6 +1726,18 @@ function header() {
 
 function authScreen() {
   return `<div class="wrap"><div class="card"><section class="panel" style="margin-top:18px"><h1>🧠 Zhuge AI OS</h1><button class="btn full" id="googleLoginBtn">使用 Google 登入</button></section></div></div>`;
+}
+
+function worklogWelcomeSeen() {
+  return localStorage.getItem(scopedLocalKey(WORKLOG_WELCOME_KEY)) === "1";
+}
+
+function needsWorklogWelcome() {
+  return !!session && !profile && !worklogWelcomeSeen();
+}
+
+function worklogWelcomeScreen() {
+  return `<div class="wrap"><div class="card"><section class="panel welcome-panel" style="margin-top:18px"><h1>👤 歡迎來到 ZhuGe AI OS</h1><p>您好，我是諸葛先生。</p><p>很高興成為您的 AI 工作夥伴。</p><p>接下來，我會陪伴您一起管理工時，並逐步學習您的工作模式，讓每天的工作變得更輕鬆、更有效率。</p><p>現在，就讓我們先完成基本設定吧！</p><div class="form-actions"><button class="btn" data-start-worklog-setup="1">開始</button></div></section></div></div>`;
 }
 
 function migrationScreen() {
@@ -1824,8 +1993,20 @@ function suggestionPanel() {
   return `<div class="panel-head"><h2>🤖 推理預測</h2><div class="tag">${queueItems.length} / ${s.length}</div></div><div class="ai-suggestion-list queue-list">${slots.map(x => x ? `<div class="suggestion compact-card"><div class="suggestion-title-row"><h3>${escapeHtml(x.title)}</h3><div class="actions suggestion-actions"><button class="btn green" data-accept="${escapeHtml(x.id)}">採納</button><button class="btn amber" data-adjust="${escapeHtml(x.id)}">編輯</button></div></div><div class="suggestion-source">${escapeHtml(x.sourceLabel || "🤖 AI 推理")}｜🕘 建議 ${escapeHtml(x.suggestedTimeLabel || String(x.at || "").slice(11, 16))}</div></div>` : `<div class="suggestion compact-card placeholder-card"><div class="muted">等待新的推理預測</div></div>`).join("")}</div>`;
 }
 
+function worklogAssistantPanel(mode = "web") {
+  const messages = conversationMessages();
+  const intro = mode === "extension"
+    ? `<div class="muted">您可以直接告訴我：今天下午三點到四點開會、明天下午請特休、今天補一小時工時。</div>`
+    : `<div class="muted">今天想完成什麼？</div>`;
+  return `<section class="panel assistant-panel ${mode === "extension" ? "extension-assistant" : "assistant-module"}"><div class="panel-head"><div><h2>👤 諸葛工時助手</h2>${intro}</div></div><div class="assistant-thread" id="assistantThread">${messages.map(msg => `<div class="assistant-msg ${msg.role === "user" ? "user" : "bot"}">${escapeHtml(msg.text)}</div>`).join("")}</div><div class="assistant-input-row"><input class="input" id="assistantInput" placeholder="例如：今天下午三點到四點開會"><button class="btn" id="assistantSend" type="button">送出</button></div>${mode === "extension" ? `<a class="btn full assistant-web-link" href="${WEB_APP_URL}" target="_blank" rel="noopener">🖥 開啟 ZhuGe AI OS</a>` : ""}</section>`;
+}
+
+function extensionAssistantScreen() {
+  return `<div class="wrap extension-quick-entry"><div class="card">${worklogAssistantPanel("extension")}</div></div>`;
+}
+
 function center() {
-  return `<div class="workbench-grid">${todaySummaryPanel()}<section class="panel module calendar-module"><div class="desktop-calendar">${calendarPanel()}</div><div class="mobile-calendar">${mobileCalendarPanel()}</div></section><section class="panel module today-module">${todayPanel()}</section><section class="panel module suggestion-module">${suggestionPanel()}</section></div>`;
+  return `<div class="workbench-grid">${worklogAssistantPanel("web")}${todaySummaryPanel()}<section class="panel module calendar-module"><div class="desktop-calendar">${calendarPanel()}</div><div class="mobile-calendar">${mobileCalendarPanel()}</div></section><section class="panel module today-module">${todayPanel()}</section><section class="panel module suggestion-module">${suggestionPanel()}</section></div>`;
 }
 
 function workDescriptionSuggestions(query = "") {
@@ -1999,9 +2180,11 @@ function currentViewHtml() {
 
 function render() {
   normalizeEntries();
+  if (IS_EXTENSION_ENTRY) { root.innerHTML = extensionAssistantScreen(); bindWorklogAssistant(); return; }
   clearInvalidAuthState();
   if (!session) { root.innerHTML = authScreen(); bindAuth(); return; }
   if (migrationRequired) { root.innerHTML = migrationScreen(); bindMigration(); bindGlobal(); return; }
+  if (needsWorklogWelcome()) { root.innerHTML = worklogWelcomeScreen(); bindWorklogWelcome(); bindGlobal(); return; }
   root.innerHTML = osShell();
   bind();
   bindGlobal();
@@ -2016,6 +2199,45 @@ function bindMigration() {
 }
 
 function bindDashboard() {}
+
+function bindWorklogWelcome() {
+  document.querySelectorAll("[data-start-worklog-setup]").forEach(b => b.onclick = () => {
+    localStorage.setItem(scopedLocalKey(WORKLOG_WELCOME_KEY), "1");
+    activeWorkspace = "worklog";
+    openTabs = ["worklog"];
+    recentWorkspaces = ["worklog"];
+    hasOsShellState = true;
+    saveAll();
+    render();
+  });
+}
+
+function bindWorklogAssistant() {
+  const input = document.getElementById("assistantInput");
+  const send = document.getElementById("assistantSend");
+  if (!input || !send) return;
+  const submit = async () => {
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = "";
+    addConversationMessage("user", text);
+    try {
+      const response = await executeWorklogCommand(parseWorklogIntent(text));
+      addConversationMessage("assistant", response);
+    } catch (error) {
+      console.error("WorkLog assistant command failed", error);
+      addConversationMessage("assistant", "工時操作失敗，請稍後再試。");
+    }
+    render();
+  };
+  send.onclick = submit;
+  input.onkeydown = e => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      submit();
+    }
+  };
+}
 
 function bindGlobal() {
   document.querySelectorAll("[data-logout]").forEach(b => b.onclick = () => doLogout());
@@ -2089,6 +2311,7 @@ function bind() {
   document.querySelectorAll("[data-edit-id]").forEach(b => b.onclick = () => { editingEntryId = b.dataset.editId; captureSeed = null; activeWorkspace = "worklog"; if (!openTabs.includes("worklog")) openTabs.push("worklog"); rememberWorkspace("worklog"); view = "capture"; saveAll(); render(); });
   bindLibrary();
   if (activeWorkspace === "worklog" && view === "capture") bindCapture();
+  if (activeWorkspace === "worklog" && view !== "capture") bindWorklogAssistant();
   if (activeWorkspace === "worklog" && !profile) bindOnboarding();
   if (activeWorkspace === "library" && view === "libraryForm") bindLibraryForm(editingLibraryId);
   if (activeWorkspace === "settings") bindSettings();
