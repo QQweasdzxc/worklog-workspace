@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260710-1348";
+const BUILD_TIME = "20260710-1420";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const AUTH_SESSION_KEY = "zhuge_ai_os_google_auth_session_v1";
@@ -206,9 +206,9 @@ const LocalCache = {
     if (!hasGoogleOAuthSession()) return;
     this.save("profile", profile);
     this.save("entries", entries);
-    this.save("work_models", profile?.tags || []);
+    this.save("work_models", Array.isArray(DataService.workModelsState) ? DataService.workModelsState : profile?.tags || []);
     this.save("ecp_settings", { ecpOwner: profile?.ecpOwner || "", ecpDepartment: profile?.ecpDepartment || "" });
-    this.save("ecp_tasks", profile?.ecpTasks || []);
+    this.save("ecp_tasks", Array.isArray(DataService.ecpTasksState) ? DataService.ecpTasksState : profile?.ecpTasks || []);
   },
   hydrate() {
     if (!hasGoogleOAuthSession()) return false;
@@ -216,6 +216,10 @@ const LocalCache = {
     const cachedEntries = this.load("entries", []);
     if (cachedProfile) profile = cachedProfile;
     if (Array.isArray(cachedEntries) && cachedEntries.length) entries = cachedEntries;
+    const cachedWorkModels = this.load("work_models", null);
+    const cachedEcpTasks = this.load("ecp_tasks", null);
+    if (Array.isArray(cachedWorkModels)) DataService.workModelsState = cachedWorkModels;
+    if (Array.isArray(cachedEcpTasks)) DataService.ecpTasksState = cachedEcpTasks;
     return !!cachedProfile || cachedEntries.length > 0;
   }
 };
@@ -447,6 +451,8 @@ function setEntries(nextEntries = []) {
 }
 
 const DataService = {
+  workModelsState: null,
+  ecpTasksState: null,
   async init() {
     if (!hasGoogleOAuthSession()) return;
     dataServiceReady = true;
@@ -485,6 +491,8 @@ const DataService = {
           workModelsLoaded: !failedLoads.has("work_models"),
           ecpTasksLoaded: !failedLoads.has("ecp_tasks")
         });
+        this.workModelsState = Array.isArray(profile?.tags) ? [...profile.tags] : [];
+        this.ecpTasksState = Array.isArray(profile?.ecpTasks) ? [...profile.ecpTasks] : [];
       }
       if (!failedLoads.has("entries")) setEntries(Array.isArray(entryRows) ? entryRows.map(entryFromCloud) : []);
       LocalCache.saveAll();
@@ -627,7 +635,7 @@ const DataService = {
         dataServiceReady = true;
         this.setStatus("syncing");
         const rows = await SupabaseRepository.saveWorkModels(workModels(), profile);
-        profile.tags = Array.isArray(rows) ? rows.map(row => row.name).filter(Boolean) : workModels();
+        setWorkModels(Array.isArray(rows) ? rows.map(row => row.name).filter(Boolean) : workModels());
         LocalCache.saveAll();
         this.setStatus("synced");
       } else {
@@ -638,6 +646,48 @@ const DataService = {
     } catch (error) {
       console.error("Save work models failed", { error, supabase: error.supabase || null, models: workModels() });
       this.setStatus("failed", error.message || "Work model sync failed");
+      if (options.requireCloud) throw error;
+    }
+  },
+  async saveEcpTasksOnly(options = {}) {
+    try {
+      LocalCache.saveAll();
+      if (hasGoogleOAuthSession() && !dataServiceHydrating && !migrationRunning) {
+        dataServiceReady = true;
+        this.setStatus("syncing");
+        const rows = await SupabaseRepository.saveEcpTasks(ecpTasks());
+        setEcpTasks(Array.isArray(rows) ? rows.map(row => row.name).filter(Boolean) : ecpTasks());
+        LocalCache.saveAll();
+        this.setStatus("synced");
+      } else {
+        const reason = !hasGoogleOAuthSession() ? "尚未登入 Google" : "Cloud Sync 正在初始化";
+        console.warn("ECP tasks saved to cache; cloud sync deferred", { reason, tasks: ecpTasks() });
+        if (options.requireCloud) throw new Error(reason);
+      }
+    } catch (error) {
+      console.error("Save ECP tasks failed", { error, supabase: error.supabase || null, tasks: ecpTasks() });
+      this.setStatus("failed", error.message || "ECP task sync failed");
+      if (options.requireCloud) throw error;
+    }
+  },
+  async saveProfileSettingsOnly(options = {}) {
+    try {
+      LocalCache.saveAll();
+      if (hasGoogleOAuthSession() && !dataServiceHydrating && !migrationRunning && profile) {
+        dataServiceReady = true;
+        this.setStatus("syncing");
+        await SupabaseRepository.upsertUserProfile(profile);
+        await SupabaseRepository.upsertExportSettings(profile);
+        LocalCache.saveAll();
+        this.setStatus("synced");
+      } else {
+        const reason = !hasGoogleOAuthSession() ? "尚未登入 Google" : "Cloud Sync 正在初始化";
+        console.warn("Profile settings saved to cache; cloud sync deferred", { reason });
+        if (options.requireCloud) throw new Error(reason);
+      }
+    } catch (error) {
+      console.error("Save profile settings failed", { error, supabase: error.supabase || null });
+      this.setStatus("failed", error.message || "Profile sync failed");
       if (options.requireCloud) throw error;
     }
   }
@@ -921,6 +971,10 @@ function validateEntry(item) {
 }
 
 function saveAll(options = {}) {
+  saveLocalSnapshot();
+}
+
+function saveLocalSnapshot() {
   localStorage.setItem("wl_profile", JSON.stringify(profile));
   localStorage.setItem("wl_feedback", JSON.stringify(feedback));
   localStorage.setItem(AI_OS_SESSION_KEY, JSON.stringify(session));
@@ -934,7 +988,6 @@ function saveAll(options = {}) {
   localStorage.setItem("wl_view", view);
   localStorage.setItem("wl_selected", selected.toISOString());
   LocalCache.saveAll();
-  if (!options.skipSync && dataServiceReady && !dataServiceHydrating && !migrationRequired && !migrationRunning) DataService.syncAll();
 }
 
 function toast(t) {
@@ -1015,20 +1068,32 @@ function tagsForRole(role) {
 }
 
 function workModels() {
+  if (Array.isArray(DataService.workModelsState)) return [...new Set(DataService.workModelsState.map(x => String(x).trim()).filter(Boolean))];
   const models = Array.isArray(profile?.tags) && profile.tags.length ? profile.tags : tagsForRole(profile?.role || "採購");
   return [...new Set(models.map(x => String(x).trim()).filter(Boolean))];
 }
 
 function setWorkModels(models = []) {
   if (!profile) profile = { role: "採購", tags: [], sources: ["Google Drive", "Gmail", "Calendar", "手動紀錄"], workHours: "09:00~18:00", lunch: "12:00~13:00", sop: "目前沒有 SOP，先用職務模型" };
-  profile.tags = [...new Set((models || []).map(x => String(x).trim()).filter(Boolean))];
+  DataService.workModelsState = [...new Set((models || []).map(x => String(x).trim()).filter(Boolean))];
+  profile.tags = [...DataService.workModelsState];
   LocalCache.save("work_models", profile.tags);
   return profile.tags;
 }
 
 function ecpTasks() {
+  if (Array.isArray(DataService.ecpTasksState)) return [...new Set(DataService.ecpTasksState.map(x => String(x).trim()).filter(Boolean))];
   const source = Array.isArray(profile?.ecpTasks) && profile.ecpTasks.length ? profile.ecpTasks : (profile?.ecpTask ? [profile.ecpTask] : defaultEcpTasks);
   return [...new Set(source.map(x => String(x).trim()).filter(Boolean))];
+}
+
+function setEcpTasks(tasks = []) {
+  if (!profile) profile = { role: "採購", tags: [], sources: ["Google Drive", "Gmail", "Calendar", "手動紀錄"], workHours: "09:00~18:00", lunch: "12:00~13:00", sop: "目前沒有 SOP，先用職務模型" };
+  DataService.ecpTasksState = [...new Set((tasks || []).map(x => String(x).trim()).filter(Boolean))];
+  profile.ecpTasks = [...DataService.ecpTasksState];
+  profile.ecpTask = "";
+  LocalCache.save("ecp_tasks", profile.ecpTasks);
+  return profile.ecpTasks;
 }
 
 function ecpTaskOptions(selectedTask = "") {
@@ -1135,6 +1200,20 @@ function normalizeStartMinutes(minutes, durationHours = 1) {
 function entryStartMinutes(entry) {
   const time = String(entry?.at || "").slice(11, 16);
   return minutesFromTime(time || "09:00");
+}
+
+function entryEndMinutes(entry) {
+  return entryStartMinutes(entry) + Math.round(Number(entry?.hours || 0) * 60);
+}
+
+function requiresOvertimeConfirmation(entry) {
+  return entryEndMinutes(entry) > profileWorkSchedule().workEnd;
+}
+
+function confirmOvertimeEntry(entry) {
+  if (!requiresOvertimeConfirmation(entry)) return true;
+  const s = profileWorkSchedule();
+  return confirm(`此筆工時預計結束於 ${timeFromMinutes(entryEndMinutes(entry))}，已超過下班時間 ${timeFromMinutes(s.workEnd)}。是否仍要儲存？`);
 }
 
 function mergeTimeIntervals(intervals = []) {
@@ -1572,10 +1651,14 @@ function bindOnboarding() {
     bindTagButtons();
   };
   document.querySelectorAll(".src-btn").forEach(b => b.onclick = () => { src.includes(b.dataset.src) ? src = src.filter(x => x !== b.dataset.src) : src.push(b.dataset.src); b.classList.toggle("selected", src.includes(b.dataset.src)); });
-  document.getElementById("saveProfile").onclick = () => {
+  document.getElementById("saveProfile").onclick = async () => {
     const role = document.getElementById("role").value;
     profile = { role, tags: tags.length ? tags : tagsForRole(role), sources: src.length ? src : ["Google Drive", "Gmail", "Calendar", "手動紀錄"], workHours: "09:00~18:00", lunch: "12:00~13:00", sop: document.getElementById("sop").value };
-    saveAll(); toast("已建立工作模型"); render();
+    setWorkModels(profile.tags);
+    saveAll();
+    await DataService.saveProfileSettingsOnly();
+    await DataService.saveWorkModelsOnly();
+    toast("已建立工作模型"); render();
   };
 }
 
@@ -1648,6 +1731,7 @@ async function acceptSuggestion(id) {
   if (!s) return;
   const item = createEntry({ title: s.title, note: s.note || "", hours: s.hours || 1, at: s.at, ecpTask: s.ecpTask || defaultEcpTaskName(s.title), source: "ai-card" });
   const error = validateEntry(item); if (error) return toast(error);
+  if (!confirmOvertimeEntry(item)) return;
   const saved = await persistEntry(item);
   if (!saved) return;
   feedback[s.id] = (feedback[s.id] || 0) + 1;
@@ -1741,14 +1825,14 @@ function bindCapture(editId = null) {
     if (quickAdd) quickAdd.style.display = ecpTaskSelect.value === "__add__" ? "grid" : "none";
   };
   const addEcpTaskBtn = document.querySelector("[data-add-capture-ecp-task]");
-  if (addEcpTaskBtn) addEcpTaskBtn.onclick = () => {
+  if (addEcpTaskBtn) addEcpTaskBtn.onclick = async () => {
     const input = document.getElementById("newEcpTaskCapture");
     const name = input.value.trim();
     if (!name) return toast("請輸入 ECP 任務名稱");
     const tasks = ecpTasks();
-    profile.ecpTasks = tasks.includes(name) ? tasks : [...tasks, name];
-    profile.ecpTask = "";
+    setEcpTasks(tasks.includes(name) ? tasks : [...tasks, name]);
     saveAll();
+    await DataService.saveEcpTasksOnly();
     ecpTaskSelect.innerHTML = ecpTaskOptions(name);
     ecpTaskSelect.value = name;
     input.value = "";
@@ -1773,6 +1857,7 @@ function bindCapture(editId = null) {
     const selectedEcpTask = document.getElementById("ecpTaskSelect").value === "__add__" ? "" : document.getElementById("ecpTaskSelect").value.trim();
     const item = createEntry({ id: editingEntry ? editingEntry.id : undefined, date: at.slice(0, 10), at, title: description, ecpTask: selectedEcpTask, hours: selectedH, type: editingEntry ? editingEntry.type || "工作" : "工作", note: document.getElementById("note").value.trim(), source: editingEntry ? editingEntry.source : "manual", cloudId: editingEntry?.cloudId });
     const error = validateEntry(item); if (error) return toast(error);
+    if (!confirmOvertimeEntry(item)) return;
     const saved = await persistEntry(item);
     if (!saved) return;
     view = "center"; editingEntryId = null; captureSeed = null; toast("已儲存工時"); render();
@@ -1825,9 +1910,12 @@ function bindSettings() {
   };
   const currentEcpTasks = () => [...document.querySelectorAll("#ecpTaskList .ecp-task-item span")].map(x => x.textContent.trim()).filter(Boolean);
   const bindEcpTaskRemove = () => {
-    document.querySelectorAll("[data-remove-ecp-task]").forEach(b => b.onclick = () => {
+    document.querySelectorAll("[data-remove-ecp-task]").forEach(b => b.onclick = async () => {
       const next = currentEcpTasks().filter(task => task !== b.dataset.removeEcpTask);
       renderEcpTasks(next);
+      setEcpTasks(next);
+      saveAll();
+      await DataService.saveEcpTasksOnly();
     });
   };
   bindEcpTaskRemove();
@@ -1857,24 +1945,31 @@ function bindSettings() {
     toast("已新增工作模型");
   };
   const addEcp = document.getElementById("addEcpTask");
-  if (addEcp) addEcp.onclick = () => {
+  if (addEcp) addEcp.onclick = async () => {
     const input = document.getElementById("newEcpTask");
     const name = input.value.trim();
     if (!name) return toast("請輸入 ECP 任務名稱");
     const tasks = currentEcpTasks();
-    renderEcpTasks(tasks.includes(name) ? tasks : [...tasks, name]);
+    const nextTasks = tasks.includes(name) ? tasks : [...tasks, name];
+    renderEcpTasks(nextTasks);
+    setEcpTasks(nextTasks);
+    saveAll();
+    await DataService.saveEcpTasksOnly();
     input.value = "";
     toast("已新增 ECP 任務");
   };
-  document.getElementById("saveSettings").onclick = () => {
+  document.getElementById("saveSettings").onclick = async () => {
     profile.role = document.getElementById("roleSet").value;
     const selectedModels = [...document.querySelectorAll(".work-model-option:checked")].map(x => x.value.trim()).filter(Boolean);
     setWorkModels(selectedModels.length ? selectedModels : tagsForRole(profile.role));
     profile.ecpOwner = document.getElementById("ecpOwner").value.trim();
     profile.ecpDepartment = document.getElementById("ecpDepartment").value.trim();
-    profile.ecpTasks = currentEcpTasks();
-    profile.ecpTask = "";
-    saveAll(); toast("工作模型已更新"); render();
+    setEcpTasks(currentEcpTasks());
+    saveAll();
+    await DataService.saveProfileSettingsOnly();
+    await DataService.saveWorkModelsOnly();
+    await DataService.saveEcpTasksOnly();
+    toast("工作模型已更新"); render();
   };
   document.getElementById("resetProfile").onclick = () => { profile = null; saveAll(); render(); };
   document.getElementById("logoutBtn").onclick = () => doLogout();
