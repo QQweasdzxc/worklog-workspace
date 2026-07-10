@@ -60,3 +60,10 @@ RC3 Release Patch1 only. No new features, no version number change, no repositor
 - 當日無足夠空檔時，才接在最後一筆工作之後。
 - AI 推理卡顯示建議時段，採納時使用該空檔。
 - 新增 5h 工時快捷鍵。
+
+## Build 20260710-1120 — Work Model Quick Button Sync
+
+- 修正快速紀錄「工作描述」按鈕只顯示前 6 個工作模型的限制。
+- 設定頁已選取／新增的工作模型，現在會完整顯示於快速紀錄按鈕區。
+- 不新增第二份資料來源；兩處共用既有 `profile.tags / user_work_models` 狀態。
+- 未修改 Cloud Sync、Time Integrity、Smart Gap Scheduling、5h 快捷鍵或 UI 版面。

@@ -1459,7 +1459,7 @@ function workDescriptionSuggestions(query = "") {
   ].map(x => String(x || "").trim()).filter(Boolean);
   const unique = [...new Set(source)];
   const q = query.trim().toLowerCase();
-  return unique.filter(x => !q || x.toLowerCase().includes(q)).slice(0, 6);
+  return unique.filter(x => !q || x.toLowerCase().includes(q));
 }
 
 function descriptionSuggestionChips(query = "") {
