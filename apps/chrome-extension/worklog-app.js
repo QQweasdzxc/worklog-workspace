@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260710-1544";
+const BUILD_TIME = "20260710-2009";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const AUTH_SESSION_KEY = "zhuge_ai_os_google_auth_session_v1";
@@ -49,11 +49,20 @@ const roleTagMap = {
   "IT": ["系統維護", "帳號權限處理", "問題排查", "需求訪談", "系統更新", "資料備份", "資安檢查", "技術文件整理"],
   "自訂": ["自訂工作", "Mail處理", "資料整理", "會議", "專案追蹤", "跨部門溝通", "文件整理", "待辦追蹤"]
 };
-const eventTypes = ["工作", "特休", "事假", "病假", "會議", "出差", "教育訓練"];
 const roleCodeMap = { "採購": "PROCUREMENT", "行政": "ADMIN", "人資": "HR", "業務": "SALES", "行銷": "MARKETING", "IT": "IT", "自訂": "CUSTOM" };
 const roleNameMap = Object.fromEntries(Object.entries(roleCodeMap).map(([name, code]) => [code, name]));
-const eventTypeCodeMap = { "工作": "WORK", "會議": "MEETING", "教育訓練": "TRAINING", "特休": "LEAVE", "事假": "LEAVE", "病假": "LEAVE", "出差": "BUSINESS_TRIP" };
-const eventTypeNameMap = { WORK: "工作", MEETING: "會議", TRAINING: "教育訓練", LEAVE: "特休", BUSINESS_TRIP: "出差" };
+const entryTypeOptions = [
+  { value: "work", label: "工作" },
+  { value: "meeting", label: "會議" },
+  { value: "leave", label: "請假" },
+  { value: "holiday", label: "假日" },
+  { value: "training", label: "教育訓練" }
+];
+const eventTypeCodeMap = {
+  work: "WORK", meeting: "MEETING", training: "TRAINING", leave: "LEAVE", holiday: "LEAVE",
+  "工作": "WORK", "會議": "MEETING", "教育訓練": "TRAINING", "特休": "LEAVE", "事假": "LEAVE", "病假": "LEAVE", "請假": "LEAVE", "假日": "LEAVE", "出差": "BUSINESS_TRIP"
+};
+const eventTypeNameMap = { WORK: "work", MEETING: "meeting", TRAINING: "training", LEAVE: "leave", BUSINESS_TRIP: "work" };
 const DEFAULT_LIBRARY_READING_STATUS = "🟡 等待閱讀";
 const ECP_EXPORT_PROFILE_PATH = "resources/profiles/ecp-profile.json";
 const CLOUD_MIGRATION_KEY = "localstorage_rc33_to_rc34a_v1";
@@ -153,11 +162,38 @@ function roleName(code = "PROCUREMENT") {
 }
 
 function eventTypeCode(label = "工作") {
-  return eventTypeCodeMap[label] || label || "WORK";
+  return eventTypeCodeMap[normalizeEntryType(label)] || eventTypeCodeMap[label] || label || "WORK";
 }
 
 function eventTypeName(code = "WORK") {
-  return eventTypeNameMap[code] || code || "工作";
+  return eventTypeLabel(eventTypeNameMap[code] || normalizeEntryType(code));
+}
+
+function normalizeEntryType(value = "work") {
+  const raw = String(value || "work").trim();
+  const lower = raw.toLowerCase();
+  if (["work", "meeting", "leave", "holiday", "training"].includes(lower)) return lower;
+  if (raw === "工作") return "work";
+  if (raw === "會議") return "meeting";
+  if (raw === "教育訓練") return "training";
+  if (["特休", "事假", "病假", "請假"].includes(raw)) return "leave";
+  if (raw === "假日") return "holiday";
+  return "work";
+}
+
+function eventTypeLabel(value = "work") {
+  const normalized = normalizeEntryType(value);
+  return entryTypeOptions.find(option => option.value === normalized)?.label || "工作";
+}
+
+function isLeaveOrHolidayType(value = "work") {
+  const normalized = normalizeEntryType(value);
+  return normalized === "leave" || normalized === "holiday";
+}
+
+function entryTypeSelect(selected = "work") {
+  const current = normalizeEntryType(selected);
+  return entryTypeOptions.map(option => `<option value="${option.value}" ${option.value === current ? "selected" : ""}>${option.label}</option>`).join("");
 }
 
 function parseWorkTimeRange(range = "09:00~18:00") {
@@ -385,7 +421,7 @@ const SupabaseRepository = {
       hours: Number(entry.hours || 0),
       title: entry.title || "",
       note: entry.note || "",
-      event_type: eventTypeCode(entry.type || "工作"),
+      event_type: eventTypeCode(entry.entryType || entry.type || "work"),
       status: entry.status || "completed",
       source: entry.source || "manual",
       ecp_task_id: ecpTask?.id || null,
@@ -472,6 +508,7 @@ function profileFromCloud(cloudProfile, exportSettings, workModels, ecpTaskRows,
 
 function entryFromCloud(row) {
   const localAt = formatTaipeiDateTimeInput(row.started_at);
+  const entryType = eventTypeNameMap[row.event_type || "WORK"] || "work";
   return {
     id: row.legacy_id || row.id,
     cloudId: row.id,
@@ -481,7 +518,8 @@ function entryFromCloud(row) {
     note: row.note || "",
     ecpTask: row.ecp_task_name_snapshot || "",
     hours: Number(row.hours || 0),
-    type: eventTypeName(row.event_type || "WORK"),
+    entryType,
+    type: eventTypeLabel(entryType),
     status: row.status || "completed",
     source: row.source || "manual"
   };
@@ -1044,7 +1082,10 @@ function normalizeEntries() {
   entries = entries.map(e => {
     const next = { ...e };
     if (!next.id) { next.id = uid(); changed = true; }
-    if (!next.type) { next.type = "工作"; changed = true; }
+    const normalizedEntryType = normalizeEntryType(next.entryType || next.type || "work");
+    if (next.entryType !== normalizedEntryType) { next.entryType = normalizedEntryType; changed = true; }
+    const entryTypeName = eventTypeLabel(normalizedEntryType);
+    if (next.type !== entryTypeName) { next.type = entryTypeName; changed = true; }
     if (next.note == null) {
       next.note = next.task && next.task !== next.title ? next.task : "";
       changed = true;
@@ -1290,9 +1331,6 @@ function profileWorkSchedule() {
 function normalizeStartMinutes(minutes, durationHours = 1) {
   const s = profileWorkSchedule();
   let start = Math.max(Number(minutes || 0), s.workStart);
-  const duration = Math.max(1, Math.round(Number(durationHours || 1) * 60));
-  if (start >= s.lunchStart && start < s.lunchEnd) start = s.lunchEnd;
-  if (start < s.lunchStart && start + duration > s.lunchStart) start = s.lunchEnd;
   return start;
 }
 
@@ -1338,7 +1376,6 @@ function availableStartMinutes(dateKey = key(), durationHours = 1, excludeId = n
       return { start, end: start + Math.round(Number(e.hours || 0) * 60) };
     });
   occupied.push(...reserved.map(x => ({ start: x.start, end: x.end })));
-  occupied.push({ start: s.lunchStart, end: s.lunchEnd });
   const merged = mergeTimeIntervals(occupied);
 
   let candidate = s.workStart;
@@ -1659,7 +1696,8 @@ function capture(editId = null, seed = null) {
   const title = e ? e.title : (seed ? seed.title : "");
   const note = e ? (e.note || "") : (seed ? seed.note || "" : "");
   const ecpTask = e ? (e.ecpTask || "") : (seed ? seed.ecpTask || defaultEcpTaskName(seed.title) : defaultEcpTaskName(title));
-  return `<section class="panel capture-panel" style="margin-top:18px"><div class="panel-head"><div><h2>${e ? "編輯工時" : "➕ 快速紀錄"}</h2></div></div><div class="form capture-form"><label>日期 / 開始時間</label><input class="input" id="dt" type="datetime-local" value="${e ? e.at : captureDefaultStart()}"><label>工作描述（必填）</label><input class="input" id="title" value="${escapeHtml(title)}" placeholder="例如：採購案件處理" autocomplete="off">${descriptionSuggestionChips(title)}<label>ECP 任務（選填）</label><select id="ecpTaskSelect" class="input">${ecpTaskOptions(ecpTask)}</select><div class="work-model-add ecp-task-quick-add" id="ecpTaskQuickAdd" style="display:none"><input class="input" id="newEcpTaskCapture" placeholder="新增 ECP 任務，例如：採購案件處理"><button class="btn2" data-add-capture-ecp-task="1" type="button">＋ 新增</button></div><label>工時</label><div class="row hours">${[0.5, 1, 1.5, 2, 3, 4, 5, 8].map(h => `<button class="btn2 hour" data-h="${h}">${h === 0.5 ? "30m" : h + "h"}</button>`).join("")}</div><label>備註（選填）</label><input class="input" id="note" value="${escapeHtml(note)}" placeholder="補充說明，不參與 ECP 匯出"><div class="form-actions capture-actions"><button class="btn2" data-capture-cancel="1">取消</button><button class="btn" id="saveEntry">儲存</button></div></div></section>`;
+  const entryType = e ? normalizeEntryType(e.entryType || e.type) : (seed ? normalizeEntryType(seed.entryType || seed.type || "work") : "work");
+  return `<section class="panel capture-panel" style="margin-top:18px"><div class="panel-head"><div><h2>${e ? "編輯工時" : "➕ 快速紀錄"}</h2></div></div><div class="form capture-form"><label>日期 / 開始時間</label><input class="input" id="dt" type="datetime-local" value="${e ? e.at : captureDefaultStart()}"><label>類型</label><select id="entryType" class="input">${entryTypeSelect(entryType)}</select><label>工作描述（必填）</label><input class="input" id="title" value="${escapeHtml(title)}" placeholder="例如：採購案件處理" autocomplete="off">${descriptionSuggestionChips(title)}<label>ECP 任務（選填）</label><select id="ecpTaskSelect" class="input">${ecpTaskOptions(ecpTask)}</select><div class="work-model-add ecp-task-quick-add" id="ecpTaskQuickAdd" style="display:none"><input class="input" id="newEcpTaskCapture" placeholder="新增 ECP 任務，例如：採購案件處理"><button class="btn2" data-add-capture-ecp-task="1" type="button">＋ 新增</button></div><label>工時</label><div class="row hours">${[0.5, 1, 1.5, 2, 3, 4, 5, 8].map(h => `<button class="btn2 hour" data-h="${h}">${h === 0.5 ? "30m" : h + "h"}</button>`).join("")}</div><label>備註（選填）</label><input class="input" id="note" value="${escapeHtml(note)}" placeholder="補充說明，不參與 ECP 匯出"><div class="form-actions capture-actions"><button class="btn2" data-capture-cancel="1">取消</button><button class="btn" id="saveEntry">儲存</button></div></div></section>`;
 }
 
 function sync() {
@@ -1886,15 +1924,17 @@ function bind() {
 function createEntry(input = {}) {
   const at = input.at || nextAvailableStart(input.date || key(), input.hours || 1, input.id || null);
   const date = input.date || String(at).slice(0, 10);
+  const entryType = normalizeEntryType(input.entryType || input.type || "work");
   return {
     id: input.id || uid(),
     date,
     at,
     title: String(input.title || "").trim(),
     note: String(input.note || "").trim(),
-    ecpTask: input.ecpTask == null ? defaultEcpTaskName(input.title || "") : String(input.ecpTask || "").trim(),
+    ecpTask: isLeaveOrHolidayType(entryType) ? "" : (input.ecpTask == null ? defaultEcpTaskName(input.title || "") : String(input.ecpTask || "").trim()),
     hours: Number(input.hours || 1),
-    type: input.type || "工作",
+    entryType,
+    type: eventTypeLabel(entryType),
     source: input.source || "manual",
     status: input.status || "completed",
     cloudId: input.cloudId || undefined
@@ -1914,7 +1954,7 @@ async function persistEntry(item, options = {}) {
 async function acceptSuggestion(id) {
   const s = makeSuggestions().find(x => x.id === id);
   if (!s) return;
-  const item = createEntry({ title: s.title, note: s.note || "", hours: s.hours || 1, at: s.at, ecpTask: s.ecpTask || defaultEcpTaskName(s.title), source: "ai-card" });
+  const item = createEntry({ title: s.title, note: s.note || "", hours: s.hours || 1, at: s.at, ecpTask: s.ecpTask || defaultEcpTaskName(s.title), entryType: "work", source: "ai-card" });
   const error = validateEntry(item); if (error) return toast(error);
   if (!confirmOvertimeEntry(item)) return;
   const saved = await persistEntry(item);
@@ -2025,22 +2065,27 @@ function bindCapture(editId = null) {
     toast("已新增 ECP 任務");
   };
   const dateTimeInput = document.getElementById("dt");
-  let autoScheduled = !editingEntry && !captureSeed;
-  if (dateTimeInput) dateTimeInput.oninput = () => { autoScheduled = false; };
+  let dateTimeTouched = false;
+  if (dateTimeInput) dateTimeInput.oninput = () => { dateTimeTouched = true; };
+  const entryTypeSelectEl = document.getElementById("entryType");
+  if (entryTypeSelectEl) entryTypeSelectEl.onchange = () => {
+    const entryType = normalizeEntryType(entryTypeSelectEl.value);
+    if (!editingEntry && !captureSeed && isLeaveOrHolidayType(entryType) && dateTimeInput && !dateTimeTouched) {
+      const dateKey = String(dateTimeInput.value || key()).slice(0, 10) || key();
+      dateTimeInput.value = `${dateKey}T09:00`;
+    }
+  };
   document.querySelectorAll(".hour").forEach(b => b.onclick = () => {
     selectedH = Number(b.dataset.h);
     document.querySelectorAll(".hour").forEach(x => x.classList.remove("selected"));
     b.classList.add("selected");
-    if (autoScheduled && dateTimeInput) {
-      const dateKey = String(dateTimeInput.value || key()).slice(0, 10) || key();
-      dateTimeInput.value = nextAvailableStart(dateKey, selectedH, editingEntry?.id || null);
-    }
   });
   document.getElementById("saveEntry").onclick = async () => {
     const at = document.getElementById("dt").value;
     const description = document.getElementById("title").value.trim();
-    const selectedEcpTask = document.getElementById("ecpTaskSelect").value === "__add__" ? "" : document.getElementById("ecpTaskSelect").value.trim();
-    const item = createEntry({ id: editingEntry ? editingEntry.id : undefined, date: at.slice(0, 10), at, title: description, ecpTask: selectedEcpTask, hours: selectedH, type: editingEntry ? editingEntry.type || "工作" : "工作", note: document.getElementById("note").value.trim(), source: editingEntry ? editingEntry.source : "manual", cloudId: editingEntry?.cloudId });
+    const entryType = normalizeEntryType(document.getElementById("entryType")?.value || editingEntry?.entryType || editingEntry?.type || "work");
+    const selectedEcpTask = isLeaveOrHolidayType(entryType) ? "" : (document.getElementById("ecpTaskSelect").value === "__add__" ? "" : document.getElementById("ecpTaskSelect").value.trim());
+    const item = createEntry({ id: editingEntry ? editingEntry.id : undefined, date: at.slice(0, 10), at, title: description, ecpTask: selectedEcpTask, hours: selectedH, entryType, note: document.getElementById("note").value.trim(), source: editingEntry ? editingEntry.source : "manual", cloudId: editingEntry?.cloudId });
     const error = validateEntry(item); if (error) return toast(error);
     if (!confirmOvertimeEntry(item)) return;
     const saved = await persistEntry(item);
