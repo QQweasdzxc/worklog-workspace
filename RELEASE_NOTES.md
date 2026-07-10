@@ -43,3 +43,11 @@ RC3 Release Patch1 only. No new features, no version number change, no repositor
 - WorkLog_RC3_Web.zip
 - WorkLog_RC3_ChromeExtension.zip
 - WorkLog_RC3_Release_Patch1.zip
+
+## Build 20260710-1017 - Timezone Data Integrity Fix
+
+- Fixed `09:00` being displayed as `01:00` after cloud save.
+- Fixed timestamps drifting backward by eight hours on repeated load/save cycles.
+- Added explicit Asia/Taipei business-time conversion helpers.
+- Kept `work_date` as date-only and `started_at` / `ended_at` as UTC timestamps.
+- Existing already-drifted records are not automatically rewritten; correct them manually after deployment.

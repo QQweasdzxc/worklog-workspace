@@ -1,10 +1,10 @@
 {
   "version": "1.0.0-rc3.1-sp3",
   "release": "RC3.3",
-  "buildTime": "20260710-0911",
-  "cacheBust": "20260710-0911",
+  "buildTime": "20260710-1017",
+  "cacheBust": "20260710-1017",
   "source": {
-    "css": "worklog.css?v=20260710-0911",
-    "js": "worklog-app.js?v=20260710-0911"
+    "css": "worklog.css?v=20260710-1017",
+    "js": "worklog-app.js?v=20260710-1017"
   }
 }

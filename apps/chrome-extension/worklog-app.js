@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260710-0911";
+const BUILD_TIME = "20260710-1017";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const AUTH_SESSION_KEY = "zhuge_ai_os_google_auth_session_v1";
@@ -363,11 +363,11 @@ const SupabaseRepository = {
     const ecpRows = await this.loadEcpTasks();
     const ecpTask = ecpRows.find(row => row.name === entry.ecpTask);
     const existing = entry.cloudId ? [{ id: entry.cloudId }] : await this.select("work_entries", `?select=id&legacy_id=eq.${encodeURIComponent(entry.id)}&limit=1`);
-    const started = safeDate(entry.at);
-    const ended = addHoursToDate(entry.at, entry.hours);
+    const started = parseTaipeiBusinessDateTime(entry.at);
+    const ended = new Date(started.getTime() + Math.round(Number(entry.hours || 0) * 60) * 60000);
     const payload = {
       user_uuid: currentUserUuid(),
-      work_date: entry.date,
+      work_date: entry.date || String(entry.at || "").slice(0, 10),
       started_at: started.toISOString(),
       ended_at: ended.toISOString(),
       hours: Number(entry.hours || 0),
@@ -424,11 +424,12 @@ function profileFromCloud(cloudProfile, exportSettings, workModels, ecpTaskRows,
 }
 
 function entryFromCloud(row) {
+  const localAt = formatTaipeiDateTimeInput(row.started_at);
   return {
     id: row.legacy_id || row.id,
     cloudId: row.id,
-    date: row.work_date,
-    at: String(row.started_at || "").slice(0, 16),
+    date: row.work_date || localAt.slice(0, 10),
+    at: localAt,
     title: row.title || "",
     note: row.note || "",
     ecpTask: row.ecp_task_name_snapshot || "",
@@ -610,7 +611,7 @@ const DataService = {
       const nextEntries = entries.filter(e => e.id !== item.id && e.cloudId !== cloudEntry.cloudId);
       nextEntries.push({ ...item, ...cloudEntry, id: item.id || cloudEntry.id, cloudId: cloudEntry.cloudId || saved?.id });
       setEntries(nextEntries);
-      selected = new Date(item.at);
+      selected = safeDate(item.at);
       this.setStatus("synced");
       return nextEntries.find(e => e.id === (item.id || cloudEntry.id));
     } catch (error) {
@@ -924,9 +925,38 @@ function toast(t) {
   setTimeout(() => { e.classList.remove("show"); setTimeout(() => e.remove(), 220); }, 1800);
 }
 
-function safeDate(value, fallback = new Date()) {
-  const d = new Date(value);
+const BUSINESS_TIME_ZONE = "Asia/Taipei";
+const BUSINESS_UTC_OFFSET = "+08:00";
+
+function parseTaipeiBusinessDateTime(value, fallback = new Date()) {
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? fallback : new Date(value.getTime());
+  const text = String(value || "").trim();
+  const localMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
+  const normalized = localMatch
+    ? `${localMatch[1]}-${localMatch[2]}-${localMatch[3]}T${localMatch[4]}:${localMatch[5]}:${localMatch[6] || "00"}${BUSINESS_UTC_OFFSET}`
+    : text;
+  const d = new Date(normalized);
   return Number.isNaN(d.getTime()) ? fallback : d;
+}
+
+function taipeiDateTimeParts(value) {
+  const d = parseTaipeiBusinessDateTime(value);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: BUSINESS_TIME_ZONE,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false
+  }).formatToParts(d);
+  return Object.fromEntries(parts.filter(part => part.type !== "literal").map(part => [part.type, part.value]));
+}
+
+function formatTaipeiDateTimeInput(value) {
+  if (!value) return "";
+  const p = taipeiDateTimeParts(value);
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
+}
+
+function safeDate(value, fallback = new Date()) {
+  return parseTaipeiBusinessDateTime(value, fallback);
 }
 
 function key(d = selected) {
@@ -938,8 +968,8 @@ function monthKey(d = selected) {
 }
 
 function fmt(dt) {
-  const d = safeDate(dt);
-  return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  const p = taipeiDateTimeParts(dt);
+  return `${p.year}/${p.month}/${p.day} ${p.hour}:${p.minute}`;
 }
 
 function dayEntries() {
@@ -2015,8 +2045,8 @@ function writeRowsByHeaderName(sheetDoc, profile, rows) {
 }
 
 function formatEcpDateTime(value) {
-  const d = safeDate(value);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  const p = taipeiDateTimeParts(value);
+  return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}`;
 }
 
 function addHoursToDate(value, h) {
