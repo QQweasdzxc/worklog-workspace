@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260710-1017";
+const BUILD_TIME = "20260710-1048";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const AUTH_SESSION_KEY = "zhuge_ai_os_google_auth_session_v1";
@@ -1115,22 +1115,63 @@ function profileWorkSchedule() {
 
 function normalizeStartMinutes(minutes, durationHours = 1) {
   const s = profileWorkSchedule();
-  let start = Math.max(minutes, s.workStart);
-  const duration = Math.round(Number(durationHours || 1) * 60);
+  let start = Math.max(Number(minutes || 0), s.workStart);
+  const duration = Math.max(1, Math.round(Number(durationHours || 1) * 60));
   if (start >= s.lunchStart && start < s.lunchEnd) start = s.lunchEnd;
   if (start < s.lunchStart && start + duration > s.lunchStart) start = s.lunchEnd;
-  if (start >= s.workEnd) start = Math.max(s.workStart, s.workEnd - duration);
   return start;
 }
 
-function nextAvailableStart(dateKey = key(), durationHours = 1, excludeId = null) {
-  const list = entries
+function entryStartMinutes(entry) {
+  const time = String(entry?.at || "").slice(11, 16);
+  return minutesFromTime(time || "09:00");
+}
+
+function mergeTimeIntervals(intervals = []) {
+  const sorted = intervals
+    .filter(x => Number.isFinite(x.start) && Number.isFinite(x.end) && x.end > x.start)
+    .sort((a, b) => a.start - b.start || a.end - b.end);
+  const merged = [];
+  for (const interval of sorted) {
+    const last = merged[merged.length - 1];
+    if (!last || interval.start > last.end) merged.push({ ...interval });
+    else last.end = Math.max(last.end, interval.end);
+  }
+  return merged;
+}
+
+function availableStartMinutes(dateKey = key(), durationHours = 1, excludeId = null, reserved = []) {
+  const s = profileWorkSchedule();
+  const duration = Math.max(1, Math.round(Number(durationHours || 1) * 60));
+  const occupied = entries
     .filter(e => e.date === dateKey && e.id !== excludeId && e.status !== "deleted")
-    .map(e => addHoursToDate(e.at, e.hours))
-    .sort((a, b) => a - b);
-  const lastEnd = list.length ? list[list.length - 1] : null;
-  const base = lastEnd ? lastEnd.getHours() * 60 + lastEnd.getMinutes() : profileWorkSchedule().workStart;
-  const start = normalizeStartMinutes(base, durationHours);
+    .map(e => {
+      const start = entryStartMinutes(e);
+      return { start, end: start + Math.round(Number(e.hours || 0) * 60) };
+    });
+  occupied.push(...reserved.map(x => ({ start: x.start, end: x.end })));
+  occupied.push({ start: s.lunchStart, end: s.lunchEnd });
+  const merged = mergeTimeIntervals(occupied);
+
+  let candidate = s.workStart;
+  for (const interval of merged) {
+    if (interval.end <= candidate) continue;
+    if (interval.start > candidate) {
+      if (candidate + duration <= Math.min(interval.start, s.workEnd)) return candidate;
+      candidate = interval.end;
+    } else if (interval.end > candidate) {
+      candidate = interval.end;
+    }
+    if (candidate >= s.workEnd) break;
+  }
+  if (candidate + duration <= s.workEnd) return candidate;
+
+  const lastEnd = occupied.reduce((max, interval) => Math.max(max, interval.end), s.workStart);
+  return normalizeStartMinutes(lastEnd, durationHours);
+}
+
+function nextAvailableStart(dateKey = key(), durationHours = 1, excludeId = null, reserved = []) {
+  const start = availableStartMinutes(dateKey, durationHours, excludeId, reserved);
   return `${dateKey}T${timeFromMinutes(start)}`;
 }
 
@@ -1376,14 +1417,25 @@ function makeSuggestions() {
   const done = dayEntries().map(e => e.title);
   let tags = workModels();
   tags.sort((a, b) => (feedback[b] || 0) - (feedback[a] || 0));
-  let suggestions = [];
-  let cursor = nextAvailableStart(key(), 1);
+  const suggestions = [];
+  const reserved = [];
   for (const tag of tags) {
     if (done.some(d => d.includes(tag))) continue;
-    suggestions.push({ id: tag, title: tag, note: "", hours: 1, at: cursor, ecpTask: defaultEcpTaskName(tag), sourceLabel: "🧩 工作模型" });
-    const d = addHoursToDate(cursor, 1);
-    const nextMinutes = normalizeStartMinutes(d.getHours() * 60 + d.getMinutes(), 1);
-    cursor = `${key()}T${timeFromMinutes(nextMinutes)}`;
+    const hours = 1;
+    const startMinutes = availableStartMinutes(key(), hours, null, reserved);
+    const at = `${key()}T${timeFromMinutes(startMinutes)}`;
+    const endMinutes = startMinutes + Math.round(hours * 60);
+    reserved.push({ start: startMinutes, end: endMinutes });
+    suggestions.push({
+      id: tag,
+      title: tag,
+      note: "",
+      hours,
+      at,
+      ecpTask: defaultEcpTaskName(tag),
+      sourceLabel: "🧩 工作模型",
+      suggestedTimeLabel: `${timeFromMinutes(startMinutes)}–${timeFromMinutes(endMinutes)}`
+    });
   }
   return suggestions;
 }
@@ -1393,7 +1445,7 @@ function suggestionPanel() {
   if (!s.length) return `<h2>🤖 推理預測</h2><div class="empty"><b>目前沒有推理預測</b><div class="muted">可能今天已滿工時，或工作模型尚未建立。</div></div>`;
   const queueItems = s.slice(0, AI_REASON_QUEUE_SIZE);
   const slots = Array.from({ length: AI_REASON_QUEUE_SIZE }, (_, i) => queueItems[i]);
-  return `<div class="panel-head"><h2>🤖 推理預測</h2><div class="tag">${queueItems.length} / ${s.length}</div></div><div class="ai-suggestion-list queue-list">${slots.map(x => x ? `<div class="suggestion compact-card"><div class="suggestion-title-row"><h3>${escapeHtml(x.title)}</h3><div class="actions suggestion-actions"><button class="btn green" data-accept="${escapeHtml(x.id)}">採納</button><button class="btn amber" data-adjust="${escapeHtml(x.id)}">編輯</button></div></div><div class="suggestion-source">${escapeHtml(x.sourceLabel || "🤖 AI 推理")}</div></div>` : `<div class="suggestion compact-card placeholder-card"><div class="muted">等待新的推理預測</div></div>`).join("")}</div>`;
+  return `<div class="panel-head"><h2>🤖 推理預測</h2><div class="tag">${queueItems.length} / ${s.length}</div></div><div class="ai-suggestion-list queue-list">${slots.map(x => x ? `<div class="suggestion compact-card"><div class="suggestion-title-row"><h3>${escapeHtml(x.title)}</h3><div class="actions suggestion-actions"><button class="btn green" data-accept="${escapeHtml(x.id)}">採納</button><button class="btn amber" data-adjust="${escapeHtml(x.id)}">編輯</button></div></div><div class="suggestion-source">${escapeHtml(x.sourceLabel || "🤖 AI 推理")}｜🕘 建議 ${escapeHtml(x.suggestedTimeLabel || String(x.at || "").slice(11, 16))}</div></div>` : `<div class="suggestion compact-card placeholder-card"><div class="muted">等待新的推理預測</div></div>`).join("")}</div>`;
 }
 
 function center() {
@@ -1422,7 +1474,7 @@ function capture(editId = null, seed = null) {
   const title = e ? e.title : (seed ? seed.title : "");
   const note = e ? (e.note || "") : (seed ? seed.note || "" : "");
   const ecpTask = e ? (e.ecpTask || "") : (seed ? seed.ecpTask || defaultEcpTaskName(seed.title) : defaultEcpTaskName(title));
-  return `<section class="panel capture-panel" style="margin-top:18px"><div class="panel-head"><div><h2>${e ? "編輯工時" : "➕ 快速紀錄"}</h2></div></div><div class="form capture-form"><label>日期 / 開始時間</label><input class="input" id="dt" type="datetime-local" value="${e ? e.at : captureDefaultStart()}"><label>工作描述（必填）</label><input class="input" id="title" value="${escapeHtml(title)}" placeholder="例如：採購案件處理" autocomplete="off">${descriptionSuggestionChips(title)}<label>ECP 任務（選填）</label><select id="ecpTaskSelect" class="input">${ecpTaskOptions(ecpTask)}</select><div class="work-model-add ecp-task-quick-add" id="ecpTaskQuickAdd" style="display:none"><input class="input" id="newEcpTaskCapture" placeholder="新增 ECP 任務，例如：採購案件處理"><button class="btn2" data-add-capture-ecp-task="1" type="button">＋ 新增</button></div><label>工時</label><div class="row hours">${[0.5, 1, 1.5, 2, 3, 4, 8].map(h => `<button class="btn2 hour" data-h="${h}">${h === 0.5 ? "30m" : h + "h"}</button>`).join("")}</div><label>備註（選填）</label><input class="input" id="note" value="${escapeHtml(note)}" placeholder="補充說明，不參與 ECP 匯出"><div class="form-actions capture-actions"><button class="btn2" data-capture-cancel="1">取消</button><button class="btn" id="saveEntry">儲存</button></div></div></section>`;
+  return `<section class="panel capture-panel" style="margin-top:18px"><div class="panel-head"><div><h2>${e ? "編輯工時" : "➕ 快速紀錄"}</h2></div></div><div class="form capture-form"><label>日期 / 開始時間</label><input class="input" id="dt" type="datetime-local" value="${e ? e.at : captureDefaultStart()}"><label>工作描述（必填）</label><input class="input" id="title" value="${escapeHtml(title)}" placeholder="例如：採購案件處理" autocomplete="off">${descriptionSuggestionChips(title)}<label>ECP 任務（選填）</label><select id="ecpTaskSelect" class="input">${ecpTaskOptions(ecpTask)}</select><div class="work-model-add ecp-task-quick-add" id="ecpTaskQuickAdd" style="display:none"><input class="input" id="newEcpTaskCapture" placeholder="新增 ECP 任務，例如：採購案件處理"><button class="btn2" data-add-capture-ecp-task="1" type="button">＋ 新增</button></div><label>工時</label><div class="row hours">${[0.5, 1, 1.5, 2, 3, 4, 5, 8].map(h => `<button class="btn2 hour" data-h="${h}">${h === 0.5 ? "30m" : h + "h"}</button>`).join("")}</div><label>備註（選填）</label><input class="input" id="note" value="${escapeHtml(note)}" placeholder="補充說明，不參與 ECP 匯出"><div class="form-actions capture-actions"><button class="btn2" data-capture-cancel="1">取消</button><button class="btn" id="saveEntry">儲存</button></div></div></section>`;
 }
 
 function sync() {
@@ -1696,7 +1748,18 @@ function bindCapture(editId = null) {
     if (quickAdd) quickAdd.style.display = "none";
     toast("已新增 ECP 任務");
   };
-  document.querySelectorAll(".hour").forEach(b => b.onclick = () => { selectedH = Number(b.dataset.h); document.querySelectorAll(".hour").forEach(x => x.classList.remove("selected")); b.classList.add("selected"); });
+  const dateTimeInput = document.getElementById("dt");
+  let autoScheduled = !editingEntry && !captureSeed;
+  if (dateTimeInput) dateTimeInput.oninput = () => { autoScheduled = false; };
+  document.querySelectorAll(".hour").forEach(b => b.onclick = () => {
+    selectedH = Number(b.dataset.h);
+    document.querySelectorAll(".hour").forEach(x => x.classList.remove("selected"));
+    b.classList.add("selected");
+    if (autoScheduled && dateTimeInput) {
+      const dateKey = String(dateTimeInput.value || key()).slice(0, 10) || key();
+      dateTimeInput.value = nextAvailableStart(dateKey, selectedH, editingEntry?.id || null);
+    }
+  });
   document.getElementById("saveEntry").onclick = async () => {
     const at = document.getElementById("dt").value;
     const description = document.getElementById("title").value.trim();

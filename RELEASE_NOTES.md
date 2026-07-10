@@ -51,3 +51,12 @@ RC3 Release Patch1 only. No new features, no version number change, no repositor
 - Added explicit Asia/Taipei business-time conversion helpers.
 - Kept `work_date` as date-only and `started_at` / `ended_at` as UTC timestamps.
 - Existing already-drifted records are not automatically rewritten; correct them manually after deployment.
+
+## Build 20260710-1048 - Smart Gap Scheduling + 5h Quick Select
+
+- 保留 Timezone Data Integrity 修正：業務時間以 Asia/Taipei 顯示，Cloud timestamp 僅轉換一次。
+- 快速新增依所選日期與工時長度，優先安排最早可容納的空檔。
+- 午休時段視為不可安排區間。
+- 當日無足夠空檔時，才接在最後一筆工作之後。
+- AI 推理卡顯示建議時段，採納時使用該空檔。
+- 新增 5h 工時快捷鍵。
