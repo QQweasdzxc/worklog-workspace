@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260710-2016";
+const BUILD_TIME = "20260710-2027";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const AUTH_SESSION_KEY = "zhuge_ai_os_google_auth_session_v1";
@@ -24,7 +24,9 @@ let hasOsShellState = localStorage.getItem(OS_OPEN_TABS_KEY) !== null;
 let openTabs = readJson(OS_OPEN_TABS_KEY, []);
 let activeWorkspace = localStorage.getItem(OS_ACTIVE_WORKSPACE_KEY) || "dashboard";
 let recentWorkspaces = readJson(OS_RECENT_WORKSPACES_KEY, []);
-let selected = new Date();
+let selected = new Date(localStorage.getItem("wl_selected") || Date.now());
+if (Number.isNaN(selected.getTime())) selected = new Date();
+let selectedMonth = localStorage.getItem("wl_selected_month") || monthKey(selected);
 let entries = [];
 let profile = readJson("wl_profile", null);
 let feedback = readJson("wl_feedback", {});
@@ -238,6 +240,7 @@ let dataServiceSyncing = false;
 let autoSaveTimer = null;
 let autoSaveInFlight = false;
 const autoSaveDirtyScopes = new Set();
+let knowledgeFoundationNotInitialized = cloudSync.status === "knowledge_uninitialized";
 let migrationRequired = false;
 let migrationPreview = null;
 let migrationRunning = false;
@@ -634,6 +637,16 @@ const DataService = {
       const safeLoad = async (label, loader, fallback) => {
         try { return await loader(); }
         catch (error) {
+          if (label === "knowledge" && isKnowledgeNotInitializedError(error)) {
+            knowledgeFoundationNotInitialized = true;
+            failedLoads.add(label);
+            console.warn("Knowledge Foundation not initialized", {
+              table: "knowledge_sources",
+              setupSql: "docs/supabase/20260710_p3_1_knowledge_foundation_schema.sql",
+              error
+            });
+            return fallback;
+          }
           errors.push(`${label}: ${error.message || error}`);
           failedLoads.add(label);
           console.error(`Cloud Sync ${label} load failed`, error);
@@ -644,7 +657,7 @@ const DataService = {
       const exportSettings = await safeLoad("export_settings", () => SupabaseRepository.loadExportSettings(), null);
       const workModelsRows = await safeLoad("work_models", () => SupabaseRepository.loadWorkModels(), []);
       const ecpTaskRows = await safeLoad("ecp_tasks", () => SupabaseRepository.loadEcpTasks(), []);
-      const entryRows = await safeLoad("entries", () => SupabaseRepository.loadEntries(monthKey()), []);
+      const entryRows = await safeLoad("entries", () => SupabaseRepository.loadEntries(selectedMonth), []);
       const knowledgeRows = await safeLoad("knowledge", () => SupabaseRepository.loadKnowledgeSources(), []);
       if (cloudProfile || exportSettings || !failedLoads.has("work_models") || !failedLoads.has("ecp_tasks")) {
         profile = profileFromCloud(cloudProfile, exportSettings, workModelsRows || [], ecpTaskRows || [], {
@@ -655,9 +668,13 @@ const DataService = {
         this.ecpTasksState = Array.isArray(profile?.ecpTasks) ? [...profile.ecpTasks] : [];
       }
       if (!failedLoads.has("entries")) setEntries(Array.isArray(entryRows) ? entryRows.map(entryFromCloud) : []);
-      if (!failedLoads.has("knowledge")) setLibrary(Array.isArray(knowledgeRows) ? knowledgeRows.map(knowledgeFromCloud) : []);
+      if (!failedLoads.has("knowledge")) {
+        knowledgeFoundationNotInitialized = false;
+        setLibrary(Array.isArray(knowledgeRows) ? knowledgeRows.map(knowledgeFromCloud) : []);
+      }
       LocalCache.saveAll();
       if (errors.length) this.setStatus("failed", errors.join(" | "));
+      else if (knowledgeFoundationNotInitialized) this.setStatus("knowledge_uninitialized", "Knowledge Library 尚未初始化");
       else this.setStatus("synced");
     } catch (error) {
       console.error("Cloud Sync load failed", error);
@@ -781,12 +798,26 @@ const DataService = {
       nextEntries.push({ ...item, ...cloudEntry, id: item.id || cloudEntry.id, cloudId: cloudEntry.cloudId || saved?.id });
       setEntries(nextEntries);
       selected = safeDate(item.at);
+      selectedMonth = monthKey(selected);
       this.setStatus("synced");
       return nextEntries.find(e => e.id === (item.id || cloudEntry.id));
     } catch (error) {
       console.error("Cloud Sync save entry failed", { error, supabase: error.supabase || null, item });
       this.setStatus("failed", error.message || "Entry sync failed");
       throw error;
+    }
+  },
+  async loadMonthEntries(month = selectedMonth) {
+    if (!hasGoogleOAuthSession() || dataServiceHydrating || migrationRequired || migrationRunning) return;
+    this.setStatus("syncing");
+    try {
+      const entryRows = await SupabaseRepository.loadEntries(month);
+      setEntries(Array.isArray(entryRows) ? entryRows.map(entryFromCloud) : []);
+      LocalCache.saveAll();
+      this.setStatus("synced");
+    } catch (error) {
+      console.error("Cloud Sync month entries load failed", { error, month });
+      this.setStatus("failed", error.message || "Month entries sync failed");
     }
   },
   async saveWorkModelsOnly(options = {}) {
@@ -872,6 +903,12 @@ const DataService = {
       return normalized;
     } catch (error) {
       console.error("Save knowledge source failed", { error, supabase: error.supabase || null, item: normalized });
+      if (isKnowledgeNotInitializedError(error)) {
+        knowledgeFoundationNotInitialized = true;
+        this.setStatus("knowledge_uninitialized", "Knowledge Library 尚未初始化");
+        if (options.requireCloud) throw new Error("Knowledge Library 尚未初始化，請先執行 knowledge foundation schema SQL");
+        return normalized;
+      }
       this.setStatus("failed", error.message || "Knowledge sync failed");
       if (options.requireCloud) throw error;
       const next = [normalized, ...library.filter(x => x.id !== normalized.id)];
@@ -896,6 +933,12 @@ const DataService = {
       return true;
     } catch (error) {
       console.error("Delete knowledge source failed", { error, supabase: error.supabase || null, item: normalized });
+      if (isKnowledgeNotInitializedError(error)) {
+        knowledgeFoundationNotInitialized = true;
+        this.setStatus("knowledge_uninitialized", "Knowledge Library 尚未初始化");
+        if (options.requireCloud) throw new Error("Knowledge Library 尚未初始化，請先執行 knowledge foundation schema SQL");
+        return false;
+      }
       this.setStatus("failed", error.message || "Knowledge delete failed");
       if (options.requireCloud) throw error;
       return false;
@@ -1200,6 +1243,7 @@ function saveLocalSnapshot() {
   hasOsShellState = true;
   localStorage.setItem("wl_view", view);
   localStorage.setItem("wl_selected", selected.toISOString());
+  localStorage.setItem("wl_selected_month", selectedMonth);
   LocalCache.saveAll();
 }
 
@@ -1251,7 +1295,21 @@ function key(d = selected) {
 }
 
 function monthKey(d = selected) {
+  if (typeof d === "string") return d.slice(0, 7);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function selectedMonthDate(day = 1) {
+  const [year, month] = selectedMonth.split("-").map(Number);
+  return new Date(year, (month || 1) - 1, day);
+}
+
+async function setSelectedMonth(month, day = 1) {
+  selectedMonth = monthKey(month);
+  selected = selectedMonthDate(day);
+  saveAll();
+  await DataService.loadMonthEntries(selectedMonth);
+  render();
 }
 
 function fmt(dt) {
@@ -1264,7 +1322,7 @@ function dayEntries() {
 }
 
 function monthEntries() {
-  return entries.filter(e => String(e.date || "").startsWith(monthKey())).sort((a, b) => new Date(a.at) - new Date(b.at));
+  return entries.filter(e => String(e.date || "").startsWith(selectedMonth)).sort((a, b) => new Date(a.at) - new Date(b.at));
 }
 
 function entriesForDate(d) {
@@ -1366,6 +1424,7 @@ function cloudSyncLabel() {
   if (cloudSync.status === "synced") return "🟢 已同步";
   if (cloudSync.status === "syncing") return "🟡 同步中";
   if (cloudSync.status === "pending") return "🔄 尚未同步";
+  if (cloudSync.status === "knowledge_uninitialized") return "🟡 Knowledge 未初始化";
   if (cloudSync.status === "migration_required") return "🟡 等待資料搬移";
   if (cloudSync.status === "migrating") return "🟡 資料搬移中";
   if (cloudSync.status === "failed") return "🔴 同步失敗";
@@ -1376,6 +1435,7 @@ function cloudSyncDetail() {
   if (cloudSync.status === "failed") return cloudSync.error || "請稍後再試";
   if (cloudSync.status === "pending") return "等待自動同步";
   if (cloudSync.status === "syncing") return "同步中...";
+  if (cloudSync.status === "knowledge_uninitialized") return "請先建立 knowledge_sources";
   if (cloudSync.status === "migration_required") return "請先確認 Migration Preview";
   if (cloudSync.status === "migrating") return "正在搬移 RC3.3 本機資料";
   if (!cloudSync.lastSyncedAt) return "等待 Cloud Sync";
@@ -1386,6 +1446,11 @@ function refreshCloudSyncStatusDisplay() {
   const box = document.getElementById("developerCloudSyncStatus");
   if (!box) return;
   box.innerHTML = `<div>${escapeHtml(cloudSyncLabel())}</div><div>${escapeHtml(cloudSyncDetail())}</div>`;
+}
+
+function isKnowledgeNotInitializedError(error) {
+  const text = `${error?.supabase?.status || ""} ${error?.supabase?.message || ""} ${error?.supabase?.body || ""} ${error?.message || ""}`;
+  return /404/.test(text) && /knowledge_sources/i.test(text);
 }
 
 function minutesFromTime(value = "09:00") {
@@ -1612,15 +1677,18 @@ function onboarding() {
 }
 
 function calendarPanel() {
-  const y = selected.getFullYear(), m = selected.getMonth(), first = new Date(y, m, 1), last = new Date(y, m + 1, 0);
-  let html = `<div class="panel-head"><h2>${y}/${String(m + 1).padStart(2, "0")}</h2><button class="btn2" data-today="1">今天</button></div><div class="cal">${["日", "一", "二", "三", "四", "五", "六"].map(x => `<div class="muted cal-head">${x}</div>`).join("")}`;
+  const base = selectedMonthDate(1);
+  const y = base.getFullYear(), m = base.getMonth(), first = new Date(y, m, 1), last = new Date(y, m + 1, 0);
+  const selectedInMonth = monthKey(selected) === selectedMonth;
+  const monthLabel = `${y}/${String(m + 1).padStart(2, "0")}`;
+  let html = `<div class="panel-head"><h2>${monthLabel}</h2><div class="actions compact"><button class="btn2" data-month-nav="-1">上一月</button><button class="btn2" data-today="1">今天</button><button class="btn2" data-month-nav="1">下一月</button></div></div><div class="cal">${["日", "一", "二", "三", "四", "五", "六"].map(x => `<div class="muted cal-head">${x}</div>`).join("")}`;
   for (let i = 0; i < first.getDay(); i++) html += "<div></div>";
   for (let d = 1; d <= last.getDate(); d++) {
     const dk = `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
     const h = entries.filter(e => e.date === dk).reduce((s, e) => s + Number(e.hours || 0), 0);
-    html += `<div class="day ${d === selected.getDate() ? "sel" : ""}" data-day="${d}"><b>${d}</b><div class="bar"><div class="fill" style="width:${Math.min(100, h / 8 * 100)}%"></div></div><small>${h ? h + "h" : ""}</small></div>`;
+    html += `<div class="day ${selectedInMonth && d === selected.getDate() ? "sel" : ""}" data-day="${d}"><b>${d}</b><div class="bar"><div class="fill" style="width:${Math.min(100, h / 8 * 100)}%"></div></div><small>${h ? h + "h" : ""}</small></div>`;
   }
-  html += `</div><div class="month-summary"><b>本月工時</b><span>${hours(monthEntries())}h</span></div><button class="btn full" data-export-month="1">⬇️ 下載 ECP 匯入檔</button>`;
+  html += `</div><div class="month-summary"><b>${monthLabel} 工時</b><span>${hours(monthEntries())}h</span></div><button class="btn full" data-export-month="1">⬇️ 下載 ${monthLabel} ECP 匯入檔</button>`;
   return html;
 }
 
@@ -1684,7 +1752,8 @@ function workHoursHealth(avgDailyNeed) {
 
 function todaySummaryPanel() {
   const today = new Date();
-  const year = selected.getFullYear(), month = selected.getMonth();
+  const monthDate = selectedMonthDate(1);
+  const year = monthDate.getFullYear(), month = monthDate.getMonth();
   const monthlyDone = hours(monthEntries());
   const monthlyTarget = workdaysInMonth(year, month) * 8;
   const monthProgress = monthlyTarget ? Math.min(100, Math.round(monthlyDone / monthlyTarget * 100)) : 0;
@@ -1701,7 +1770,8 @@ function todaySummaryPanel() {
 
 function mobileCalendarPanel() {
   const today = new Date();
-  const y = selected.getFullYear(), m = selected.getMonth();
+  const base = selectedMonthDate(1);
+  const y = base.getFullYear(), m = base.getMonth();
   const first = new Date(y, m, 1);
   const start = startOfWeek(first);
   const last = new Date(y, m + 1, 0);
@@ -1898,8 +1968,16 @@ function formatKnowledgeTime(value = "") {
   return fmt(value);
 }
 
+function knowledgeInitializationNotice() {
+  return `<div class="empty"><b>📚 Knowledge Library 尚未初始化</b><div class="muted">尚未建立 <code>knowledge_sources</code>。這代表 Knowledge Foundation 尚未完成第一次資料庫初始化，WorkLog / Calendar / Login / Cloud Sync 可繼續正常使用。</div><div class="source-path">請先執行：docs/supabase/20260710_p3_1_knowledge_foundation_schema.sql</div><div class="muted">完成 SQL 建立後，重新整理頁面即可啟用藏書閣同步。</div></div>`;
+}
+
 function libraryView() {
-  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>📚 藏書閣</h2><div class="muted">AI OS Knowledge Library：管理可供諸葛先生閱讀、理解、引用與推理的正式知識。</div></div><button class="btn" data-add-library="1">新增知識</button></div><div class="library-list">${library.length ? library.map(raw => { const item = normalizedLibraryItem(raw); return `<div class="entry"><div class="entry-main"><b>${escapeHtml(item.title)}</b><div class="muted">${escapeHtml(item.knowledgeId)}｜${escapeHtml(item.category)}｜${escapeHtml(item.scope)}｜${escapeHtml(item.version)}</div><div class="muted">適用 Agent：${escapeHtml(item.applicableAgents.join("、") || "未指定")}</div><div class="library-tag-line">${item.tags.map(tag => `<span>${escapeHtml(tag)}</span>`).join("")}</div><small>${escapeHtml(item.description || "")}</small><div class="source-path">AI Status：${escapeHtml(item.aiStatus)}｜Status：${escapeHtml(item.status)}</div><div class="source-path">Uploaded：${escapeHtml(formatKnowledgeTime(item.createdAt))}｜File：${escapeHtml(item.filename || "尚未選擇檔案")}</div></div><div class="actions compact"><button class="btn2" data-edit-library="${item.id}">編輯</button><button class="btn2 danger" data-del-library="${item.id}">刪除</button></div></div>`; }).join("") : `<div class="empty"><b>尚無知識來源</b><div class="muted">請新增 SOP、制度、法規、表單或教材，建立 AI OS 知識層基礎。</div></div>`}</div></section>`;
+  const addButton = knowledgeFoundationNotInitialized ? "" : `<button class="btn" data-add-library="1">新增知識</button>`;
+  const body = knowledgeFoundationNotInitialized
+    ? knowledgeInitializationNotice()
+    : (library.length ? library.map(raw => { const item = normalizedLibraryItem(raw); return `<div class="entry"><div class="entry-main"><b>${escapeHtml(item.title)}</b><div class="muted">${escapeHtml(item.knowledgeId)}｜${escapeHtml(item.category)}｜${escapeHtml(item.scope)}｜${escapeHtml(item.version)}</div><div class="muted">適用 Agent：${escapeHtml(item.applicableAgents.join("、") || "未指定")}</div><div class="library-tag-line">${item.tags.map(tag => `<span>${escapeHtml(tag)}</span>`).join("")}</div><small>${escapeHtml(item.description || "")}</small><div class="source-path">AI Status：${escapeHtml(item.aiStatus)}｜Status：${escapeHtml(item.status)}</div><div class="source-path">Uploaded：${escapeHtml(formatKnowledgeTime(item.createdAt))}｜File：${escapeHtml(item.filename || "尚未選擇檔案")}</div></div><div class="actions compact"><button class="btn2" data-edit-library="${item.id}">編輯</button><button class="btn2 danger" data-del-library="${item.id}">刪除</button></div></div>`; }).join("") : `<div class="empty"><b>尚無知識來源</b><div class="muted">請新增 SOP、制度、法規、表單或教材，建立 AI OS 知識層基礎。</div></div>`);
+  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>📚 藏書閣</h2><div class="muted">AI OS Knowledge Library：管理可供諸葛先生閱讀、理解、引用與推理的正式知識。</div></div>${addButton}</div><div class="library-list">${body}</div></section>`;
 }
 
 function libraryForm(id = null) {
@@ -1978,11 +2056,22 @@ function bind() {
   document.querySelectorAll("[data-open-workspace]").forEach(b => b.onclick = () => { sidebarOpen = false; openWorkspace(b.dataset.openWorkspace); });
   document.querySelectorAll("[data-activate-workspace]").forEach(b => b.onclick = () => activateWorkspace(b.dataset.activateWorkspace));
   document.querySelectorAll("[data-close-workspace]").forEach(b => b.onclick = e => { e.stopPropagation(); closeWorkspace(b.dataset.closeWorkspace); });
-  document.querySelectorAll("[data-day]").forEach(b => b.onclick = () => { selected.setDate(Number(b.dataset.day)); saveAll(); render(); });
-  document.querySelectorAll("[data-mobile-date]").forEach(b => b.onclick = () => { selected = new Date(`${b.dataset.mobileDate}T00:00:00`); saveAll(); render(); });
+  document.querySelectorAll("[data-month-nav]").forEach(b => b.onclick = async () => {
+    const base = selectedMonthDate(1);
+    base.setMonth(base.getMonth() + Number(b.dataset.monthNav || 0));
+    await setSelectedMonth(monthKey(base), 1);
+  });
+  document.querySelectorAll("[data-day]").forEach(b => b.onclick = () => { selected = selectedMonthDate(Number(b.dataset.day)); selectedMonth = monthKey(selected); saveAll(); render(); });
+  document.querySelectorAll("[data-mobile-date]").forEach(b => b.onclick = async () => {
+    const nextDate = new Date(`${b.dataset.mobileDate}T00:00:00`);
+    const nextMonth = monthKey(nextDate);
+    selected = nextDate;
+    if (nextMonth !== selectedMonth) await setSelectedMonth(nextMonth, nextDate.getDate());
+    else { selectedMonth = nextMonth; saveAll(); render(); }
+  });
   document.querySelectorAll("[data-toggle-mobile-calendar]").forEach(b => b.onclick = () => { mobileCalendarOpen = !mobileCalendarOpen; render(); });
   document.querySelectorAll("[data-action=add]").forEach(b => b.onclick = () => { editingEntryId = null; captureSeed = null; activeWorkspace = "worklog"; if (!openTabs.includes("worklog")) openTabs.push("worklog"); rememberWorkspace("worklog"); view = "capture"; saveAll(); render(); });
-  const today = document.querySelector("[data-today]"); if (today) today.onclick = () => { selected = new Date(); saveAll(); render(); };
+  const today = document.querySelector("[data-today]"); if (today) today.onclick = async () => { selected = new Date(); await setSelectedMonth(monthKey(selected), selected.getDate()); };
   const exportBtn = document.querySelector("[data-export-month]"); if (exportBtn) exportBtn.onclick = () => exportEcpImportFile();
   document.querySelectorAll("[data-accept]").forEach(b => b.onclick = () => acceptSuggestion(b.dataset.accept));
   document.querySelectorAll("[data-adjust]").forEach(b => b.onclick = () => adjustSuggestion(b.dataset.adjust));
@@ -2174,6 +2263,7 @@ function bindCapture(editId = null) {
     const selectedEcpTask = isLeaveOrHolidayType(entryType) ? "" : (document.getElementById("ecpTaskSelect").value === "__add__" ? "" : document.getElementById("ecpTaskSelect").value.trim());
     const item = createEntry({ id: editingEntry ? editingEntry.id : undefined, date: at.slice(0, 10), at, title: description, ecpTask: selectedEcpTask, hours: selectedH, entryType, note: document.getElementById("note").value.trim(), source: editingEntry ? editingEntry.source : "manual", cloudId: editingEntry?.cloudId });
     const error = validateEntry(item); if (error) return toast(error);
+    if (monthKey(item.date) !== selectedMonth && !confirm(`此筆工時日期為 ${monthKey(item.date)}，目前畫面月份為 ${selectedMonth}。是否仍要儲存？`)) return;
     if (!confirmOvertimeEntry(item)) return;
     const saved = await persistEntry(item);
     if (!saved) return;
@@ -2585,11 +2675,11 @@ function workLogRowsForEcp() {
   }));
 }
 
-function profileFileName(profileConfig) {
-  return profileConfig.filename.replace("{YYYYMM}", monthKey().replace("-", ""));
+function profileFileName(profileConfig, month = selectedMonth) {
+  return profileConfig.filename.replace("{YYYYMM}", monthKey(month).replace("-", ""));
 }
 
-async function exportByProfile(rows, profileConfig) {
+async function exportByProfile(rows, profileConfig, month = selectedMonth) {
   const entries = await loadTemplateEntries(profileConfig.template);
   const sheetPath = resolveSheetPath(entries, profileConfig.sheet);
   const sheetDoc = parseXml(xmlText(entries, sheetPath));
@@ -2598,7 +2688,7 @@ async function exportByProfile(rows, profileConfig) {
   const blob = writeZip(entries);
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = profileFileName(profileConfig);
+  a.download = profileFileName(profileConfig, month);
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
@@ -2609,7 +2699,7 @@ async function exportEcpImportFile() {
     const rows = workLogRowsForEcp();
     if (!rows.length) return toast("本月份尚無工時資料可匯出。");
     const profileConfig = await loadExportProfile(ECP_EXPORT_PROFILE_PATH);
-    await exportByProfile(rows, profileConfig);
+    await exportByProfile(rows, profileConfig, selectedMonth);
     toast("已下載 ECP 匯入檔");
   } catch (error) {
     console.error(error);
