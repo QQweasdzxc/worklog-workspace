@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260710-2027";
+const BUILD_TIME = "20260710-2107";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const AUTH_SESSION_KEY = "zhuge_ai_os_google_auth_session_v1";
@@ -55,16 +55,14 @@ const roleCodeMap = { "採購": "PROCUREMENT", "行政": "ADMIN", "人資": "HR"
 const roleNameMap = Object.fromEntries(Object.entries(roleCodeMap).map(([name, code]) => [code, name]));
 const entryTypeOptions = [
   { value: "work", label: "工作" },
-  { value: "meeting", label: "會議" },
-  { value: "leave", label: "請假" },
-  { value: "holiday", label: "假日" },
-  { value: "training", label: "教育訓練" }
+  { value: "leave", label: "請假" }
 ];
+const leaveTypeVocabulary = ["特休", "病假", "事假", "公假", "婚假", "喪假", "補休", "育嬰假", "生理假", "家庭照顧假", "請假"];
 const eventTypeCodeMap = {
-  work: "WORK", meeting: "MEETING", training: "TRAINING", leave: "LEAVE", holiday: "LEAVE",
+  work: "WORK", meeting: "WORK", training: "WORK", leave: "LEAVE", holiday: "LEAVE",
   "工作": "WORK", "會議": "MEETING", "教育訓練": "TRAINING", "特休": "LEAVE", "事假": "LEAVE", "病假": "LEAVE", "請假": "LEAVE", "假日": "LEAVE", "出差": "BUSINESS_TRIP"
 };
-const eventTypeNameMap = { WORK: "work", MEETING: "meeting", TRAINING: "training", LEAVE: "leave", BUSINESS_TRIP: "work" };
+const eventTypeNameMap = { WORK: "work", MEETING: "work", TRAINING: "work", LEAVE: "leave", BUSINESS_TRIP: "work" };
 const DEFAULT_LIBRARY_READING_STATUS = "🟡 等待閱讀";
 const ECP_EXPORT_PROFILE_PATH = "resources/profiles/ecp-profile.json";
 const CLOUD_MIGRATION_KEY = "localstorage_rc33_to_rc34a_v1";
@@ -174,13 +172,20 @@ function eventTypeName(code = "WORK") {
 function normalizeEntryType(value = "work") {
   const raw = String(value || "work").trim();
   const lower = raw.toLowerCase();
-  if (["work", "meeting", "leave", "holiday", "training"].includes(lower)) return lower;
+  if (["work", "meeting", "holiday", "training"].includes(lower)) return "work";
+  if (lower === "leave") return "leave";
   if (raw === "工作") return "work";
-  if (raw === "會議") return "meeting";
-  if (raw === "教育訓練") return "training";
+  if (raw === "會議") return "work";
+  if (raw === "教育訓練") return "work";
   if (["特休", "事假", "病假", "請假"].includes(raw)) return "leave";
-  if (raw === "假日") return "holiday";
+  if (raw === "假日") return "work";
   return "work";
+}
+
+function entryTypeFromDescription(value = "") {
+  const text = String(value || "").trim();
+  if (!text) return "work";
+  return leaveTypeVocabulary.some(alias => text.includes(alias)) ? "leave" : "work";
 }
 
 function eventTypeLabel(value = "work") {
@@ -188,14 +193,8 @@ function eventTypeLabel(value = "work") {
   return entryTypeOptions.find(option => option.value === normalized)?.label || "工作";
 }
 
-function isLeaveOrHolidayType(value = "work") {
-  const normalized = normalizeEntryType(value);
-  return normalized === "leave" || normalized === "holiday";
-}
-
-function entryTypeSelect(selected = "work") {
-  const current = normalizeEntryType(selected);
-  return entryTypeOptions.map(option => `<option value="${option.value}" ${option.value === current ? "selected" : ""}>${option.label}</option>`).join("");
+function isLeaveType(value = "work") {
+  return normalizeEntryType(value) === "leave";
 }
 
 function parseWorkTimeRange(range = "09:00~18:00") {
@@ -1848,8 +1847,7 @@ function capture(editId = null, seed = null) {
   const title = e ? e.title : (seed ? seed.title : "");
   const note = e ? (e.note || "") : (seed ? seed.note || "" : "");
   const ecpTask = e ? (e.ecpTask || "") : (seed ? seed.ecpTask || defaultEcpTaskName(seed.title) : defaultEcpTaskName(title));
-  const entryType = e ? normalizeEntryType(e.entryType || e.type) : (seed ? normalizeEntryType(seed.entryType || seed.type || "work") : "work");
-  return `<section class="panel capture-panel" style="margin-top:18px"><div class="panel-head"><div><h2>${e ? "編輯工時" : "➕ 快速紀錄"}</h2></div></div><div class="form capture-form"><label>日期 / 開始時間</label><input class="input" id="dt" type="datetime-local" value="${e ? e.at : captureDefaultStart()}"><label>類型</label><select id="entryType" class="input">${entryTypeSelect(entryType)}</select><label>工作描述（必填）</label><input class="input" id="title" value="${escapeHtml(title)}" placeholder="例如：採購案件處理" autocomplete="off">${descriptionSuggestionChips(title)}<label>ECP 任務（選填）</label><select id="ecpTaskSelect" class="input">${ecpTaskOptions(ecpTask)}</select><div class="work-model-add ecp-task-quick-add" id="ecpTaskQuickAdd" style="display:none"><input class="input" id="newEcpTaskCapture" placeholder="新增 ECP 任務，例如：採購案件處理"><button class="btn2" data-add-capture-ecp-task="1" type="button">＋ 新增</button></div><label>工時</label><div class="row hours">${[0.5, 1, 1.5, 2, 3, 4, 5, 8].map(h => `<button class="btn2 hour" data-h="${h}">${h === 0.5 ? "30m" : h + "h"}</button>`).join("")}</div><label>備註（選填）</label><input class="input" id="note" value="${escapeHtml(note)}" placeholder="補充說明，不參與 ECP 匯出"><div class="form-actions capture-actions"><button class="btn2" data-capture-cancel="1">取消</button><button class="btn" id="saveEntry">儲存</button></div></div></section>`;
+  return `<section class="panel capture-panel" style="margin-top:18px"><div class="panel-head"><div><h2>${e ? "編輯工時" : "➕ 快速紀錄"}</h2></div></div><div class="form capture-form"><label>日期 / 開始時間</label><input class="input" id="dt" type="datetime-local" value="${e ? e.at : captureDefaultStart()}"><label>工作描述（必填）</label><input class="input" id="title" value="${escapeHtml(title)}" placeholder="例如：採購案件處理、特休" autocomplete="off">${descriptionSuggestionChips(title)}<label>ECP 任務（選填）</label><select id="ecpTaskSelect" class="input">${ecpTaskOptions(ecpTask)}</select><div class="work-model-add ecp-task-quick-add" id="ecpTaskQuickAdd" style="display:none"><input class="input" id="newEcpTaskCapture" placeholder="新增 ECP 任務，例如：採購案件處理"><button class="btn2" data-add-capture-ecp-task="1" type="button">＋ 新增</button></div><label>工時</label><div class="row hours">${[0.5, 1, 1.5, 2, 3, 4, 5, 8].map(h => `<button class="btn2 hour" data-h="${h}">${h === 0.5 ? "30m" : h + "h"}</button>`).join("")}</div><label>備註（選填）</label><input class="input" id="note" value="${escapeHtml(note)}" placeholder="補充說明，不參與 ECP 匯出"><div class="form-actions capture-actions"><button class="btn2" data-capture-cancel="1">取消</button><button class="btn" id="saveEntry">儲存</button></div></div></section>`;
 }
 
 function sync() {
@@ -2107,7 +2105,7 @@ function createEntry(input = {}) {
     at,
     title: String(input.title || "").trim(),
     note: String(input.note || "").trim(),
-    ecpTask: isLeaveOrHolidayType(entryType) ? "" : (input.ecpTask == null ? defaultEcpTaskName(input.title || "") : String(input.ecpTask || "").trim()),
+    ecpTask: isLeaveType(entryType) ? "" : (input.ecpTask == null ? defaultEcpTaskName(input.title || "") : String(input.ecpTask || "").trim()),
     hours: Number(input.hours || 1),
     entryType,
     type: eventTypeLabel(entryType),
@@ -2241,16 +2239,6 @@ function bindCapture(editId = null) {
     toast("已新增 ECP 任務");
   };
   const dateTimeInput = document.getElementById("dt");
-  let dateTimeTouched = false;
-  if (dateTimeInput) dateTimeInput.oninput = () => { dateTimeTouched = true; };
-  const entryTypeSelectEl = document.getElementById("entryType");
-  if (entryTypeSelectEl) entryTypeSelectEl.onchange = () => {
-    const entryType = normalizeEntryType(entryTypeSelectEl.value);
-    if (!editingEntry && !captureSeed && isLeaveOrHolidayType(entryType) && dateTimeInput && !dateTimeTouched) {
-      const dateKey = String(dateTimeInput.value || key()).slice(0, 10) || key();
-      dateTimeInput.value = `${dateKey}T09:00`;
-    }
-  };
   document.querySelectorAll(".hour").forEach(b => b.onclick = () => {
     selectedH = Number(b.dataset.h);
     document.querySelectorAll(".hour").forEach(x => x.classList.remove("selected"));
@@ -2259,8 +2247,8 @@ function bindCapture(editId = null) {
   document.getElementById("saveEntry").onclick = async () => {
     const at = document.getElementById("dt").value;
     const description = document.getElementById("title").value.trim();
-    const entryType = normalizeEntryType(document.getElementById("entryType")?.value || editingEntry?.entryType || editingEntry?.type || "work");
-    const selectedEcpTask = isLeaveOrHolidayType(entryType) ? "" : (document.getElementById("ecpTaskSelect").value === "__add__" ? "" : document.getElementById("ecpTaskSelect").value.trim());
+    const entryType = editingEntry ? normalizeEntryType(editingEntry.entryType || editingEntry.type || entryTypeFromDescription(description)) : entryTypeFromDescription(description);
+    const selectedEcpTask = isLeaveType(entryType) ? "" : (document.getElementById("ecpTaskSelect").value === "__add__" ? "" : document.getElementById("ecpTaskSelect").value.trim());
     const item = createEntry({ id: editingEntry ? editingEntry.id : undefined, date: at.slice(0, 10), at, title: description, ecpTask: selectedEcpTask, hours: selectedH, entryType, note: document.getElementById("note").value.trim(), source: editingEntry ? editingEntry.source : "manual", cloudId: editingEntry?.cloudId });
     const error = validateEntry(item); if (error) return toast(error);
     if (monthKey(item.date) !== selectedMonth && !confirm(`此筆工時日期為 ${monthKey(item.date)}，目前畫面月份為 ${selectedMonth}。是否仍要儲存？`)) return;
