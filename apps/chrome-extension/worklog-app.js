@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260710-1420";
+const BUILD_TIME = "20260710-1544";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const AUTH_SESSION_KEY = "zhuge_ai_os_google_auth_session_v1";
@@ -57,6 +57,11 @@ const eventTypeNameMap = { WORK: "工作", MEETING: "會議", TRAINING: "教育�
 const DEFAULT_LIBRARY_READING_STATUS = "🟡 等待閱讀";
 const ECP_EXPORT_PROFILE_PATH = "resources/profiles/ecp-profile.json";
 const CLOUD_MIGRATION_KEY = "localstorage_rc33_to_rc34a_v1";
+const KNOWLEDGE_CATEGORIES = ["SOP", "制度", "法規", "專案", "表單", "教材", "會議", "其他"];
+const KNOWLEDGE_AGENTS = ["採購 Agent", "HR Agent", "投資 Agent", "旅遊 Agent"];
+const KNOWLEDGE_SCOPES = ["Public", "Company", "Role", "Personal"];
+const KNOWLEDGE_STATUS = ["🟡 已上傳", "🔵 AI 已閱讀", "🟢 AI 已建立知識", "⭐ 已驗證"];
+const KNOWLEDGE_AI_STATUS = ["未建立", "等待 AI 閱讀", "AI 已閱讀", "AI 已建立知識", "已驗證"];
 const workspaceRegistry = {
   worklog: { icon: "🪶", label: "工時營帳", group: "camp", enabled: true },
   investment: { icon: "📈", label: "投資營帳", group: "camp", comingSoon: true },
@@ -209,13 +214,16 @@ const LocalCache = {
     this.save("work_models", Array.isArray(DataService.workModelsState) ? DataService.workModelsState : profile?.tags || []);
     this.save("ecp_settings", { ecpOwner: profile?.ecpOwner || "", ecpDepartment: profile?.ecpDepartment || "" });
     this.save("ecp_tasks", Array.isArray(DataService.ecpTasksState) ? DataService.ecpTasksState : profile?.ecpTasks || []);
+    this.save("library", library);
   },
   hydrate() {
     if (!hasGoogleOAuthSession()) return false;
     const cachedProfile = this.load("profile", null);
     const cachedEntries = this.load("entries", []);
+    const cachedLibrary = this.load("library", []);
     if (cachedProfile) profile = cachedProfile;
     if (Array.isArray(cachedEntries) && cachedEntries.length) entries = cachedEntries;
+    if (Array.isArray(cachedLibrary) && cachedLibrary.length) library = cachedLibrary;
     const cachedWorkModels = this.load("work_models", null);
     const cachedEcpTasks = this.load("ecp_tasks", null);
     if (Array.isArray(cachedWorkModels)) DataService.workModelsState = cachedWorkModels;
@@ -398,6 +406,41 @@ const SupabaseRepository = {
     const existing = entry.cloudId ? [{ id: entry.cloudId }] : await this.select("work_entries", `?select=id&legacy_id=eq.${encodeURIComponent(entry.id)}&limit=1`);
     if (!existing?.[0]?.id) return null;
     return this.patch("work_entries", `?id=eq.${encodeURIComponent(existing[0].id)}`, { status: "deleted", deleted_at: new Date().toISOString() });
+  },
+  loadKnowledgeSources() {
+    return this.select("knowledge_sources", "?select=*&deleted_at=is.null&order=created_at.desc");
+  },
+  async saveKnowledgeSource(item) {
+    if (!currentUserUuid() || !currentAccessToken()) throw new Error("Cloud Sync 尚未就緒");
+    const payload = {
+      user_uuid: currentUserUuid(),
+      knowledge_id: item.knowledgeId,
+      title: item.title,
+      description: item.description || "",
+      category: item.category || "其他",
+      scope: item.scope || "Personal",
+      applicable_agents: item.applicableAgents || [],
+      tags: item.tags || [],
+      status: item.status || "🟡 已上傳",
+      ai_status: item.aiStatus || "未建立",
+      version: item.version || "v1.0",
+      filename: item.filename || "",
+      storage_path: item.storagePath || "",
+      legacy_id: item.id || null,
+      updated_at: new Date().toISOString()
+    };
+    const existing = item.cloudId ? [{ id: item.cloudId }] : await this.select("knowledge_sources", `?select=id&legacy_id=eq.${encodeURIComponent(item.id)}&limit=1`);
+    const saved = existing?.[0]?.id
+      ? await this.patch("knowledge_sources", `?id=eq.${encodeURIComponent(existing[0].id)}`, payload)
+      : await this.insert("knowledge_sources", payload);
+    if (!saved?.[0]?.id) throw new Error("Supabase knowledge_sources 未回傳儲存結果");
+    return saved[0];
+  },
+  async deleteKnowledgeSource(item) {
+    if (!currentUserUuid() || !currentAccessToken()) throw new Error("Cloud Sync 尚未就緒");
+    const existing = item.cloudId ? [{ id: item.cloudId }] : await this.select("knowledge_sources", `?select=id&legacy_id=eq.${encodeURIComponent(item.id)}&limit=1`);
+    if (!existing?.[0]?.id) return null;
+    return this.patch("knowledge_sources", `?id=eq.${encodeURIComponent(existing[0].id)}`, { deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() });
   }
 };
 
@@ -450,6 +493,11 @@ function setEntries(nextEntries = []) {
   LocalCache.save("entries", entries);
 }
 
+function setLibrary(nextLibrary = []) {
+  library = Array.isArray(nextLibrary) ? nextLibrary.map(normalizedLibraryItem) : [];
+  LocalCache.save("library", library);
+}
+
 const DataService = {
   workModelsState: null,
   ecpTasksState: null,
@@ -486,6 +534,7 @@ const DataService = {
       const workModelsRows = await safeLoad("work_models", () => SupabaseRepository.loadWorkModels(), []);
       const ecpTaskRows = await safeLoad("ecp_tasks", () => SupabaseRepository.loadEcpTasks(), []);
       const entryRows = await safeLoad("entries", () => SupabaseRepository.loadEntries(monthKey()), []);
+      const knowledgeRows = await safeLoad("knowledge", () => SupabaseRepository.loadKnowledgeSources(), []);
       if (cloudProfile || exportSettings || !failedLoads.has("work_models") || !failedLoads.has("ecp_tasks")) {
         profile = profileFromCloud(cloudProfile, exportSettings, workModelsRows || [], ecpTaskRows || [], {
           workModelsLoaded: !failedLoads.has("work_models"),
@@ -495,6 +544,7 @@ const DataService = {
         this.ecpTasksState = Array.isArray(profile?.ecpTasks) ? [...profile.ecpTasks] : [];
       }
       if (!failedLoads.has("entries")) setEntries(Array.isArray(entryRows) ? entryRows.map(entryFromCloud) : []);
+      if (!failedLoads.has("knowledge")) setLibrary(Array.isArray(knowledgeRows) ? knowledgeRows.map(knowledgeFromCloud) : []);
       LocalCache.saveAll();
       if (errors.length) this.setStatus("failed", errors.join(" | "));
       else this.setStatus("synced");
@@ -689,6 +739,55 @@ const DataService = {
       console.error("Save profile settings failed", { error, supabase: error.supabase || null });
       this.setStatus("failed", error.message || "Profile sync failed");
       if (options.requireCloud) throw error;
+    }
+  },
+  async saveKnowledgeSource(item, options = {}) {
+    const normalized = normalizedLibraryItem(item);
+    try {
+      if (hasGoogleOAuthSession() && !dataServiceHydrating && !migrationRunning) {
+        dataServiceReady = true;
+        this.setStatus("syncing");
+        const saved = await SupabaseRepository.saveKnowledgeSource(normalized);
+        const cloudItem = knowledgeFromCloud(saved);
+        setLibrary([cloudItem, ...library.filter(x => x.id !== normalized.id && x.cloudId !== cloudItem.cloudId)]);
+        LocalCache.saveAll();
+        this.setStatus("synced");
+        return cloudItem;
+      }
+      const next = [normalized, ...library.filter(x => x.id !== normalized.id)];
+      setLibrary(next);
+      LocalCache.saveAll();
+      if (options.requireCloud) throw new Error("Cloud Sync 尚未就緒");
+      return normalized;
+    } catch (error) {
+      console.error("Save knowledge source failed", { error, supabase: error.supabase || null, item: normalized });
+      this.setStatus("failed", error.message || "Knowledge sync failed");
+      if (options.requireCloud) throw error;
+      const next = [normalized, ...library.filter(x => x.id !== normalized.id)];
+      setLibrary(next);
+      LocalCache.saveAll();
+      return normalized;
+    }
+  },
+  async deleteKnowledgeSource(item, options = {}) {
+    const normalized = normalizedLibraryItem(item);
+    try {
+      if (hasGoogleOAuthSession() && !dataServiceHydrating && !migrationRunning) {
+        dataServiceReady = true;
+        this.setStatus("syncing");
+        await SupabaseRepository.deleteKnowledgeSource(normalized);
+      } else if (options.requireCloud) {
+        throw new Error("Cloud Sync 尚未就緒");
+      }
+      setLibrary(library.filter(x => x.id !== normalized.id));
+      LocalCache.saveAll();
+      this.setStatus("synced");
+      return true;
+    } catch (error) {
+      console.error("Delete knowledge source failed", { error, supabase: error.supabase || null, item: normalized });
+      this.setStatus("failed", error.message || "Knowledge delete failed");
+      if (options.requireCloud) throw error;
+      return false;
     }
   }
 };
@@ -1582,24 +1681,110 @@ function sync() {
   return `<section class="panel control-center" style="margin-top:18px"><div class="panel-head"><div><h2>🔗 控制台</h2><div class="muted">AI OS 各項服務連線狀態與健康檢查。</div></div></div><div class="control-grid">${services.map(([name, state, detail, action, type]) => `<div class="service-card ${type === "summary" ? "summary-card" : ""}"><div><h3>${escapeHtml(name)}</h3><b>${escapeHtml(state)}</b><div class="muted">${escapeHtml(detail)}</div></div>${action}</div>`).join("")}</div></section>`;
 }
 
+function nextKnowledgeId() {
+  const max = library
+    .map(item => String(item.knowledgeId || "").match(/^KB-(\d{6})$/)?.[1])
+    .filter(Boolean)
+    .map(Number)
+    .reduce((n, v) => Math.max(n, v), 0);
+  return `KB-${String(max + 1).padStart(6, "0")}`;
+}
+
+function knowledgeStatusFromLegacy(item = {}) {
+  const status = item.status || item.readingStatus || "";
+  if (status.includes("已驗證")) return "⭐ 已驗證";
+  if (status.includes("已建立知識")) return "🟢 AI 已建立知識";
+  if (status.includes("已閱讀") || status.includes("已完成")) return "🔵 AI 已閱讀";
+  return "🟡 已上傳";
+}
+
+function aiStatusFromLegacy(item = {}) {
+  const ai = item.aiStatus || item.readingStatus || "";
+  if (ai.includes("已驗證")) return "已驗證";
+  if (ai.includes("已建立知識")) return "AI 已建立知識";
+  if (ai.includes("已閱讀") || ai.includes("已完成")) return "AI 已閱讀";
+  if (ai.includes("等待")) return "等待 AI 閱讀";
+  return "未建立";
+}
+
+function arrayFromInput(value) {
+  if (Array.isArray(value)) return value.map(x => String(x).trim()).filter(Boolean);
+  return String(value || "").split(/[,\n，]/).map(x => x.trim()).filter(Boolean);
+}
+
 function normalizedLibraryItem(item = {}) {
-  const sourceType = item.sourceType === "上傳檔案" ? "上傳文件" : (item.sourceType || item.type || "上傳文件");
+  const now = new Date().toISOString();
+  const filename = item.filename || item.storagePath || item.location || "";
+  const title = item.title || item.name || filename || "";
+  const createdAt = item.createdAt || item.created_at || now;
   return {
-    ...item,
-    sourceType,
-    type: item.type || sourceType,
-    readingStatus: item.readingStatus === "🟢 已完成理解" ? "🟢 已完成閱讀" : (item.readingStatus || DEFAULT_LIBRARY_READING_STATUS),
-    tags: Array.isArray(item.tags) ? item.tags : []
+    id: item.id || uid("kb"),
+    cloudId: item.cloudId || item.cloud_id || undefined,
+    knowledgeId: item.knowledgeId || item.knowledge_id || nextKnowledgeId(),
+    title,
+    name: title,
+    description: item.description || "",
+    category: KNOWLEDGE_CATEGORIES.includes(item.category) ? item.category : "其他",
+    scope: KNOWLEDGE_SCOPES.includes(item.scope) ? item.scope : "Personal",
+    applicableAgents: arrayFromInput(item.applicableAgents || item.applicable_agents || ["採購 Agent"]),
+    tags: arrayFromInput(item.tags),
+    status: KNOWLEDGE_STATUS.includes(item.status) ? item.status : knowledgeStatusFromLegacy(item),
+    aiStatus: KNOWLEDGE_AI_STATUS.includes(item.aiStatus || item.ai_status) ? (item.aiStatus || item.ai_status) : aiStatusFromLegacy(item),
+    version: item.version || "v1.0",
+    createdAt,
+    updatedAt: item.updatedAt || item.updated_at || createdAt,
+    filename,
+    storagePath: item.storagePath || item.storage_path || filename,
+    sourceType: item.sourceType || item.type || "上傳文件",
+    type: item.type || item.sourceType || "上傳文件",
+    readingStatus: item.readingStatus || item.aiStatus || aiStatusFromLegacy(item),
+    location: filename,
+    purpose: item.purpose || ""
   };
 }
 
+function knowledgeFromCloud(row = {}) {
+  return normalizedLibraryItem({
+    id: row.legacy_id || row.id,
+    cloudId: row.id,
+    knowledgeId: row.knowledge_id,
+    title: row.title,
+    description: row.description,
+    category: row.category,
+    scope: row.scope,
+    applicableAgents: row.applicable_agents || [],
+    tags: row.tags || [],
+    status: row.status,
+    aiStatus: row.ai_status,
+    version: row.version,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    filename: row.filename,
+    storagePath: row.storage_path
+  });
+}
+
+function selectOptions(options = [], selected = "") {
+  return options.map(option => `<option value="${escapeHtml(option)}" ${option === selected ? "selected" : ""}>${escapeHtml(option)}</option>`).join("");
+}
+
+function checkboxGroup(options = [], selected = [], name = "") {
+  const set = new Set(selected || []);
+  return `<div class="work-model-list">${options.map(option => `<label class="work-model-check"><input type="checkbox" name="${escapeHtml(name)}" value="${escapeHtml(option)}" ${set.has(option) ? "checked" : ""}><span>${escapeHtml(option)}</span></label>`).join("")}</div>`;
+}
+
+function formatKnowledgeTime(value = "") {
+  if (!value) return "";
+  return fmt(value);
+}
+
 function libraryView() {
-  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>📚 藏書閣</h2><div class="muted">AI OS Knowledge Library：統一管理提供給諸葛先生閱讀、理解、引用與 AI 推理的知識來源。</div></div><button class="btn" data-add-library="1">新增藏書</button></div><div class="library-list">${library.length ? library.map(raw => { const item = normalizedLibraryItem(raw); return `<div class="entry"><div class="entry-main"><b>${escapeHtml(item.name)}</b><div class="muted">${escapeHtml(item.sourceType)}｜${escapeHtml(item.readingStatus)}</div><small>${escapeHtml(item.description || "")}</small><div class="source-path">${escapeHtml(item.location || "尚未連結來源")}</div><div class="library-tag-line">${item.tags.map(tag => `<span>${escapeHtml(tag)}</span>`).join("")}</div></div><div class="actions compact"><button class="btn2" data-edit-library="${item.id}">編輯</button><button class="btn2 danger" data-del-library="${item.id}">刪除</button></div></div>`; }).join("") : `<div class="empty"><b>尚無知識來源</b><div class="muted">請新增 SOP、流程、表單、PDF、網址或 Google 文件，作為未來 AI 推理、AI 回答、AI 搜尋與 AI 引用的知識庫。</div></div>`}</div></section>`;
+  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>📚 藏書閣</h2><div class="muted">AI OS Knowledge Library：管理可供諸葛先生閱讀、理解、引用與推理的正式知識。</div></div><button class="btn" data-add-library="1">新增知識</button></div><div class="library-list">${library.length ? library.map(raw => { const item = normalizedLibraryItem(raw); return `<div class="entry"><div class="entry-main"><b>${escapeHtml(item.title)}</b><div class="muted">${escapeHtml(item.knowledgeId)}｜${escapeHtml(item.category)}｜${escapeHtml(item.scope)}｜${escapeHtml(item.version)}</div><div class="muted">適用 Agent：${escapeHtml(item.applicableAgents.join("、") || "未指定")}</div><div class="library-tag-line">${item.tags.map(tag => `<span>${escapeHtml(tag)}</span>`).join("")}</div><small>${escapeHtml(item.description || "")}</small><div class="source-path">AI Status：${escapeHtml(item.aiStatus)}｜Status：${escapeHtml(item.status)}</div><div class="source-path">Uploaded：${escapeHtml(formatKnowledgeTime(item.createdAt))}｜File：${escapeHtml(item.filename || "尚未選擇檔案")}</div></div><div class="actions compact"><button class="btn2" data-edit-library="${item.id}">編輯</button><button class="btn2 danger" data-del-library="${item.id}">刪除</button></div></div>`; }).join("") : `<div class="empty"><b>尚無知識來源</b><div class="muted">請新增 SOP、制度、法規、表單或教材，建立 AI OS 知識層基礎。</div></div>`}</div></section>`;
 }
 
 function libraryForm(id = null) {
   const item = normalizedLibraryItem(id ? library.find(x => x.id === id) : {});
-  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>${id ? "編輯藏書" : "新增藏書"}</h2><div class="muted">藏書閣是 AI OS Knowledge Library，請提供文件給諸葛先生閱讀、理解、引用，作為未來 AI 推理的知識依據。</div></div><button class="btn2" data-library-back="1">返回</button></div><label>名稱</label><input id="libName" class="input" value="${escapeHtml(item.name || "")}"><label>上傳文件</label><div class="upload-drop"><input id="libFile" type="file"><span>${escapeHtml(item.location || "拖曳文件至此，或瀏覽上傳")}</span></div><label>使用者補充說明</label><textarea id="libDesc" placeholder="這份文件想讓諸葛先生知道什麼？例如：這是公司採購 SOP，請作為未來安排採購工作與 AI 推理的依據。">${escapeHtml(item.description || "")}</textarea><label>AI 閱讀狀態</label><div class="readonly-status">${escapeHtml(item.readingStatus || DEFAULT_LIBRARY_READING_STATUS)}</div><div class="library-ai-preview"><b>AI 閱讀完成後將自動判斷</b><div class="muted">文件類型、主題、標籤、可用於 AI 推理 / AI 回答 / AI 搜尋的知識內容。</div></div><div class="form-actions"><button class="btn2" data-library-cancel="1">取消</button><button class="btn" id="saveLibrary">儲存</button></div></section>`;
+  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>${id ? "編輯知識" : "新增知識"}</h2><div class="muted">建立 AI OS Knowledge Object。本階段只管理 Metadata，不做 AI/RAG/Embedding。</div></div><button class="btn2" data-library-back="1">返回</button></div><label>Knowledge ID</label><input id="libKnowledgeId" class="input" value="${escapeHtml(item.knowledgeId)}" readonly><label>Title</label><input id="libTitle" class="input" value="${escapeHtml(item.title || "")}" placeholder="例如：採購請購 SOP"><label>Description</label><textarea id="libDesc" placeholder="這份知識想讓諸葛先生知道什麼？">${escapeHtml(item.description || "")}</textarea><label>Category</label><select id="libCategory" class="input">${selectOptions(KNOWLEDGE_CATEGORIES, item.category)}</select><label>Knowledge Scope</label><select id="libScope" class="input">${selectOptions(KNOWLEDGE_SCOPES, item.scope)}</select><label>Applicable Agents</label>${checkboxGroup(KNOWLEDGE_AGENTS, item.applicableAgents, "libAgents")}<label>Tags</label><input id="libTags" class="input" value="${escapeHtml(item.tags.join("、"))}" placeholder="採購、請購、供應商、SOP"><label>Status</label><select id="libStatus" class="input">${selectOptions(KNOWLEDGE_STATUS, item.status)}</select><label>AI Status</label><select id="libAiStatus" class="input">${selectOptions(KNOWLEDGE_AI_STATUS, item.aiStatus)}</select><label>Version</label><input id="libVersion" class="input" value="${escapeHtml(item.version || "v1.0")}" placeholder="v1.0"><label>上傳文件</label><div class="upload-drop"><input id="libFile" type="file"><span>${escapeHtml(item.filename || "拖曳文件至此，或瀏覽上傳")}</span></div><div class="library-ai-preview"><b>本階段不執行 AI 閱讀</b><div class="muted">Metadata 將作為後續 AI Citation、AI Search、RAG 與 Agent 知識引用的基礎。</div></div><div class="form-actions"><button class="btn2" data-library-cancel="1">取消</button><button class="btn" id="saveLibrary">儲存</button></div></section>`;
 }
 
 function settings() {
@@ -1867,17 +2052,43 @@ function bindCapture(editId = null) {
 function bindLibrary() {
   const add = document.querySelector("[data-add-library]"); if (add) add.onclick = () => { editingLibraryId = null; activeWorkspace = "library"; view = "libraryForm"; saveAll(); render(); };
   document.querySelectorAll("[data-edit-library]").forEach(b => b.onclick = () => { editingLibraryId = b.dataset.editLibrary; activeWorkspace = "library"; view = "libraryForm"; saveAll(); render(); });
-  document.querySelectorAll("[data-del-library]").forEach(b => b.onclick = () => { library = library.filter(x => x.id !== b.dataset.delLibrary); saveAll(); toast("已刪除藏書閣來源"); render(); });
+  document.querySelectorAll("[data-del-library]").forEach(b => b.onclick = async () => {
+    const item = library.find(x => x.id === b.dataset.delLibrary);
+    if (!item) return;
+    const deleted = await DataService.deleteKnowledgeSource(item);
+    if (!deleted) return toast("知識刪除同步失敗，請稍後再試");
+    saveAll();
+    toast("已刪除知識");
+    render();
+  });
 }
 
 function bindLibraryForm(id = null) {
   document.querySelectorAll("[data-library-back],[data-library-cancel]").forEach(b => b.onclick = () => { editingLibraryId = null; view = "library"; saveAll(); render(); });
-  document.getElementById("saveLibrary").onclick = () => {
+  document.getElementById("saveLibrary").onclick = async () => {
     const existing = id ? normalizedLibraryItem(library.find(x => x.id === id)) : {};
-    const item = { id: id || uid("lib"), name: document.getElementById("libName").value.trim(), type: "上傳文件", sourceType: "上傳文件", readingStatus: existing.readingStatus || DEFAULT_LIBRARY_READING_STATUS, description: document.getElementById("libDesc").value.trim(), location: document.getElementById("libFile")?.files?.[0]?.name || existing.location || "", purpose: existing.purpose || "", tags: existing.tags || [] };
-    if (!item.name) return toast("請輸入來源名稱");
-    if (id) library[library.findIndex(x => x.id === id)] = item; else library.push(item);
-    editingLibraryId = null; view = "library"; saveAll(); toast("藏書閣已儲存"); render();
+    const fileName = document.getElementById("libFile")?.files?.[0]?.name || existing.filename || "";
+    const item = normalizedLibraryItem({
+      ...existing,
+      id: id || existing.id || uid("kb"),
+      knowledgeId: document.getElementById("libKnowledgeId").value.trim() || existing.knowledgeId || nextKnowledgeId(),
+      title: document.getElementById("libTitle").value.trim(),
+      description: document.getElementById("libDesc").value.trim(),
+      category: document.getElementById("libCategory").value,
+      scope: document.getElementById("libScope").value,
+      applicableAgents: [...document.querySelectorAll("input[name=libAgents]:checked")].map(x => x.value),
+      tags: arrayFromInput(document.getElementById("libTags").value),
+      status: document.getElementById("libStatus").value,
+      aiStatus: document.getElementById("libAiStatus").value,
+      version: document.getElementById("libVersion").value.trim() || "v1.0",
+      filename: fileName,
+      storagePath: fileName,
+      createdAt: existing.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+    if (!item.title) return toast("請輸入 Knowledge Title");
+    await DataService.saveKnowledgeSource(item);
+    editingLibraryId = null; view = "library"; saveAll(); toast("知識已儲存"); render();
   };
 }
 
