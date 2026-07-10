@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260710-2009";
+const BUILD_TIME = "20260710-2016";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const AUTH_SESSION_KEY = "zhuge_ai_os_google_auth_session_v1";
@@ -235,6 +235,9 @@ let cloudSync = readJson("wl_cloud_sync_status_v1", { status: "idle", lastSynced
 let dataServiceReady = false;
 let dataServiceHydrating = false;
 let dataServiceSyncing = false;
+let autoSaveTimer = null;
+let autoSaveInFlight = false;
+const autoSaveDirtyScopes = new Set();
 let migrationRequired = false;
 let migrationPreview = null;
 let migrationRunning = false;
@@ -550,6 +553,76 @@ const DataService = {
   setStatus(status, error = "") {
     cloudSync = { status, error, lastSyncedAt: status === "synced" ? new Date().toISOString() : cloudSync.lastSyncedAt || "" };
     writeJson("wl_cloud_sync_status_v1", cloudSync);
+    refreshCloudSyncStatusDisplay();
+  },
+  queueAutoSave(scopes = []) {
+    const list = Array.isArray(scopes) ? scopes : [scopes];
+    list.filter(Boolean).forEach(scope => autoSaveDirtyScopes.add(scope));
+    LocalCache.saveAll();
+    if (!hasGoogleOAuthSession()) {
+      this.setStatus("failed", "尚未登入 Google，無法同步設定");
+      return;
+    }
+    if (dataServiceHydrating || migrationRequired || migrationRunning) {
+      this.setStatus("pending");
+      return;
+    }
+    this.setStatus("pending");
+    if (autoSaveTimer) clearTimeout(autoSaveTimer);
+    autoSaveTimer = setTimeout(() => this.flushAutoSaveQueue(), 2000);
+  },
+  async flushAutoSaveQueue() {
+    if (autoSaveInFlight) return;
+    if (!autoSaveDirtyScopes.size) return;
+    if (!hasGoogleOAuthSession()) {
+      this.setStatus("failed", "尚未登入 Google，無法同步設定");
+      return;
+    }
+    if (dataServiceHydrating || migrationRequired || migrationRunning) {
+      if (autoSaveTimer) clearTimeout(autoSaveTimer);
+      autoSaveTimer = setTimeout(() => this.flushAutoSaveQueue(), 2000);
+      return;
+    }
+    autoSaveInFlight = true;
+    dataServiceReady = true;
+    const scopes = new Set(autoSaveDirtyScopes);
+    autoSaveDirtyScopes.clear();
+    this.setStatus("syncing");
+    try {
+      if (scopes.has("profile") && profile) {
+        await SupabaseRepository.upsertUserProfile(profile);
+        await SupabaseRepository.upsertExportSettings(profile);
+      }
+      if (scopes.has("workModels")) {
+        const rows = await SupabaseRepository.saveWorkModels(workModels(), profile);
+        setWorkModels(Array.isArray(rows) ? rows.map(row => row.name).filter(Boolean) : workModels());
+      }
+      if (scopes.has("ecpTasks")) {
+        const rows = await SupabaseRepository.saveEcpTasks(ecpTasks());
+        setEcpTasks(Array.isArray(rows) ? rows.map(row => row.name).filter(Boolean) : ecpTasks());
+      }
+      LocalCache.saveAll();
+      this.setStatus(autoSaveDirtyScopes.size ? "pending" : "synced");
+      if (autoSaveDirtyScopes.size) {
+        if (autoSaveTimer) clearTimeout(autoSaveTimer);
+        autoSaveTimer = setTimeout(() => this.flushAutoSaveQueue(), 2000);
+      }
+    } catch (error) {
+      scopes.forEach(scope => autoSaveDirtyScopes.add(scope));
+      console.error("Smart Auto Save failed", { error, supabase: error.supabase || null, scopes: [...scopes] });
+      this.setStatus("failed", error.message || "Smart Auto Save failed");
+    } finally {
+      autoSaveInFlight = false;
+    }
+  },
+  retryAutoSave() {
+    if (!autoSaveDirtyScopes.size) {
+      autoSaveDirtyScopes.add("profile");
+      autoSaveDirtyScopes.add("workModels");
+      autoSaveDirtyScopes.add("ecpTasks");
+    }
+    if (autoSaveTimer) clearTimeout(autoSaveTimer);
+    autoSaveTimer = setTimeout(() => this.flushAutoSaveQueue(), 0);
   },
   async loadAll() {
     if (!dataServiceReady || dataServiceHydrating) return;
@@ -1292,6 +1365,7 @@ function googleConnectionLabel() {
 function cloudSyncLabel() {
   if (cloudSync.status === "synced") return "🟢 已同步";
   if (cloudSync.status === "syncing") return "🟡 同步中";
+  if (cloudSync.status === "pending") return "🔄 尚未同步";
   if (cloudSync.status === "migration_required") return "🟡 等待資料搬移";
   if (cloudSync.status === "migrating") return "🟡 資料搬移中";
   if (cloudSync.status === "failed") return "🔴 同步失敗";
@@ -1300,10 +1374,18 @@ function cloudSyncLabel() {
 
 function cloudSyncDetail() {
   if (cloudSync.status === "failed") return cloudSync.error || "請稍後再試";
+  if (cloudSync.status === "pending") return "等待自動同步";
+  if (cloudSync.status === "syncing") return "同步中...";
   if (cloudSync.status === "migration_required") return "請先確認 Migration Preview";
   if (cloudSync.status === "migrating") return "正在搬移 RC3.3 本機資料";
   if (!cloudSync.lastSyncedAt) return "等待 Cloud Sync";
   return `最後同步：${fmt(cloudSync.lastSyncedAt)}`;
+}
+
+function refreshCloudSyncStatusDisplay() {
+  const box = document.getElementById("developerCloudSyncStatus");
+  if (!box) return;
+  box.innerHTML = `<div>${escapeHtml(cloudSyncLabel())}</div><div>${escapeHtml(cloudSyncDetail())}</div>`;
 }
 
 function minutesFromTime(value = "09:00") {
@@ -1490,7 +1572,7 @@ function sidebarSection(title, group) {
 
 function osSidebar() {
   const checked = new Date().toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false });
-  return `<aside class="os-sidebar"><button class="mini sidebar-close" data-close-sidebar="1">×</button>${agentStatusPanel()}${sidebarSection("🏕️ 營帳", "camp")}${sidebarSection("⚙️ 系統", "system")}<div class="developer-build-info"><div>${RELEASE_VERSION}</div><div>Build ${BUILD_TIME}</div><div>GitHub Pages：最後檢查 ${checked}</div><div>Source：${DEPLOY_SOURCE}</div></div></aside>`;
+  return `<aside class="os-sidebar"><button class="mini sidebar-close" data-close-sidebar="1">×</button>${agentStatusPanel()}${sidebarSection("🏕️ 營帳", "camp")}${sidebarSection("⚙️ 系統", "system")}<div class="developer-build-info"><div id="developerCloudSyncStatus" data-retry-cloud-sync="1"><div>${escapeHtml(cloudSyncLabel())}</div><div>${escapeHtml(cloudSyncDetail())}</div></div><div>${RELEASE_VERSION}</div><div>Build ${BUILD_TIME}</div><div>GitHub Pages：最後檢查 ${checked}</div><div>Source：${DEPLOY_SOURCE}</div></div></aside>`;
 }
 
 function workspaceTabs() {
@@ -1828,7 +1910,7 @@ function libraryForm(id = null) {
 function settings() {
   const models = workModels();
   const tasks = ecpTasks();
-  return `<section class="panel" style="margin-top:18px"><h2>⚙️ 設定</h2><div class="entry"><b>目前使用者</b><div class="muted">${escapeHtml(session.name)}｜${escapeHtml(session.status || session.email || "")}</div></div><label>角色</label><select id="roleSet" class="input">${roles.map(r => `<option ${profile && profile.role === r ? "selected" : ""}>${r}</option>`).join("")}</select><div class="work-model-section"><label>工作模型</label><div class="work-model-list" id="workModelList">${workModelChecks(models, models)}</div><div class="work-model-add"><input class="input" id="newWorkModel" placeholder="新增工作模型，例如：ISO 稽核"><button class="btn2" id="addWorkModel" type="button">＋ 新增工作模型</button></div><div class="muted">工作模型給 AI 學習、推理與推薦使用，不直接等於 ECP 匯入欄位。</div></div><div class="work-model-section"><label>ECP 設定</label><label>ECP 負責人</label><input class="input" id="ecpOwner" value="${escapeHtml(profile?.ecpOwner || "")}" placeholder="例如：陳彥達-UU"><label>ECP 負責部門</label><input class="input" id="ecpDepartment" value="${escapeHtml(profile?.ecpDepartment || "")}" placeholder="例如：UU管理部"><label>ECP 任務</label>${ecpTaskList(tasks)}<div class="work-model-add"><input class="input" id="newEcpTask" placeholder="新增 ECP 任務，例如：採購案件處理"><button class="btn2" id="addEcpTask" type="button">＋ 新增 ECP 任務</button></div><div class="muted">ECP 任務專供匯出使用，可設定常用 ECP 任務；快速紀錄可選「不指定 ECP 任務」。</div></div><button class="btn full" id="saveSettings">儲存設定</button><button class="btn gray full" id="resetProfile">重新初次認識</button><button class="btn red full" id="logoutBtn">登出</button><div class="entry"><b>版本</b><div class="muted">${VERSION}</div></div></section>`;
+  return `<section class="panel" style="margin-top:18px"><h2>⚙️ 設定</h2><div class="entry"><b>目前使用者</b><div class="muted">${escapeHtml(session.name)}｜${escapeHtml(session.status || session.email || "")}</div></div><div class="entry"><b>Smart Auto Save</b><div class="muted">設定一修改即更新本機狀態，約 2 秒後自動同步 Cloud。</div></div><label>角色</label><select id="roleSet" class="input">${roles.map(r => `<option ${profile && profile.role === r ? "selected" : ""}>${r}</option>`).join("")}</select><div class="work-model-section"><label>工作模型</label><div class="work-model-list" id="workModelList">${workModelChecks(models, models)}</div><div class="work-model-add"><input class="input" id="newWorkModel" placeholder="新增工作模型，例如：ISO 稽核"><button class="btn2" id="addWorkModel" type="button">＋ 新增工作模型</button></div><div class="muted">工作模型給 AI 學習、推理與推薦使用，不直接等於 ECP 匯入欄位。</div></div><div class="work-model-section"><label>ECP 設定</label><label>ECP 負責人</label><input class="input" id="ecpOwner" value="${escapeHtml(profile?.ecpOwner || "")}" placeholder="例如：陳彥達-UU"><label>ECP 負責部門</label><input class="input" id="ecpDepartment" value="${escapeHtml(profile?.ecpDepartment || "")}" placeholder="例如：UU管理部"><label>ECP 任務</label>${ecpTaskList(tasks)}<div class="work-model-add"><input class="input" id="newEcpTask" placeholder="新增 ECP 任務，例如：採購案件處理"><button class="btn2" id="addEcpTask" type="button">＋ 新增 ECP 任務</button></div><div class="muted">ECP 任務專供匯出使用，可設定常用 ECP 任務；快速紀錄可選「不指定 ECP 任務」。</div></div><button class="btn gray full" id="resetProfile">重新初次認識</button><button class="btn red full" id="logoutBtn">登出</button><div class="entry"><b>版本</b><div class="muted">${VERSION}</div></div></section>`;
 }
 
 function currentViewHtml() {
@@ -1859,7 +1941,12 @@ function bindMigration() {
 
 function bindDashboard() {}
 
-function bindGlobal() { document.querySelectorAll("[data-logout]").forEach(b => b.onclick = () => doLogout()); }
+function bindGlobal() {
+  document.querySelectorAll("[data-logout]").forEach(b => b.onclick = () => doLogout());
+  document.querySelectorAll("[data-retry-cloud-sync]").forEach(b => b.onclick = () => {
+    if (cloudSync.status === "failed") DataService.retryAutoSave();
+  });
+}
 function doLogout() { clearStoredAuthSession(); clearStoredCodeVerifier(); session = null; activeModule = "dashboard"; activeWorkspace = "dashboard"; openTabs = []; recentWorkspaces = []; view = "center"; saveAll(); toast("已登出"); render(); }
 
 function bindOnboarding() {
@@ -2138,24 +2225,19 @@ function bindLibraryForm(id = null) {
 }
 
 function bindSettings() {
+  const queueSettingsAutoSave = scopes => DataService.queueAutoSave(scopes);
   const renderModelChecks = (models, selectedModels = models) => {
     const list = document.getElementById("workModelList");
     if (list) list.innerHTML = workModelChecks(models, selectedModels);
     bindWorkModelOptions();
   };
   const currentSelectedWorkModels = () => [...document.querySelectorAll(".work-model-option:checked")].map(x => x.value.trim()).filter(Boolean);
-  const syncSelectedWorkModels = async () => {
+  const syncSelectedWorkModels = () => {
     setWorkModels(currentSelectedWorkModels());
-    saveAll({ skipSync: true });
-    await DataService.saveWorkModelsOnly();
+    queueSettingsAutoSave("workModels");
   };
   const bindWorkModelOptions = () => {
-    document.querySelectorAll(".work-model-option").forEach(input => input.onchange = () => {
-      syncSelectedWorkModels().catch(error => {
-        console.error("Work model option sync failed", error);
-        toast("工作模型同步失敗，請稍後再試");
-      });
-    });
+    document.querySelectorAll(".work-model-option").forEach(input => input.onchange = () => syncSelectedWorkModels());
   };
   const renderEcpTasks = tasks => {
     const list = document.getElementById("ecpTaskList");
@@ -2166,29 +2248,25 @@ function bindSettings() {
   };
   const currentEcpTasks = () => [...document.querySelectorAll("#ecpTaskList .ecp-task-item span")].map(x => x.textContent.trim()).filter(Boolean);
   const bindEcpTaskRemove = () => {
-    document.querySelectorAll("[data-remove-ecp-task]").forEach(b => b.onclick = async () => {
+    document.querySelectorAll("[data-remove-ecp-task]").forEach(b => b.onclick = () => {
       const next = currentEcpTasks().filter(task => task !== b.dataset.removeEcpTask);
       renderEcpTasks(next);
       setEcpTasks(next);
-      saveAll();
-      await DataService.saveEcpTasksOnly();
+      queueSettingsAutoSave("ecpTasks");
     });
   };
   bindEcpTaskRemove();
   const roleSet = document.getElementById("roleSet");
   bindWorkModelOptions();
   if (roleSet) roleSet.onchange = e => {
+    profile.role = e.target.value;
     const models = tagsForRole(e.target.value);
     setWorkModels(models);
     renderModelChecks(models, models);
-    saveAll({ skipSync: true });
-    DataService.saveWorkModelsOnly().catch(error => {
-      console.error("Role work model sync failed", error);
-      toast("工作模型同步失敗，請稍後再試");
-    });
+    queueSettingsAutoSave(["profile", "workModels"]);
   };
   const add = document.getElementById("addWorkModel");
-  if (add) add.onclick = async () => {
+  if (add) add.onclick = () => {
     const input = document.getElementById("newWorkModel");
     const name = input.value.trim();
     if (!name) return toast("請輸入工作模型名稱");
@@ -2196,12 +2274,12 @@ function bindSettings() {
     const selected = [...document.querySelectorAll(".work-model-option:checked")].map(x => x.value);
     const models = current.includes(name) ? current : [...current, name];
     renderModelChecks(models, [...new Set([...selected, name])]);
-    await syncSelectedWorkModels();
+    syncSelectedWorkModels();
     input.value = "";
-    toast("已新增工作模型");
+    toast("已新增工作模型，將自動同步");
   };
   const addEcp = document.getElementById("addEcpTask");
-  if (addEcp) addEcp.onclick = async () => {
+  if (addEcp) addEcp.onclick = () => {
     const input = document.getElementById("newEcpTask");
     const name = input.value.trim();
     if (!name) return toast("請輸入 ECP 任務名稱");
@@ -2209,24 +2287,17 @@ function bindSettings() {
     const nextTasks = tasks.includes(name) ? tasks : [...tasks, name];
     renderEcpTasks(nextTasks);
     setEcpTasks(nextTasks);
-    saveAll();
-    await DataService.saveEcpTasksOnly();
+    queueSettingsAutoSave("ecpTasks");
     input.value = "";
-    toast("已新增 ECP 任務");
+    toast("已新增 ECP 任務，將自動同步");
   };
-  document.getElementById("saveSettings").onclick = async () => {
-    profile.role = document.getElementById("roleSet").value;
-    const selectedModels = [...document.querySelectorAll(".work-model-option:checked")].map(x => x.value.trim()).filter(Boolean);
-    setWorkModels(selectedModels.length ? selectedModels : tagsForRole(profile.role));
-    profile.ecpOwner = document.getElementById("ecpOwner").value.trim();
-    profile.ecpDepartment = document.getElementById("ecpDepartment").value.trim();
-    setEcpTasks(currentEcpTasks());
-    saveAll();
-    await DataService.saveProfileSettingsOnly();
-    await DataService.saveWorkModelsOnly();
-    await DataService.saveEcpTasksOnly();
-    toast("工作模型已更新"); render();
-  };
+  const ecpOwner = document.getElementById("ecpOwner");
+  const ecpDepartment = document.getElementById("ecpDepartment");
+  [ecpOwner, ecpDepartment].filter(Boolean).forEach(input => input.oninput = () => {
+    profile.ecpOwner = ecpOwner?.value.trim() || "";
+    profile.ecpDepartment = ecpDepartment?.value.trim() || "";
+    queueSettingsAutoSave("profile");
+  });
   document.getElementById("resetProfile").onclick = () => { profile = null; saveAll(); render(); };
   document.getElementById("logoutBtn").onclick = () => doLogout();
 }
@@ -2568,3 +2639,11 @@ async function boot() {
 }
 
 boot();
+
+window.addEventListener("beforeunload", event => {
+  if (autoSaveInFlight || autoSaveDirtyScopes.size || cloudSync.status === "syncing" || cloudSync.status === "pending") {
+    event.preventDefault();
+    event.returnValue = "資料仍在同步中，請稍候...";
+    return event.returnValue;
+  }
+});
