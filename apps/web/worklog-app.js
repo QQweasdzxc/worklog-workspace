@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260710-0829";
+const BUILD_TIME = "20260710-0844";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const AUTH_SESSION_KEY = "zhuge_ai_os_google_auth_session_v1";
@@ -85,10 +85,18 @@ function authHeaders(token) {
   return { apikey: AUTH_CONFIG.supabaseAnonKey, Authorization: `Bearer ${token || AUTH_CONFIG.supabaseAnonKey}`, "Content-Type": "application/json" };
 }
 
+function currentUserUuid() {
+  return session?.user_uuid || session?.uuid || "";
+}
+
+function currentAccessToken() {
+  return session?.access_token || getStoredAuthSession()?.access_token || "";
+}
+
 function cloudHeaders(extra = {}) {
   return {
     apikey: AUTH_CONFIG.supabaseAnonKey,
-    Authorization: `Bearer ${session?.access_token || AUTH_CONFIG.supabaseAnonKey}`,
+    Authorization: `Bearer ${currentAccessToken() || AUTH_CONFIG.supabaseAnonKey}`,
     "Content-Type": "application/json",
     ...extra
   };
@@ -116,7 +124,7 @@ function parseWorkTimeRange(range = "09:00~18:00") {
 }
 
 function cacheKey(name) {
-  const uuid = session?.user_uuid || session?.uuid || "anonymous";
+  const uuid = currentUserUuid() || "anonymous";
   return `wl_cache:${uuid}:${name}`;
 }
 
@@ -183,10 +191,28 @@ const SupabaseRepository = {
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
+      let parsedBody = null;
+      try { parsedBody = body ? JSON.parse(body) : null; } catch { parsedBody = null; }
       let payload = null;
       try { payload = options.body ? JSON.parse(options.body) : null; } catch { payload = options.body || null; }
-      console.error("Supabase request failed", { path, status: res.status, body, payload });
-      throw new Error(`Supabase ${res.status}: ${body || res.statusText}`);
+      const details = {
+        path,
+        method: options.method || "GET",
+        status: res.status,
+        statusText: res.statusText,
+        code: parsedBody?.code || "",
+        message: parsedBody?.message || body || res.statusText,
+        details: parsedBody?.details || "",
+        hint: parsedBody?.hint || "",
+        body,
+        payload,
+        user_uuid: currentUserUuid(),
+        has_access_token: !!currentAccessToken()
+      };
+      console.error("Supabase request failed", details);
+      const error = new Error(`Supabase ${res.status}: ${details.message}`);
+      error.supabase = details;
+      throw error;
     }
     if (res.status === 204) return null;
     const text = await res.text();
@@ -205,7 +231,7 @@ const SupabaseRepository = {
     const work = parseWorkTimeRange(profileValue?.workHours);
     const lunch = parseWorkTimeRange(profileValue?.lunch || "12:00~13:00");
     const payload = {
-      user_uuid: session.user_uuid,
+      user_uuid: currentUserUuid(),
       display_name: session.name || "",
       email: session.email || "",
       role_code: roleCode(profileValue?.role || "採購"),
@@ -222,7 +248,7 @@ const SupabaseRepository = {
     return rows?.[0] || null;
   },
   async upsertExportSettings(profileValue) {
-    const payload = { user_uuid: session.user_uuid, export_profile: "ecp", ecp_owner: profileValue?.ecpOwner || "", ecp_department: profileValue?.ecpDepartment || "" };
+    const payload = { user_uuid: currentUserUuid(), export_profile: "ecp", ecp_owner: profileValue?.ecpOwner || "", ecp_department: profileValue?.ecpDepartment || "" };
     return this.request("user_export_settings?on_conflict=user_uuid,export_profile", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=representation" }, body: JSON.stringify(payload) });
   },
   async loadExportSettings() {
@@ -235,7 +261,7 @@ const SupabaseRepository = {
     const wanted = [...new Set((names || []).map(x => String(x).trim()).filter(Boolean))];
     for (const [index, name] of wanted.entries()) {
       const existing = current.find(row => row.name === name);
-      const payload = { user_uuid: session.user_uuid, name, is_active: true, sort_order: index, ...extra };
+      const payload = { user_uuid: currentUserUuid(), name, is_active: true, sort_order: index, ...extra };
       if (existing) await this.patch(table, `?id=eq.${encodeURIComponent(existing.id)}`, payload);
       else await this.insert(table, payload);
     }
@@ -275,17 +301,18 @@ const SupabaseRepository = {
     return rows?.[0] || null;
   },
   async completeMigration(sourceHash, key = CLOUD_MIGRATION_KEY) {
-    const payload = { user_uuid: session.user_uuid, migration_key: key, source_hash: sourceHash, completed_at: new Date().toISOString() };
+    const payload = { user_uuid: currentUserUuid(), migration_key: key, source_hash: sourceHash, completed_at: new Date().toISOString() };
     return this.request("sync_migrations?on_conflict=user_uuid,migration_key", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=representation" }, body: JSON.stringify(payload) });
   },
   async saveEntry(entry) {
+    if (!currentUserUuid() || !currentAccessToken()) throw new Error("Cloud Sync 尚未就緒");
     const ecpRows = await this.loadEcpTasks();
     const ecpTask = ecpRows.find(row => row.name === entry.ecpTask);
     const existing = entry.cloudId ? [{ id: entry.cloudId }] : await this.select("work_entries", `?select=id&legacy_id=eq.${encodeURIComponent(entry.id)}&limit=1`);
     const started = safeDate(entry.at);
     const ended = addHoursToDate(entry.at, entry.hours);
     const payload = {
-      user_uuid: session.user_uuid,
+      user_uuid: currentUserUuid(),
       work_date: entry.date,
       started_at: started.toISOString(),
       ended_at: ended.toISOString(),
@@ -302,9 +329,14 @@ const SupabaseRepository = {
     const saved = existing?.[0]?.id
       ? await this.patch("work_entries", `?id=eq.${encodeURIComponent(existing[0].id)}`, payload)
       : await this.insert("work_entries", payload);
-    return saved?.[0] || null;
+    if (!saved?.[0]?.id) {
+      console.error("Supabase saveEntry returned empty response", { payload, saved, user_uuid: currentUserUuid(), has_access_token: !!currentAccessToken() });
+      throw new Error("Supabase work_entries 未回傳儲存結果");
+    }
+    return saved[0];
   },
   async deleteEntry(entry) {
+    if (!currentUserUuid() || !currentAccessToken()) throw new Error("Cloud Sync 尚未就緒");
     const existing = entry.cloudId ? [{ id: entry.cloudId }] : await this.select("work_entries", `?select=id&legacy_id=eq.${encodeURIComponent(entry.id)}&limit=1`);
     if (!existing?.[0]?.id) return null;
     return this.patch("work_entries", `?id=eq.${encodeURIComponent(existing[0].id)}`, { status: "deleted", deleted_at: new Date().toISOString() });
@@ -509,7 +541,7 @@ const DataService = {
       setEntries(entries.filter(e => e.id !== entry.id));
       this.setStatus("synced");
     } catch (error) {
-      console.error("Cloud Sync delete failed", error);
+      console.error("Cloud Sync delete failed", { error, supabase: error.supabase || null, entry });
       this.setStatus("failed", error.message || "Cloud Sync delete failed");
       throw error;
     }
@@ -528,7 +560,7 @@ const DataService = {
       this.setStatus("synced");
       return nextEntries.find(e => e.id === (item.id || cloudEntry.id));
     } catch (error) {
-      console.error("Cloud Sync save entry failed", error);
+      console.error("Cloud Sync save entry failed", { error, supabase: error.supabase || null, item });
       this.setStatus("failed", error.message || "Entry sync failed");
       throw error;
     }
@@ -701,7 +733,7 @@ async function getGoogleAuthUser() {
 }
 
 function hasGoogleOAuthSession() {
-  return session?.provider === "google-oauth" && !!session.email && !!(session.user_uuid || session.uuid);
+  return session?.provider === "google-oauth" && !!session.email && !!currentUserUuid() && !!currentAccessToken();
 }
 
 function clearInvalidAuthState() {
