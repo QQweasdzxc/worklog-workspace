@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260710-1048";
+const BUILD_TIME = "20260710-1348";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const AUTH_SESSION_KEY = "zhuge_ai_os_google_auth_session_v1";
@@ -619,6 +619,27 @@ const DataService = {
       this.setStatus("failed", error.message || "Entry sync failed");
       throw error;
     }
+  },
+  async saveWorkModelsOnly(options = {}) {
+    try {
+      LocalCache.saveAll();
+      if (hasGoogleOAuthSession() && !dataServiceHydrating && !migrationRunning) {
+        dataServiceReady = true;
+        this.setStatus("syncing");
+        const rows = await SupabaseRepository.saveWorkModels(workModels(), profile);
+        profile.tags = Array.isArray(rows) ? rows.map(row => row.name).filter(Boolean) : workModels();
+        LocalCache.saveAll();
+        this.setStatus("synced");
+      } else {
+        const reason = !hasGoogleOAuthSession() ? "尚未登入 Google" : "Cloud Sync 正在初始化";
+        console.warn("Work model saved to cache; cloud sync deferred", { reason, models: workModels() });
+        if (options.requireCloud) throw new Error(reason);
+      }
+    } catch (error) {
+      console.error("Save work models failed", { error, supabase: error.supabase || null, models: workModels() });
+      this.setStatus("failed", error.message || "Work model sync failed");
+      if (options.requireCloud) throw error;
+    }
   }
 };
 
@@ -998,6 +1019,13 @@ function workModels() {
   return [...new Set(models.map(x => String(x).trim()).filter(Boolean))];
 }
 
+function setWorkModels(models = []) {
+  if (!profile) profile = { role: "採購", tags: [], sources: ["Google Drive", "Gmail", "Calendar", "手動紀錄"], workHours: "09:00~18:00", lunch: "12:00~13:00", sop: "目前沒有 SOP，先用職務模型" };
+  profile.tags = [...new Set((models || []).map(x => String(x).trim()).filter(Boolean))];
+  LocalCache.save("work_models", profile.tags);
+  return profile.tags;
+}
+
 function ecpTasks() {
   const source = Array.isArray(profile?.ecpTasks) && profile.ecpTasks.length ? profile.ecpTasks : (profile?.ecpTask ? [profile.ecpTask] : defaultEcpTasks);
   return [...new Set(source.map(x => String(x).trim()).filter(Boolean))];
@@ -1036,9 +1064,8 @@ function workModelOptions(selectedModel = "") {
 function addWorkModel(model) {
   const name = String(model || "").trim();
   if (!name) return false;
-  if (!profile) profile = { role: "採購", tags: [], sources: ["Google Drive", "Gmail", "Calendar", "手動紀錄"], workHours: "09:00~18:00", lunch: "12:00~13:00", sop: "目前沒有 SOP，先用職務模型" };
   const models = workModels();
-  if (!models.includes(name)) profile.tags = [...models, name];
+  if (!models.includes(name)) setWorkModels([...models, name]);
   return true;
 }
 
@@ -1047,24 +1074,7 @@ async function saveWorkModel(model, options = {}) {
   if (!name) return false;
   addWorkModel(name);
   saveAll({ skipSync: true });
-  try {
-    if (hasGoogleOAuthSession() && !dataServiceHydrating && !migrationRunning) {
-      dataServiceReady = true;
-      DataService.setStatus("syncing");
-      await SupabaseRepository.saveWorkModels(workModels(), profile);
-      LocalCache.saveAll();
-      DataService.setStatus("synced");
-    } else {
-      const reason = !hasGoogleOAuthSession() ? "尚未登入 Google" : "Cloud Sync 正在初始化";
-      console.warn("Work model saved locally; cloud sync deferred", { name, reason });
-      LocalCache.saveAll();
-      if (options.requireCloud) throw new Error(reason);
-    }
-  } catch (error) {
-    console.error("Save work model cloud sync failed", error);
-    DataService.setStatus("failed", error.message || "Work model sync failed");
-    if (options.requireCloud) throw error;
-  }
+  await DataService.saveWorkModelsOnly(options);
   return true;
 }
 
@@ -1453,10 +1463,7 @@ function center() {
 }
 
 function workDescriptionSuggestions(query = "") {
-  const source = [
-    ...(profile?.tags || []),
-    ...defaultTags
-  ].map(x => String(x || "").trim()).filter(Boolean);
+  const source = workModels().map(x => String(x || "").trim()).filter(Boolean);
   const unique = [...new Set(source)];
   const q = query.trim().toLowerCase();
   return unique.filter(x => !q || x.toLowerCase().includes(q));
@@ -1793,6 +1800,21 @@ function bindSettings() {
   const renderModelChecks = (models, selectedModels = models) => {
     const list = document.getElementById("workModelList");
     if (list) list.innerHTML = workModelChecks(models, selectedModels);
+    bindWorkModelOptions();
+  };
+  const currentSelectedWorkModels = () => [...document.querySelectorAll(".work-model-option:checked")].map(x => x.value.trim()).filter(Boolean);
+  const syncSelectedWorkModels = async () => {
+    setWorkModels(currentSelectedWorkModels());
+    saveAll({ skipSync: true });
+    await DataService.saveWorkModelsOnly();
+  };
+  const bindWorkModelOptions = () => {
+    document.querySelectorAll(".work-model-option").forEach(input => input.onchange = () => {
+      syncSelectedWorkModels().catch(error => {
+        console.error("Work model option sync failed", error);
+        toast("工作模型同步失敗，請稍後再試");
+      });
+    });
   };
   const renderEcpTasks = tasks => {
     const list = document.getElementById("ecpTaskList");
@@ -1810,9 +1832,19 @@ function bindSettings() {
   };
   bindEcpTaskRemove();
   const roleSet = document.getElementById("roleSet");
-  if (roleSet) roleSet.onchange = e => renderModelChecks(tagsForRole(e.target.value), tagsForRole(e.target.value));
+  bindWorkModelOptions();
+  if (roleSet) roleSet.onchange = e => {
+    const models = tagsForRole(e.target.value);
+    setWorkModels(models);
+    renderModelChecks(models, models);
+    saveAll({ skipSync: true });
+    DataService.saveWorkModelsOnly().catch(error => {
+      console.error("Role work model sync failed", error);
+      toast("工作模型同步失敗，請稍後再試");
+    });
+  };
   const add = document.getElementById("addWorkModel");
-  if (add) add.onclick = () => {
+  if (add) add.onclick = async () => {
     const input = document.getElementById("newWorkModel");
     const name = input.value.trim();
     if (!name) return toast("請輸入工作模型名稱");
@@ -1820,6 +1852,7 @@ function bindSettings() {
     const selected = [...document.querySelectorAll(".work-model-option:checked")].map(x => x.value);
     const models = current.includes(name) ? current : [...current, name];
     renderModelChecks(models, [...new Set([...selected, name])]);
+    await syncSelectedWorkModels();
     input.value = "";
     toast("已新增工作模型");
   };
@@ -1836,7 +1869,7 @@ function bindSettings() {
   document.getElementById("saveSettings").onclick = () => {
     profile.role = document.getElementById("roleSet").value;
     const selectedModels = [...document.querySelectorAll(".work-model-option:checked")].map(x => x.value.trim()).filter(Boolean);
-    profile.tags = selectedModels.length ? [...new Set(selectedModels)] : tagsForRole(profile.role);
+    setWorkModels(selectedModels.length ? selectedModels : tagsForRole(profile.role));
     profile.ecpOwner = document.getElementById("ecpOwner").value.trim();
     profile.ecpDepartment = document.getElementById("ecpDepartment").value.trim();
     profile.ecpTasks = currentEcpTasks();
