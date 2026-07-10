@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260709-1500";
+const BUILD_TIME = "20260710-0829";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const AUTH_SESSION_KEY = "zhuge_ai_os_google_auth_session_v1";
@@ -25,7 +25,7 @@ let openTabs = readJson(OS_OPEN_TABS_KEY, []);
 let activeWorkspace = localStorage.getItem(OS_ACTIVE_WORKSPACE_KEY) || "dashboard";
 let recentWorkspaces = readJson(OS_RECENT_WORKSPACES_KEY, []);
 let selected = new Date();
-let entries = readJson("wl_entries", []);
+let entries = [];
 let profile = readJson("wl_profile", null);
 let feedback = readJson("wl_feedback", {});
 let session = readJson(AI_OS_SESSION_KEY, null);
@@ -353,6 +353,12 @@ function entryFromCloud(row) {
   };
 }
 
+function setEntries(nextEntries = []) {
+  entries = Array.isArray(nextEntries) ? nextEntries : [];
+  normalizeEntries();
+  LocalCache.save("entries", entries);
+}
+
 const DataService = {
   async init() {
     if (!hasGoogleOAuthSession()) return;
@@ -393,8 +399,7 @@ const DataService = {
           ecpTasksLoaded: !failedLoads.has("ecp_tasks")
         });
       }
-      if (!failedLoads.has("entries")) entries = Array.isArray(entryRows) ? entryRows.map(entryFromCloud) : entries;
-      normalizeEntries();
+      if (!failedLoads.has("entries")) setEntries(Array.isArray(entryRows) ? entryRows.map(entryFromCloud) : []);
       LocalCache.saveAll();
       if (errors.length) this.setStatus("failed", errors.join(" | "));
       else this.setStatus("synced");
@@ -496,13 +501,36 @@ const DataService = {
     }
   },
   async deleteEntry(entry) {
-    if (!dataServiceReady || !hasGoogleOAuthSession()) return;
+    if (!dataServiceReady || !hasGoogleOAuthSession()) throw new Error("Cloud Sync 尚未就緒");
+    if (dataServiceHydrating || migrationRequired || migrationRunning) throw new Error("Cloud Sync 正在初始化");
+    this.setStatus("syncing");
     try {
       await SupabaseRepository.deleteEntry(entry);
+      setEntries(entries.filter(e => e.id !== entry.id));
       this.setStatus("synced");
     } catch (error) {
       console.error("Cloud Sync delete failed", error);
       this.setStatus("failed", error.message || "Cloud Sync delete failed");
+      throw error;
+    }
+  },
+  async saveEntry(item) {
+    if (!dataServiceReady || !hasGoogleOAuthSession()) throw new Error("Cloud Sync 尚未就緒");
+    if (dataServiceHydrating || migrationRequired || migrationRunning) throw new Error("Cloud Sync 正在初始化");
+    this.setStatus("syncing");
+    try {
+      const saved = await SupabaseRepository.saveEntry(item);
+      const cloudEntry = saved ? entryFromCloud(saved) : item;
+      const nextEntries = entries.filter(e => e.id !== item.id && e.cloudId !== cloudEntry.cloudId);
+      nextEntries.push({ ...item, ...cloudEntry, id: item.id || cloudEntry.id, cloudId: cloudEntry.cloudId || saved?.id });
+      setEntries(nextEntries);
+      selected = new Date(item.at);
+      this.setStatus("synced");
+      return nextEntries.find(e => e.id === (item.id || cloudEntry.id));
+    } catch (error) {
+      console.error("Cloud Sync save entry failed", error);
+      this.setStatus("failed", error.message || "Entry sync failed");
+      throw error;
     }
   }
 };
@@ -722,7 +750,6 @@ function validateEntry(item) {
 }
 
 function saveAll(options = {}) {
-  localStorage.setItem("wl_entries", JSON.stringify(entries));
   localStorage.setItem("wl_profile", JSON.stringify(profile));
   localStorage.setItem("wl_feedback", JSON.stringify(feedback));
   localStorage.setItem(AI_OS_SESSION_KEY, JSON.stringify(session));
@@ -1328,11 +1355,18 @@ function bind() {
   const exportBtn = document.querySelector("[data-export-month]"); if (exportBtn) exportBtn.onclick = () => exportEcpImportFile();
   document.querySelectorAll("[data-accept]").forEach(b => b.onclick = () => acceptSuggestion(b.dataset.accept));
   document.querySelectorAll("[data-adjust]").forEach(b => b.onclick = () => adjustSuggestion(b.dataset.adjust));
-  document.querySelectorAll("[data-del-id]").forEach(b => b.onclick = () => {
+  document.querySelectorAll("[data-del-id]").forEach(b => b.onclick = async () => {
     const removed = entries.find(e => e.id === b.dataset.delId);
-    entries = entries.filter(e => e.id !== b.dataset.delId);
-    if (removed) DataService.deleteEntry(removed);
-    saveAll(); toast("已刪除"); render();
+    if (!removed) return;
+    try {
+      await DataService.deleteEntry(removed);
+      saveAll({ skipSync: true });
+      toast("已刪除");
+      render();
+    } catch (error) {
+      console.error("Delete entry failed", error);
+      toast("刪除同步失敗，請稍後再試");
+    }
   });
   document.querySelectorAll("[data-edit-id]").forEach(b => b.onclick = () => { editingEntryId = b.dataset.editId; captureSeed = null; activeWorkspace = "worklog"; if (!openTabs.includes("worklog")) openTabs.push("worklog"); rememberWorkspace("worklog"); view = "capture"; saveAll(); render(); });
   bindLibrary();
@@ -1362,27 +1396,13 @@ function createEntry(input = {}) {
 }
 
 async function persistEntry(item, options = {}) {
-  const index = entries.findIndex(e => e.id === item.id);
-  if (index >= 0) entries[index] = item;
-  else entries.push(item);
-  selected = new Date(item.at);
-  saveAll({ skipSync: true });
-  if (hasGoogleOAuthSession() && dataServiceReady && !dataServiceHydrating && !migrationRequired && !migrationRunning) {
-    try {
-      DataService.setStatus("syncing");
-      const saved = await SupabaseRepository.saveEntry(item);
-      if (saved?.id) item.cloudId = saved.id;
-      await DataService.loadAll();
-      DataService.setStatus("synced");
-    } catch (error) {
-      console.error("Persist entry cloud sync failed", error);
-      DataService.setStatus("failed", error.message || "Entry sync failed");
-      if (options.requireCloud) throw error;
-    }
-  } else {
-    LocalCache.saveAll();
+  try {
+    return await DataService.saveEntry(item);
+  } catch (error) {
+    if (options.requireCloud) throw error;
+    toast("工時同步失敗，請稍後再試");
+    return null;
   }
-  return item;
 }
 
 async function acceptSuggestion(id) {
@@ -1390,8 +1410,10 @@ async function acceptSuggestion(id) {
   if (!s) return;
   const item = createEntry({ title: s.title, note: s.note || "", hours: s.hours || 1, at: s.at, ecpTask: s.ecpTask || defaultEcpTaskName(s.title), source: "ai-card" });
   const error = validateEntry(item); if (error) return toast(error);
+  const saved = await persistEntry(item);
+  if (!saved) return;
   feedback[s.id] = (feedback[s.id] || 0) + 1;
-  await persistEntry(item);
+  saveAll({ skipSync: true });
   toast("已加入我的工作");
   render();
 }
@@ -1502,7 +1524,8 @@ function bindCapture(editId = null) {
     const selectedEcpTask = document.getElementById("ecpTaskSelect").value === "__add__" ? "" : document.getElementById("ecpTaskSelect").value.trim();
     const item = createEntry({ id: editingEntry ? editingEntry.id : undefined, date: at.slice(0, 10), at, title: description, ecpTask: selectedEcpTask, hours: selectedH, type: editingEntry ? editingEntry.type || "工作" : "工作", note: document.getElementById("note").value.trim(), source: editingEntry ? editingEntry.source : "manual", cloudId: editingEntry?.cloudId });
     const error = validateEntry(item); if (error) return toast(error);
-    await persistEntry(item);
+    const saved = await persistEntry(item);
+    if (!saved) return;
     view = "center"; editingEntryId = null; captureSeed = null; toast("已儲存工時"); render();
   };
 }

@@ -1,4 +1,7 @@
 const VERSION = "1.0.0-rc3.1-sp3";
+const RELEASE_VERSION = "RC3.3";
+const BUILD_TIME = "20260710-0829";
+const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const AUTH_SESSION_KEY = "zhuge_ai_os_google_auth_session_v1";
 const AUTH_CODE_VERIFIER_KEY = "zhuge_ai_os_pkce_code_verifier_v1";
@@ -22,7 +25,7 @@ let openTabs = readJson(OS_OPEN_TABS_KEY, []);
 let activeWorkspace = localStorage.getItem(OS_ACTIVE_WORKSPACE_KEY) || "dashboard";
 let recentWorkspaces = readJson(OS_RECENT_WORKSPACES_KEY, []);
 let selected = new Date();
-let entries = readJson("wl_entries", []);
+let entries = [];
 let profile = readJson("wl_profile", null);
 let feedback = readJson("wl_feedback", {});
 let session = readJson(AI_OS_SESSION_KEY, null);
@@ -36,6 +39,7 @@ const AI_REASON_QUEUE_SIZE = 5;
 
 const roles = ["採購", "行政", "人資", "業務", "行銷", "IT", "自訂"];
 const defaultTags = ["採購案件處理", "發票請款", "驗收請款", "供應商聯繫", "Mail處理", "資料整理", "會議", "專案追蹤"];
+const defaultEcpTasks = ["採購案件處理", "驗收請款", "發票請款", "供應商聯繫", "採購進度追蹤"];
 const roleTagMap = {
   "採購": ["採購案件處理", "發票請款", "驗收請款", "供應商聯繫", "採購進度追蹤", "合約資料整理", "會議", "專案追蹤"],
   "行政": ["庶務行政", "文件整理", "會議安排", "費用請款", "資產管理", "跨部門聯繫", "Mail處理", "資料整理"],
@@ -46,7 +50,13 @@ const roleTagMap = {
   "自訂": ["自訂工作", "Mail處理", "資料整理", "會議", "專案追蹤", "跨部門溝通", "文件整理", "待辦追蹤"]
 };
 const eventTypes = ["工作", "特休", "事假", "病假", "會議", "出差", "教育訓練"];
+const roleCodeMap = { "採購": "PROCUREMENT", "行政": "ADMIN", "人資": "HR", "業務": "SALES", "行銷": "MARKETING", "IT": "IT", "自訂": "CUSTOM" };
+const roleNameMap = Object.fromEntries(Object.entries(roleCodeMap).map(([name, code]) => [code, name]));
+const eventTypeCodeMap = { "工作": "WORK", "會議": "MEETING", "教育訓練": "TRAINING", "特休": "LEAVE", "事假": "LEAVE", "病假": "LEAVE", "出差": "BUSINESS_TRIP" };
+const eventTypeNameMap = { WORK: "工作", MEETING: "會議", TRAINING: "教育訓練", LEAVE: "特休", BUSINESS_TRIP: "出差" };
 const DEFAULT_LIBRARY_READING_STATUS = "🟡 等待閱讀";
+const ECP_EXPORT_PROFILE_PATH = "resources/profiles/ecp-profile.json";
+const CLOUD_MIGRATION_KEY = "localstorage_rc33_to_rc34a_v1";
 const workspaceRegistry = {
   worklog: { icon: "🪶", label: "工時營帳", group: "camp", enabled: true },
   investment: { icon: "📈", label: "投資營帳", group: "camp", comingSoon: true },
@@ -67,8 +77,469 @@ function readJson(key, fallback) {
   catch { return fallback; }
 }
 
+function writeJson(key, value) {
+  localStorage.setItem(key, JSON.stringify(value));
+}
+
 function authHeaders(token) {
   return { apikey: AUTH_CONFIG.supabaseAnonKey, Authorization: `Bearer ${token || AUTH_CONFIG.supabaseAnonKey}`, "Content-Type": "application/json" };
+}
+
+function cloudHeaders(extra = {}) {
+  return {
+    apikey: AUTH_CONFIG.supabaseAnonKey,
+    Authorization: `Bearer ${session?.access_token || AUTH_CONFIG.supabaseAnonKey}`,
+    "Content-Type": "application/json",
+    ...extra
+  };
+}
+
+function roleCode(roleName = "採購") {
+  return roleCodeMap[roleName] || roleName || "PROCUREMENT";
+}
+
+function roleName(code = "PROCUREMENT") {
+  return roleNameMap[code] || code || "採購";
+}
+
+function eventTypeCode(label = "工作") {
+  return eventTypeCodeMap[label] || label || "WORK";
+}
+
+function eventTypeName(code = "WORK") {
+  return eventTypeNameMap[code] || code || "工作";
+}
+
+function parseWorkTimeRange(range = "09:00~18:00") {
+  const [start = "09:00", end = "18:00"] = String(range).split("~").map(x => x.trim());
+  return { start, end };
+}
+
+function cacheKey(name) {
+  const uuid = session?.user_uuid || session?.uuid || "anonymous";
+  return `wl_cache:${uuid}:${name}`;
+}
+
+function legacyInventory() {
+  const legacyEntries = readJson("wl_entries", []);
+  const legacyProfile = readJson("wl_profile", null);
+  const legacyFeedback = readJson("wl_feedback", {});
+  const legacyLibrary = readJson("wl_library", []);
+  const workModels = Array.isArray(legacyProfile?.tags) ? legacyProfile.tags.filter(Boolean) : [];
+  const ecpTasksSource = Array.isArray(legacyProfile?.ecpTasks) ? legacyProfile.ecpTasks : (legacyProfile?.ecpTask ? [legacyProfile.ecpTask] : []);
+  const ecpTasksCount = [...new Set(ecpTasksSource.map(x => String(x || "").trim()).filter(Boolean))].length;
+  return {
+    entries: Array.isArray(legacyEntries) ? legacyEntries.length : 0,
+    workModels: [...new Set(workModels.map(x => String(x || "").trim()).filter(Boolean))].length,
+    ecpTasks: ecpTasksCount,
+    ecpSettings: !!(legacyProfile?.ecpOwner || legacyProfile?.ecpDepartment),
+    feedback: legacyFeedback && typeof legacyFeedback === "object" ? Object.keys(legacyFeedback).length : 0,
+    library: Array.isArray(legacyLibrary) ? legacyLibrary.length : 0,
+    hasCoreData: !!legacyProfile || (Array.isArray(legacyEntries) && legacyEntries.length > 0) || ecpTasksCount > 0
+  };
+}
+
+async function sha256Text(value) {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+let cloudSync = readJson("wl_cloud_sync_status_v1", { status: "idle", lastSyncedAt: "", error: "" });
+let dataServiceReady = false;
+let dataServiceHydrating = false;
+let dataServiceSyncing = false;
+let migrationRequired = false;
+let migrationPreview = null;
+let migrationRunning = false;
+let migrationError = "";
+
+const LocalCache = {
+  load(name, fallback) { return readJson(cacheKey(name), fallback); },
+  save(name, value) { writeJson(cacheKey(name), value); },
+  saveAll() {
+    if (!hasGoogleOAuthSession()) return;
+    this.save("profile", profile);
+    this.save("entries", entries);
+    this.save("work_models", profile?.tags || []);
+    this.save("ecp_settings", { ecpOwner: profile?.ecpOwner || "", ecpDepartment: profile?.ecpDepartment || "" });
+    this.save("ecp_tasks", profile?.ecpTasks || []);
+  },
+  hydrate() {
+    if (!hasGoogleOAuthSession()) return false;
+    const cachedProfile = this.load("profile", null);
+    const cachedEntries = this.load("entries", []);
+    if (cachedProfile) profile = cachedProfile;
+    if (Array.isArray(cachedEntries) && cachedEntries.length) entries = cachedEntries;
+    return !!cachedProfile || cachedEntries.length > 0;
+  }
+};
+
+const SupabaseRepository = {
+  async request(path, options = {}) {
+    const res = await fetch(`${AUTH_CONFIG.supabaseUrl}/rest/v1/${path}`, {
+      ...options,
+      headers: cloudHeaders(options.headers || {})
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      let payload = null;
+      try { payload = options.body ? JSON.parse(options.body) : null; } catch { payload = options.body || null; }
+      console.error("Supabase request failed", { path, status: res.status, body, payload });
+      throw new Error(`Supabase ${res.status}: ${body || res.statusText}`);
+    }
+    if (res.status === 204) return null;
+    const text = await res.text();
+    return text ? JSON.parse(text) : null;
+  },
+  select(table, query = "") {
+    return this.request(`${table}${query}`, { method: "GET" });
+  },
+  insert(table, payload) {
+    return this.request(`${table}`, { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify(payload) });
+  },
+  patch(table, query, payload) {
+    return this.request(`${table}${query}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(payload) });
+  },
+  async upsertUserProfile(profileValue) {
+    const work = parseWorkTimeRange(profileValue?.workHours);
+    const lunch = parseWorkTimeRange(profileValue?.lunch || "12:00~13:00");
+    const payload = {
+      user_uuid: session.user_uuid,
+      display_name: session.name || "",
+      email: session.email || "",
+      role_code: roleCode(profileValue?.role || "採購"),
+      work_start_time: work.start,
+      work_end_time: work.end,
+      lunch_start_time: lunch.start,
+      lunch_end_time: lunch.end,
+      timezone: "Asia/Taipei"
+    };
+    return this.request("user_profiles?on_conflict=user_uuid", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=representation" }, body: JSON.stringify(payload) });
+  },
+  async loadUserProfile() {
+    const rows = await this.select("user_profiles", "?select=*&limit=1");
+    return rows?.[0] || null;
+  },
+  async upsertExportSettings(profileValue) {
+    const payload = { user_uuid: session.user_uuid, export_profile: "ecp", ecp_owner: profileValue?.ecpOwner || "", ecp_department: profileValue?.ecpDepartment || "" };
+    return this.request("user_export_settings?on_conflict=user_uuid,export_profile", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=representation" }, body: JSON.stringify(payload) });
+  },
+  async loadExportSettings() {
+    const rows = await this.select("user_export_settings", "?select=*&export_profile=eq.ecp&limit=1");
+    return rows?.[0] || null;
+  },
+  async syncNameList(table, names, extra = {}) {
+    const rows = await this.select(table, "?select=id,name,is_active,sort_order");
+    const current = rows || [];
+    const wanted = [...new Set((names || []).map(x => String(x).trim()).filter(Boolean))];
+    for (const [index, name] of wanted.entries()) {
+      const existing = current.find(row => row.name === name);
+      const payload = { user_uuid: session.user_uuid, name, is_active: true, sort_order: index, ...extra };
+      if (existing) await this.patch(table, `?id=eq.${encodeURIComponent(existing.id)}`, payload);
+      else await this.insert(table, payload);
+    }
+    for (const row of current) {
+      if (row.is_active && !wanted.includes(row.name)) await this.patch(table, `?id=eq.${encodeURIComponent(row.id)}`, { is_active: false });
+    }
+    return this.select(table, "?select=*&is_active=eq.true&order=sort_order.asc,name.asc");
+  },
+  loadWorkModels() {
+    return this.select("user_work_models", "?select=*&is_active=eq.true&order=sort_order.asc,name.asc");
+  },
+  saveWorkModels(names, profileValue = profile) {
+    return this.syncNameList("user_work_models", names, { role_code: roleCode(profileValue?.role || "採購"), source: "manual" });
+  },
+  loadEcpTasks() {
+    return this.select("user_ecp_tasks", "?select=*&is_active=eq.true&order=sort_order.asc,name.asc");
+  },
+  saveEcpTasks(names) {
+    return this.syncNameList("user_ecp_tasks", names);
+  },
+  async hasCloudCoreData() {
+    const checks = await Promise.allSettled([
+      this.select("user_profiles", "?select=user_uuid&limit=1"),
+      this.select("user_work_models", "?select=id&limit=1"),
+      this.select("user_ecp_tasks", "?select=id&limit=1"),
+      this.select("user_export_settings", "?select=id&limit=1"),
+      this.select("work_entries", "?select=id&status=neq.deleted&limit=1")
+    ]);
+    return checks.some(result => result.status === "fulfilled" && Array.isArray(result.value) && result.value.length > 0);
+  },
+  async loadEntries(month = monthKey()) {
+    const rows = await this.select("work_entries", `?select=*&work_date=gte.${month}-01&work_date=lt.${nextMonthKey(month)}-01&status=neq.deleted&order=started_at.asc`);
+    return rows || [];
+  },
+  async loadMigration(key = CLOUD_MIGRATION_KEY) {
+    const rows = await this.select("sync_migrations", `?select=*&migration_key=eq.${encodeURIComponent(key)}&limit=1`);
+    return rows?.[0] || null;
+  },
+  async completeMigration(sourceHash, key = CLOUD_MIGRATION_KEY) {
+    const payload = { user_uuid: session.user_uuid, migration_key: key, source_hash: sourceHash, completed_at: new Date().toISOString() };
+    return this.request("sync_migrations?on_conflict=user_uuid,migration_key", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=representation" }, body: JSON.stringify(payload) });
+  },
+  async saveEntry(entry) {
+    const ecpRows = await this.loadEcpTasks();
+    const ecpTask = ecpRows.find(row => row.name === entry.ecpTask);
+    const existing = entry.cloudId ? [{ id: entry.cloudId }] : await this.select("work_entries", `?select=id&legacy_id=eq.${encodeURIComponent(entry.id)}&limit=1`);
+    const started = safeDate(entry.at);
+    const ended = addHoursToDate(entry.at, entry.hours);
+    const payload = {
+      user_uuid: session.user_uuid,
+      work_date: entry.date,
+      started_at: started.toISOString(),
+      ended_at: ended.toISOString(),
+      hours: Number(entry.hours || 0),
+      title: entry.title || "",
+      note: entry.note || "",
+      event_type: eventTypeCode(entry.type || "工作"),
+      status: entry.status || "completed",
+      source: entry.source || "manual",
+      ecp_task_id: ecpTask?.id || null,
+      ecp_task_name_snapshot: entry.ecpTask || "",
+      legacy_id: entry.id
+    };
+    const saved = existing?.[0]?.id
+      ? await this.patch("work_entries", `?id=eq.${encodeURIComponent(existing[0].id)}`, payload)
+      : await this.insert("work_entries", payload);
+    return saved?.[0] || null;
+  },
+  async deleteEntry(entry) {
+    const existing = entry.cloudId ? [{ id: entry.cloudId }] : await this.select("work_entries", `?select=id&legacy_id=eq.${encodeURIComponent(entry.id)}&limit=1`);
+    if (!existing?.[0]?.id) return null;
+    return this.patch("work_entries", `?id=eq.${encodeURIComponent(existing[0].id)}`, { status: "deleted", deleted_at: new Date().toISOString() });
+  }
+};
+
+function nextMonthKey(month = monthKey()) {
+  const [year, m] = month.split("-").map(Number);
+  const d = new Date(year, m, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function profileFromCloud(cloudProfile, exportSettings, workModels, ecpTaskRows, options = {}) {
+  const workHours = `${String(cloudProfile?.work_start_time || "09:00").slice(0, 5)}~${String(cloudProfile?.work_end_time || "18:00").slice(0, 5)}`;
+  const lunch = `${String(cloudProfile?.lunch_start_time || "12:00").slice(0, 5)}~${String(cloudProfile?.lunch_end_time || "13:00").slice(0, 5)}`;
+  const fallbackRole = profile?.role || "採購";
+  const fallbackTags = Array.isArray(profile?.tags) && profile.tags.length ? profile.tags : tagsForRole(fallbackRole);
+  const fallbackEcpTasks = Array.isArray(profile?.ecpTasks) && profile.ecpTasks.length ? profile.ecpTasks : defaultEcpTasks;
+  const cloudWorkModels = Array.isArray(workModels) ? workModels.map(row => row.name).filter(Boolean) : [];
+  const cloudEcpTasks = Array.isArray(ecpTaskRows) ? ecpTaskRows.map(row => row.name).filter(Boolean) : [];
+  return {
+    ...(profile || {}),
+    role: roleName(cloudProfile?.role_code || roleCode(fallbackRole)),
+    tags: options.workModelsLoaded ? cloudWorkModels : fallbackTags,
+    workHours,
+    lunch,
+    ecpOwner: exportSettings?.ecp_owner || profile?.ecpOwner || "",
+    ecpDepartment: exportSettings?.ecp_department || profile?.ecpDepartment || "",
+    ecpTasks: options.ecpTasksLoaded ? cloudEcpTasks : fallbackEcpTasks
+  };
+}
+
+function entryFromCloud(row) {
+  return {
+    id: row.legacy_id || row.id,
+    cloudId: row.id,
+    date: row.work_date,
+    at: String(row.started_at || "").slice(0, 16),
+    title: row.title || "",
+    note: row.note || "",
+    ecpTask: row.ecp_task_name_snapshot || "",
+    hours: Number(row.hours || 0),
+    type: eventTypeName(row.event_type || "WORK"),
+    status: row.status || "completed",
+    source: row.source || "manual"
+  };
+}
+
+function setEntries(nextEntries = []) {
+  entries = Array.isArray(nextEntries) ? nextEntries : [];
+  normalizeEntries();
+  LocalCache.save("entries", entries);
+}
+
+const DataService = {
+  async init() {
+    if (!hasGoogleOAuthSession()) return;
+    dataServiceReady = true;
+    LocalCache.hydrate();
+    await this.prepareMigration();
+    if (migrationRequired) return;
+    await this.loadAll();
+  },
+  setStatus(status, error = "") {
+    cloudSync = { status, error, lastSyncedAt: status === "synced" ? new Date().toISOString() : cloudSync.lastSyncedAt || "" };
+    writeJson("wl_cloud_sync_status_v1", cloudSync);
+  },
+  async loadAll() {
+    if (!dataServiceReady || dataServiceHydrating) return;
+    dataServiceHydrating = true;
+    this.setStatus("syncing");
+    const errors = [];
+    const failedLoads = new Set();
+    try {
+      const safeLoad = async (label, loader, fallback) => {
+        try { return await loader(); }
+        catch (error) {
+          errors.push(`${label}: ${error.message || error}`);
+          failedLoads.add(label);
+          console.error(`Cloud Sync ${label} load failed`, error);
+          return fallback;
+        }
+      };
+      const cloudProfile = await safeLoad("profile", () => SupabaseRepository.loadUserProfile(), null);
+      const exportSettings = await safeLoad("export_settings", () => SupabaseRepository.loadExportSettings(), null);
+      const workModelsRows = await safeLoad("work_models", () => SupabaseRepository.loadWorkModels(), []);
+      const ecpTaskRows = await safeLoad("ecp_tasks", () => SupabaseRepository.loadEcpTasks(), []);
+      const entryRows = await safeLoad("entries", () => SupabaseRepository.loadEntries(monthKey()), []);
+      if (cloudProfile || exportSettings || !failedLoads.has("work_models") || !failedLoads.has("ecp_tasks")) {
+        profile = profileFromCloud(cloudProfile, exportSettings, workModelsRows || [], ecpTaskRows || [], {
+          workModelsLoaded: !failedLoads.has("work_models"),
+          ecpTasksLoaded: !failedLoads.has("ecp_tasks")
+        });
+      }
+      if (!failedLoads.has("entries")) setEntries(Array.isArray(entryRows) ? entryRows.map(entryFromCloud) : []);
+      LocalCache.saveAll();
+      if (errors.length) this.setStatus("failed", errors.join(" | "));
+      else this.setStatus("synced");
+    } catch (error) {
+      console.error("Cloud Sync load failed", error);
+      this.setStatus("failed", error.message || "Cloud Sync failed");
+    } finally {
+      dataServiceHydrating = false;
+    }
+  },
+  async prepareMigration() {
+    const inventory = legacyInventory();
+    migrationRequired = false;
+    migrationPreview = null;
+    if (!inventory.hasCoreData) return false;
+    try {
+      const existing = await SupabaseRepository.loadMigration();
+      if (existing?.completed_at) return false;
+      const hasCloudData = await SupabaseRepository.hasCloudCoreData();
+      if (hasCloudData) {
+        console.info("Cloud Sync: cloud data exists; skip legacy migration prompt and use Supabase as source of truth");
+        return false;
+      }
+      migrationPreview = inventory;
+      migrationRequired = true;
+      migrationError = "";
+      this.setStatus("migration_required");
+      return true;
+    } catch (error) {
+      console.error("Cloud Sync migration check failed", error);
+      migrationError = error.message || "Migration check failed";
+      this.setStatus("failed", migrationError);
+      return false;
+    }
+  },
+  async runMigration() {
+    if (!migrationPreview || migrationRunning) return;
+    migrationRunning = true;
+    migrationError = "";
+    this.setStatus("migrating");
+    try {
+      entries = readJson("wl_entries", []);
+      profile = readJson("wl_profile", profile);
+      normalizeEntries();
+      if (profile) {
+        await SupabaseRepository.upsertUserProfile(profile);
+        await SupabaseRepository.upsertExportSettings(profile);
+        await SupabaseRepository.saveWorkModels(workModels(), profile);
+        await SupabaseRepository.saveEcpTasks(ecpTasks());
+      }
+      for (const entry of entries.filter(e => e.status !== "deleted")) {
+        const saved = await SupabaseRepository.saveEntry(entry);
+        if (saved?.id) entry.cloudId = saved.id;
+      }
+      const sourceHash = await sha256Text(JSON.stringify({
+        entries: readJson("wl_entries", []),
+        profile: readJson("wl_profile", null),
+        key: CLOUD_MIGRATION_KEY
+      }));
+      await SupabaseRepository.completeMigration(sourceHash);
+      migrationRequired = false;
+      migrationPreview = null;
+      await this.loadAll();
+      LocalCache.saveAll();
+      this.setStatus("synced");
+      toast("Cloud Sync Migration 完成");
+    } catch (error) {
+      console.error("Cloud Sync migration failed", error);
+      migrationError = error.message || "Migration failed";
+      this.setStatus("failed", migrationError);
+      toast("Migration 失敗，legacy data 已保留");
+    } finally {
+      migrationRunning = false;
+      render();
+    }
+  },
+  async syncAll() {
+    if (!dataServiceReady || dataServiceHydrating || dataServiceSyncing || !hasGoogleOAuthSession()) return;
+    dataServiceSyncing = true;
+    this.setStatus("syncing");
+    try {
+      if (profile) {
+        await SupabaseRepository.upsertUserProfile(profile);
+        await SupabaseRepository.upsertExportSettings(profile);
+        await SupabaseRepository.saveWorkModels(workModels(), profile);
+        await SupabaseRepository.saveEcpTasks(ecpTasks());
+      }
+      for (const entry of entries.filter(e => e.status !== "deleted")) {
+        const saved = await SupabaseRepository.saveEntry(entry);
+        if (saved?.id) entry.cloudId = saved.id;
+      }
+      LocalCache.saveAll();
+      this.setStatus("synced");
+    } catch (error) {
+      console.error("Cloud Sync save failed", error);
+      this.setStatus("failed", error.message || "Cloud Sync failed");
+    } finally {
+      dataServiceSyncing = false;
+    }
+  },
+  async deleteEntry(entry) {
+    if (!dataServiceReady || !hasGoogleOAuthSession()) throw new Error("Cloud Sync 尚未就緒");
+    if (dataServiceHydrating || migrationRequired || migrationRunning) throw new Error("Cloud Sync 正在初始化");
+    this.setStatus("syncing");
+    try {
+      await SupabaseRepository.deleteEntry(entry);
+      setEntries(entries.filter(e => e.id !== entry.id));
+      this.setStatus("synced");
+    } catch (error) {
+      console.error("Cloud Sync delete failed", error);
+      this.setStatus("failed", error.message || "Cloud Sync delete failed");
+      throw error;
+    }
+  },
+  async saveEntry(item) {
+    if (!dataServiceReady || !hasGoogleOAuthSession()) throw new Error("Cloud Sync 尚未就緒");
+    if (dataServiceHydrating || migrationRequired || migrationRunning) throw new Error("Cloud Sync 正在初始化");
+    this.setStatus("syncing");
+    try {
+      const saved = await SupabaseRepository.saveEntry(item);
+      const cloudEntry = saved ? entryFromCloud(saved) : item;
+      const nextEntries = entries.filter(e => e.id !== item.id && e.cloudId !== cloudEntry.cloudId);
+      nextEntries.push({ ...item, ...cloudEntry, id: item.id || cloudEntry.id, cloudId: cloudEntry.cloudId || saved?.id });
+      setEntries(nextEntries);
+      selected = new Date(item.at);
+      this.setStatus("synced");
+      return nextEntries.find(e => e.id === (item.id || cloudEntry.id));
+    } catch (error) {
+      console.error("Cloud Sync save entry failed", error);
+      this.setStatus("failed", error.message || "Entry sync failed");
+      throw error;
+    }
+  }
+};
+
+function mergeEntries(localEntries, cloudEntries) {
+  const map = new Map();
+  localEntries.forEach(entry => map.set(entry.id, entry));
+  cloudEntries.forEach(entry => map.set(entry.id, { ...(map.get(entry.id) || {}), ...entry }));
+  return [...map.values()].sort((a, b) => new Date(a.at) - new Date(b.at));
 }
 
 function getStoredAuthSession() {
@@ -254,7 +725,12 @@ function normalizeEntries() {
     const next = { ...e };
     if (!next.id) { next.id = uid(); changed = true; }
     if (!next.type) { next.type = "工作"; changed = true; }
-    if (!next.task) { next.task = next.title || "工作"; changed = true; }
+    if (next.note == null) {
+      next.note = next.task && next.task !== next.title ? next.task : "";
+      changed = true;
+    }
+    if (next.task != null) { delete next.task; changed = true; }
+    if (next.ecpTask == null) { next.ecpTask = ""; changed = true; }
     return next;
   });
   library = library.map(item => item.id ? item : { ...item, id: uid("lib") });
@@ -262,7 +738,7 @@ function normalizeEntries() {
 }
 
 function validateEntry(item) {
-  if (!item.title) return "請選擇工作模型";
+  if (!item.title) return "請輸入工作描述";
   if (!item.at || Number.isNaN(new Date(item.at).getTime())) return "請選擇正確時間";
   if (!item.hours || item.hours <= 0) return "請選擇工時";
   if (item.hours > 8) return "單筆工時不可超過 8 小時";
@@ -273,8 +749,7 @@ function validateEntry(item) {
   return "";
 }
 
-function saveAll() {
-  localStorage.setItem("wl_entries", JSON.stringify(entries));
+function saveAll(options = {}) {
   localStorage.setItem("wl_profile", JSON.stringify(profile));
   localStorage.setItem("wl_feedback", JSON.stringify(feedback));
   localStorage.setItem(AI_OS_SESSION_KEY, JSON.stringify(session));
@@ -287,6 +762,8 @@ function saveAll() {
   hasOsShellState = true;
   localStorage.setItem("wl_view", view);
   localStorage.setItem("wl_selected", selected.toISOString());
+  LocalCache.saveAll();
+  if (!options.skipSync && dataServiceReady && !dataServiceHydrating && !migrationRequired && !migrationRunning) DataService.syncAll();
 }
 
 function toast(t) {
@@ -342,6 +819,25 @@ function workModels() {
   return [...new Set(models.map(x => String(x).trim()).filter(Boolean))];
 }
 
+function ecpTasks() {
+  const source = Array.isArray(profile?.ecpTasks) && profile.ecpTasks.length ? profile.ecpTasks : (profile?.ecpTask ? [profile.ecpTask] : defaultEcpTasks);
+  return [...new Set(source.map(x => String(x).trim()).filter(Boolean))];
+}
+
+function ecpTaskOptions(selectedTask = "") {
+  const tasks = ecpTasks();
+  return `<option value="">不指定 ECP 任務</option>${tasks.map(task => `<option value="${escapeHtml(task)}" ${task === selectedTask ? "selected" : ""}>${escapeHtml(task)}</option>`).join("")}<option value="__add__">＋新增 ECP 任務</option>`;
+}
+
+function ecpTaskList(tasks = ecpTasks()) {
+  return `<div class="ecp-task-list" id="ecpTaskList">${tasks.map(task => `<div class="ecp-task-item"><span>${escapeHtml(task)}</span><button class="btn2 danger" type="button" data-remove-ecp-task="${escapeHtml(task)}">移除</button></div>`).join("")}</div>`;
+}
+
+function firstEcpTaskFor(title = "") {
+  const tasks = ecpTasks();
+  return tasks.find(task => title && title.includes(task)) || tasks[0] || "";
+}
+
 function tagButtons(tags) {
   return tags.map(t => `<button class="btn2 tag-btn" data-tag="${escapeHtml(t)}">${escapeHtml(t)}</button>`).join("");
 }
@@ -367,19 +863,108 @@ function addWorkModel(model) {
   return true;
 }
 
+async function saveWorkModel(model, options = {}) {
+  const name = String(model || "").trim();
+  if (!name) return false;
+  addWorkModel(name);
+  saveAll({ skipSync: true });
+  try {
+    if (hasGoogleOAuthSession() && !dataServiceHydrating && !migrationRunning) {
+      dataServiceReady = true;
+      DataService.setStatus("syncing");
+      await SupabaseRepository.saveWorkModels(workModels(), profile);
+      LocalCache.saveAll();
+      DataService.setStatus("synced");
+    } else {
+      const reason = !hasGoogleOAuthSession() ? "尚未登入 Google" : "Cloud Sync 正在初始化";
+      console.warn("Work model saved locally; cloud sync deferred", { name, reason });
+      LocalCache.saveAll();
+      if (options.requireCloud) throw new Error(reason);
+    }
+  } catch (error) {
+    console.error("Save work model cloud sync failed", error);
+    DataService.setStatus("failed", error.message || "Work model sync failed");
+    if (options.requireCloud) throw error;
+  }
+  return true;
+}
+
+const addWorkDescription = saveWorkModel;
+
 function googleConnectionLabel() {
   return "⚪ 尚未連接";
 }
 
-function nextStart() {
-  let h = 9 + Math.floor(hours());
-  if (h >= 12) h += 1;
-  if (h >= 18) h = 17;
-  return `${key()}T${String(h).padStart(2, "0")}:00`;
+function cloudSyncLabel() {
+  if (cloudSync.status === "synced") return "🟢 已同步";
+  if (cloudSync.status === "syncing") return "🟡 同步中";
+  if (cloudSync.status === "migration_required") return "🟡 等待資料搬移";
+  if (cloudSync.status === "migrating") return "🟡 資料搬移中";
+  if (cloudSync.status === "failed") return "🔴 同步失敗";
+  return "⚪ 尚未同步";
 }
 
-function captureDefaultStart() {
-  return `${key()}T09:00`;
+function cloudSyncDetail() {
+  if (cloudSync.status === "failed") return cloudSync.error || "請稍後再試";
+  if (cloudSync.status === "migration_required") return "請先確認 Migration Preview";
+  if (cloudSync.status === "migrating") return "正在搬移 RC3.3 本機資料";
+  if (!cloudSync.lastSyncedAt) return "等待 Cloud Sync";
+  return `最後同步：${fmt(cloudSync.lastSyncedAt)}`;
+}
+
+function minutesFromTime(value = "09:00") {
+  const [h = 9, m = 0] = String(value || "09:00").slice(0, 5).split(":").map(Number);
+  return h * 60 + (m || 0);
+}
+
+function timeFromMinutes(total = 540) {
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+function profileWorkSchedule() {
+  const work = parseWorkTimeRange(profile?.workHours || "09:00~18:00");
+  const lunch = parseWorkTimeRange(profile?.lunch || "12:00~13:00");
+  return {
+    workStart: minutesFromTime(work.start || "09:00"),
+    workEnd: minutesFromTime(work.end || "18:00"),
+    lunchStart: minutesFromTime(lunch.start || "12:00"),
+    lunchEnd: minutesFromTime(lunch.end || "13:00")
+  };
+}
+
+function normalizeStartMinutes(minutes, durationHours = 1) {
+  const s = profileWorkSchedule();
+  let start = Math.max(minutes, s.workStart);
+  const duration = Math.round(Number(durationHours || 1) * 60);
+  if (start >= s.lunchStart && start < s.lunchEnd) start = s.lunchEnd;
+  if (start < s.lunchStart && start + duration > s.lunchStart) start = s.lunchEnd;
+  if (start >= s.workEnd) start = Math.max(s.workStart, s.workEnd - duration);
+  return start;
+}
+
+function nextAvailableStart(dateKey = key(), durationHours = 1, excludeId = null) {
+  const list = entries
+    .filter(e => e.date === dateKey && e.id !== excludeId && e.status !== "deleted")
+    .map(e => addHoursToDate(e.at, e.hours))
+    .sort((a, b) => a - b);
+  const lastEnd = list.length ? list[list.length - 1] : null;
+  const base = lastEnd ? lastEnd.getHours() * 60 + lastEnd.getMinutes() : profileWorkSchedule().workStart;
+  const start = normalizeStartMinutes(base, durationHours);
+  return `${dateKey}T${timeFromMinutes(start)}`;
+}
+
+function nextStart() {
+  return nextAvailableStart(key(), 1);
+}
+
+function captureDefaultStart(durationHours = 1) {
+  return nextAvailableStart(key(), durationHours, editingEntryId);
+}
+
+function defaultEcpTaskName(title = "") {
+  return firstEcpTaskFor(title) || ecpTasks()[0] || "";
 }
 
 function userBadge() {
@@ -388,11 +973,16 @@ function userBadge() {
 }
 
 function header() {
-  return `<div class="top"><div class="brand-row"><button class="mini adaptive-menu" data-toggle-sidebar="1">☰</button><h1>🧠 Zhuge AI OS</h1></div><div class="header-right">${userBadge()}<div class="tag">${VERSION}</div></div></div>`;
+  return `<div class="top"><div class="brand-row"><button class="mini adaptive-menu" data-toggle-sidebar="1">☰</button><h1>🧠 Zhuge AI OS</h1><span class="header-version">${RELEASE_VERSION}</span></div><div class="header-right">${userBadge()}</div></div>`;
 }
 
 function authScreen() {
   return `<div class="wrap"><div class="card"><section class="panel" style="margin-top:18px"><h1>🧠 Zhuge AI OS</h1><button class="btn full" id="googleLoginBtn">使用 Google 登入</button></section></div></div>`;
+}
+
+function migrationScreen() {
+  const p = migrationPreview || legacyInventory();
+  return `<div class="wrap"><div class="card"><div class="top"><div><div class="muted">☁ RC3.4A Cloud Sync</div><h1>資料上雲確認</h1><div class="muted">系統偵測到 RC3.3 本機資料。請確認後執行一次性搬移，完成後正式資料將以 Supabase 為準，LocalStorage 僅保留安全備份與快取。</div></div><div class="header-right">${userBadge()}</div></div><section class="panel" style="margin-top:18px"><h2>Migration Preview</h2><div class="dashboard-grid"><div class="entry"><b>工時</b><div class="muted">${p.entries} 筆</div></div><div class="entry"><b>工作模型</b><div class="muted">${p.workModels} 筆</div></div><div class="entry"><b>ECP 任務</b><div class="muted">${p.ecpTasks} 筆</div></div><div class="entry"><b>ECP 設定</b><div class="muted">${p.ecpSettings ? "有" : "無"}</div></div><div class="entry"><b>AI Feedback</b><div class="muted">${p.feedback} 筆，本階段僅盤點</div></div><div class="entry"><b>藏書閣</b><div class="muted">${p.library} 筆，本階段僅盤點</div></div></div>${migrationError ? `<div class="empty" style="margin-top:12px"><b>Migration 失敗</b><div class="muted">${escapeHtml(migrationError)}</div></div>` : ""}<div class="form-actions"><button class="btn2" data-logout="1">先不要，登出</button><button class="btn" data-run-migration="1" ${migrationRunning ? "disabled" : ""}>${migrationRunning ? "搬移中..." : "開始 Cloud Sync Migration"}</button></div><div class="muted" style="margin-top:10px">失敗時不會清除 legacy LocalStorage。請確認 Supabase Phase 1 SQL 已套用。</div></section></div></div>`;
 }
 
 function zhugeDashboard() {
@@ -454,7 +1044,8 @@ function sidebarSection(title, group) {
 }
 
 function osSidebar() {
-  return `<aside class="os-sidebar"><button class="mini sidebar-close" data-close-sidebar="1">×</button>${agentStatusPanel()}${sidebarSection("🏕️ 營帳", "camp")}${sidebarSection("⚙️ 系統", "system")}</aside>`;
+  const checked = new Date().toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false });
+  return `<aside class="os-sidebar"><button class="mini sidebar-close" data-close-sidebar="1">×</button>${agentStatusPanel()}${sidebarSection("🏕️ 營帳", "camp")}${sidebarSection("⚙️ 系統", "system")}<div class="developer-build-info"><div>${RELEASE_VERSION}</div><div>Build ${BUILD_TIME}</div><div>GitHub Pages：最後檢查 ${checked}</div><div>Source：${DEPLOY_SOURCE}</div></div></aside>`;
 }
 
 function workspaceTabs() {
@@ -502,7 +1093,7 @@ function calendarPanel() {
     const h = entries.filter(e => e.date === dk).reduce((s, e) => s + Number(e.hours || 0), 0);
     html += `<div class="day ${d === selected.getDate() ? "sel" : ""}" data-day="${d}"><b>${d}</b><div class="bar"><div class="fill" style="width:${Math.min(100, h / 8 * 100)}%"></div></div><small>${h ? h + "h" : ""}</small></div>`;
   }
-  html += `</div><div class="month-summary"><b>本月工時</b><span>${hours(monthEntries())}h</span></div><button class="btn full" data-export-month="1">⬇️ 下載本月工時（Excel）</button>`;
+  html += `</div><div class="month-summary"><b>本月工時</b><span>${hours(monthEntries())}h</span></div><button class="btn full" data-export-month="1">⬇️ 下載 ECP 匯入檔</button>`;
   return html;
 }
 
@@ -519,29 +1110,86 @@ function startOfWeek(d) {
   return x;
 }
 
+function startOfWorkWeek(d) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  const day = x.getDay();
+  x.setDate(x.getDate() + (day === 0 ? -6 : 1 - day));
+  return x;
+}
+
+function workdaysInMonth(year, month) {
+  const last = new Date(year, month + 1, 0).getDate();
+  let count = 0;
+  for (let day = 1; day <= last; day++) {
+    const d = new Date(year, month, day);
+    if (d.getDay() !== 0 && d.getDay() !== 6) count++;
+  }
+  return count;
+}
+
+function remainingWorkdaysInMonth(date = new Date()) {
+  const year = date.getFullYear(), month = date.getMonth();
+  const last = new Date(year, month + 1, 0).getDate();
+  let count = 0;
+  for (let day = date.getDate(); day <= last; day++) {
+    const d = new Date(year, month, day);
+    if (d.getDay() !== 0 && d.getDay() !== 6) count++;
+  }
+  return count;
+}
+
+
+function weekEntries(d = new Date()) {
+  const start = startOfWorkWeek(d);
+  const end = addDays(start, 4);
+  return entries.filter(entry => {
+    const entryDate = safeDate(`${entry.date || ""}T00:00:00`);
+    return entryDate >= start && entryDate <= end;
+  });
+}
+
+function workHoursHealth(avgDailyNeed) {
+  if (avgDailyNeed <= 8) return { label: "🟢 正常", className: "good" };
+  if (avgDailyNeed <= 10) return { label: "🟡 稍落後", className: "warn" };
+  return { label: "🔴 建議補時", className: "bad" };
+}
+
 function todaySummaryPanel() {
   const today = new Date();
-  const list = entriesForDate(today);
-  const done = hours(list);
-  const total = 8;
-  const remain = Math.max(0, total - done);
-  const rate = Math.min(100, Math.round(done / total * 100));
-  return `<section class="panel mobile-summary-module"><div class="panel-head"><div><h2>☀️ 今日摘要</h2><div class="muted">${fmt(today).slice(0, 10)}｜今天還剩哪些工作要完成？</div></div><div class="tag">${rate}%</div></div><div class="summary-metrics"><div><b>${total}h</b><span>今日預計</span></div><div><b>${done}h</b><span>已完成</span></div><div><b>${rate}%</b><span>完成率</span></div></div><div class="summary-remaining">尚餘：${remain} 小時</div></section>`;
+  const year = selected.getFullYear(), month = selected.getMonth();
+  const monthlyDone = hours(monthEntries());
+  const monthlyTarget = workdaysInMonth(year, month) * 8;
+  const monthProgress = monthlyTarget ? Math.min(100, Math.round(monthlyDone / monthlyTarget * 100)) : 0;
+  const remaining = Math.max(0, monthlyTarget - monthlyDone);
+  const remainingDays = year === today.getFullYear() && month === today.getMonth() ? remainingWorkdaysInMonth(today) : workdaysInMonth(year, month);
+  const avgDailyNeed = remainingDays ? Math.round(remaining / remainingDays * 10) / 10 : 0;
+  const health = workHoursHealth(avgDailyNeed);
+  const todayDone = hours(entriesForDate(today));
+  const weekDone = hours(weekEntries(today));
+  const weekProgress = Math.min(100, Math.round(weekDone / 40 * 100));
+  const todayProgress = Math.min(100, Math.round(todayDone / 8 * 100));
+  return `<section class="panel mobile-summary-module summary-dashboard"><div class="summary-dashboard-head"><h2>☀️ 今日摘要</h2><div class="summary-dashboard-label">📊 工時儀表板</div></div><div class="summary-grid"><div class="summary-tile"><span>本月進度</span><b>${monthlyDone} / ${monthlyTarget}h</b><em>${monthProgress}%</em></div><div class="summary-tile"><span>本週進度</span><b>${weekDone} / 40h</b><em>${weekProgress}%</em></div><div class="summary-tile"><span>今日進度</span><b>${todayDone} / 8h</b><em>${todayProgress}%</em></div><div class="summary-tile summary-forecast ${health.className}"><span>達標預測</span><b>${health.label}</b></div></div></section>`;
 }
 
 function mobileCalendarPanel() {
   const today = new Date();
-  const start = startOfWeek(today);
-  const days = Array.from({ length: 14 }, (_, i) => addDays(start, i));
+  const y = selected.getFullYear(), m = selected.getMonth();
+  const first = new Date(y, m, 1);
+  const start = startOfWeek(first);
+  const last = new Date(y, m + 1, 0);
+  const end = addDays(last, 6 - last.getDay());
+  const days = [];
+  for (let d = new Date(start); d <= end; d = addDays(d, 1)) days.push(d);
   const summaryHours = hours(entriesForDate(today));
   if (!mobileCalendarOpen) return `<div class="mobile-calendar-head"><button class="btn2" data-toggle-mobile-calendar="1">▼ 月曆</button><span class="muted">今日 ${String(today.getMonth() + 1).padStart(2, "0")}/${String(today.getDate()).padStart(2, "0")}｜${summaryHours} / 8h</span></div>`;
-  return `<div class="mobile-calendar-head"><button class="btn2" data-toggle-mobile-calendar="1">▲ 月曆</button><span class="muted">本週 + 下週快速查看</span></div><div class="mobile-two-week">${days.map(d => { const h = hours(entriesForDate(d)); const isToday = key(d) === key(today); const isSelected = key(d) === key(selected); return `<button class="mobile-day ${isToday ? "today" : ""} ${isSelected ? "sel" : ""}" data-mobile-date="${key(d)}"><span>${["日", "一", "二", "三", "四", "五", "六"][d.getDay()]}</span><b>${d.getDate()}</b><small>${h ? h + "h" : ""}</small></button>`; }).join("")}</div>`;
+  return `<div class="mobile-calendar-head"><button class="btn2" data-toggle-mobile-calendar="1">▲ 月曆</button><span class="muted">${y} / ${String(m + 1).padStart(2, "0")}｜上下滑查看整月</span></div><div class="mobile-month-scroll"><div class="mobile-week-head">${["日", "一", "二", "三", "四", "五", "六"].map(x => `<span>${x}</span>`).join("")}</div><div class="mobile-two-week">${days.map(d => { const h = hours(entriesForDate(d)); const isToday = key(d) === key(today); const isSelected = key(d) === key(selected); const out = d.getMonth() !== m; return `<button class="mobile-day ${isToday ? "today" : ""} ${isSelected ? "sel" : ""} ${out ? "out" : ""}" data-mobile-date="${key(d)}"><b>${d.getDate()}</b><small>${h ? h + "h" : ""}</small></button>`; }).join("")}</div></div>`;
 }
 
 function todayPanel() {
   const list = dayEntries();
   const h = hours(list);
-  return `<div class="panel-head"><h2>我的工作</h2><div class="tag">${h} / 8h</div></div>${list.length ? list.map(e => `<div class="entry"><div class="entry-main"><b>${escapeHtml(e.title)}</b><div class="muted">${fmt(e.at)}｜${Number(e.hours || 0)}h</div></div><div class="actions compact entry-actions"><button class="btn amber" data-edit-id="${e.id}">編輯</button><button class="btn red" data-del-id="${e.id}">刪除</button></div></div>`).join("") : `<div class="empty"><b>尚無工時紀錄</b><div class="muted">可採納推理預測，或按右下角 + 新增。</div></div>`}<button class="btn full" data-action="add">➕ 新增工作</button>`;
+  return `<div class="panel-head"><h2>我的工作</h2><div class="tag">${h} / 8h</div></div>${list.length ? list.map(e => `<div class="entry"><div class="entry-main"><b>${escapeHtml(e.title)}</b><div class="muted">${fmt(e.at)}｜${Number(e.hours || 0)}h${e.ecpTask ? `｜🏷 任務` : ""}</div></div><div class="actions compact entry-actions"><button class="btn amber" data-edit-id="${e.id}">編輯</button><button class="btn red" data-del-id="${e.id}">刪除</button></div></div>`).join("") : `<div class="empty"><b>尚無工時紀錄</b><div class="muted">可採納推理預測，或使用下方按鈕新增工作。</div></div>`}<button class="btn full" data-action="add">➕ 新增工作</button>`;
 }
 
 function makeSuggestions() {
@@ -550,14 +1198,13 @@ function makeSuggestions() {
   let tags = workModels();
   tags.sort((a, b) => (feedback[b] || 0) - (feedback[a] || 0));
   let suggestions = [];
-  let start = nextStart();
+  let cursor = nextAvailableStart(key(), 1);
   for (const tag of tags) {
     if (done.some(d => d.includes(tag))) continue;
-    suggestions.push({ id: tag, title: tag, task: tag, hours: 1, at: start, sourceLabel: "🧩 工作模型" });
-    let d = new Date(start);
-    d.setHours(d.getHours() + 1);
-    if (d.getHours() === 12) d.setHours(13);
-    start = `${key()}T${String(d.getHours()).padStart(2, "0")}:00`;
+    suggestions.push({ id: tag, title: tag, note: "", hours: 1, at: cursor, ecpTask: defaultEcpTaskName(tag), sourceLabel: "🧩 工作模型" });
+    const d = addHoursToDate(cursor, 1);
+    const nextMinutes = normalizeStartMinutes(d.getHours() * 60 + d.getMinutes(), 1);
+    cursor = `${key()}T${timeFromMinutes(nextMinutes)}`;
   }
   return suggestions;
 }
@@ -571,7 +1218,22 @@ function suggestionPanel() {
 }
 
 function center() {
-  return `<div class="workbench-grid">${todaySummaryPanel()}<section class="panel module calendar-module"><div class="desktop-calendar">${calendarPanel()}</div><div class="mobile-calendar">${mobileCalendarPanel()}</div></section><section class="panel module today-module">${todayPanel()}</section><section class="panel module suggestion-module">${suggestionPanel()}</section></div><button class="fab" data-action="add">+</button>`;
+  return `<div class="workbench-grid">${todaySummaryPanel()}<section class="panel module calendar-module"><div class="desktop-calendar">${calendarPanel()}</div><div class="mobile-calendar">${mobileCalendarPanel()}</div></section><section class="panel module today-module">${todayPanel()}</section><section class="panel module suggestion-module">${suggestionPanel()}</section></div>`;
+}
+
+function workDescriptionSuggestions(query = "") {
+  const source = [
+    ...(profile?.tags || []),
+    ...defaultTags
+  ].map(x => String(x || "").trim()).filter(Boolean);
+  const unique = [...new Set(source)];
+  const q = query.trim().toLowerCase();
+  return unique.filter(x => !q || x.toLowerCase().includes(q)).slice(0, 6);
+}
+
+function descriptionSuggestionChips(query = "") {
+  const list = workDescriptionSuggestions(query);
+  return `<div class="history-suggestions" id="descriptionSuggestions">${list.map(x => `<button class="btn2 suggestion-chip" type="button" data-title-suggestion="${escapeHtml(x)}">${escapeHtml(x)}</button>`).join("")}<button class="btn2 suggestion-chip add-chip" type="button" data-open-work-description-dialog="1">＋新增</button></div><div class="quick-add-dialog" id="workDescriptionDialog" style="display:none"><div class="quick-add-card"><h3>新增工作描述</h3><label>名稱：</label><input class="input" id="newWorkDescription" placeholder="例如：請假-特休、會議、主管交辦"><div class="form-actions"><button class="btn2" type="button" data-cancel-work-description="1">取消</button><button class="btn" type="button" data-add-work-description="1">新增</button></div></div></div>`;
 }
 
 function capture(editId = null, seed = null) {
@@ -579,9 +1241,9 @@ function capture(editId = null, seed = null) {
   seed = seed || captureSeed;
   const e = editId ? entries.find(x => x.id === editId) : null;
   const title = e ? e.title : (seed ? seed.title : "");
-  const task = e ? e.task : (seed ? seed.task : "採購案件處理");
-  const type = e ? (e.type || "工作") : "工作";
-  return `<section class="panel capture-panel" style="margin-top:18px"><div class="panel-head"><div><h2>${e ? "編輯工時" : "➕ 快速紀錄"}</h2></div></div><div class="form capture-form"><label>日期 / 開始時間</label><input class="input" id="dt" type="datetime-local" value="${e ? e.at : captureDefaultStart()}"><label>工作模型</label><select id="title" class="input">${workModelOptions(title)}</select><div class="work-model-add"><input class="input" id="newModelCapture" placeholder="新增工作模型，例如：ISO 稽核"><button class="btn2" data-add-capture-model="1" type="button">＋ 新增工作模型</button></div><label>事件類型</label><select id="eventType" class="input">${eventTypes.map(t => `<option ${type === t ? "selected" : ""}>${t}</option>`).join("")}</select><label>工時</label><div class="row hours">${[0.5, 1, 1.5, 2, 3, 4, 8].map(h => `<button class="btn2 hour" data-h="${h}">${h === 0.5 ? "30m" : h + "h"}</button>`).join("")}</div><label>工作內容（選填）</label><input class="input" id="task" value="${escapeHtml(task)}"><div class="form-actions capture-actions"><button class="btn2" data-capture-cancel="1">取消</button><button class="btn" id="saveEntry">儲存</button></div></div></section>`;
+  const note = e ? (e.note || "") : (seed ? seed.note || "" : "");
+  const ecpTask = e ? (e.ecpTask || "") : (seed ? seed.ecpTask || defaultEcpTaskName(seed.title) : defaultEcpTaskName(title));
+  return `<section class="panel capture-panel" style="margin-top:18px"><div class="panel-head"><div><h2>${e ? "編輯工時" : "➕ 快速紀錄"}</h2></div></div><div class="form capture-form"><label>日期 / 開始時間</label><input class="input" id="dt" type="datetime-local" value="${e ? e.at : captureDefaultStart()}"><label>工作描述（必填）</label><input class="input" id="title" value="${escapeHtml(title)}" placeholder="例如：採購案件處理" autocomplete="off">${descriptionSuggestionChips(title)}<label>ECP 任務（選填）</label><select id="ecpTaskSelect" class="input">${ecpTaskOptions(ecpTask)}</select><div class="work-model-add ecp-task-quick-add" id="ecpTaskQuickAdd" style="display:none"><input class="input" id="newEcpTaskCapture" placeholder="新增 ECP 任務，例如：採購案件處理"><button class="btn2" data-add-capture-ecp-task="1" type="button">＋ 新增</button></div><label>工時</label><div class="row hours">${[0.5, 1, 1.5, 2, 3, 4, 8].map(h => `<button class="btn2 hour" data-h="${h}">${h === 0.5 ? "30m" : h + "h"}</button>`).join("")}</div><label>備註（選填）</label><input class="input" id="note" value="${escapeHtml(note)}" placeholder="補充說明，不參與 ECP 匯出"><div class="form-actions capture-actions"><button class="btn2" data-capture-cancel="1">取消</button><button class="btn" id="saveEntry">儲存</button></div></div></section>`;
 }
 
 function sync() {
@@ -595,6 +1257,7 @@ function sync() {
     ["Google Drive", googleState.replace("尚未連接", "尚未授權"), `最後檢查：${checkedAt}`, authButton(googleState)],
     ["Gmail", googleState.replace("尚未連接", "尚未授權"), `最後檢查：${checkedAt}`, authButton(googleState)],
     ["Calendar", googleState.replace("尚未連接", "尚未授權"), `最後檢查：${checkedAt}`, authButton(googleState)],
+    ["Cloud Sync", cloudSyncLabel(), cloudSyncDetail(), ""],
     ["AI 引擎", "🟢 正常", "目前模型：GPT-5.5", ""],
     ["Supabase", session ? "🟢 已連線" : "⚪ 尚未登入", session ? "Auth Session OK" : "需要先完成 Google Login", ""],
     ["本機資料", "🟢 正常", `最後同步：${checkedDate}`, ""]
@@ -624,7 +1287,8 @@ function libraryForm(id = null) {
 
 function settings() {
   const models = workModels();
-  return `<section class="panel" style="margin-top:18px"><h2>⚙️ 設定</h2><div class="entry"><b>目前使用者</b><div class="muted">${escapeHtml(session.name)}｜${escapeHtml(session.status || session.email || "")}</div></div><label>角色</label><select id="roleSet" class="input">${roles.map(r => `<option ${profile && profile.role === r ? "selected" : ""}>${r}</option>`).join("")}</select><div class="work-model-section"><label>工作模型</label><div class="work-model-list" id="workModelList">${workModelChecks(models, models)}</div><div class="work-model-add"><input class="input" id="newWorkModel" placeholder="新增工作模型，例如：ISO 稽核"><button class="btn2" id="addWorkModel" type="button">＋ 新增工作模型</button></div><div class="muted">工作模型會成為快速紀錄、推理預測與未來知識來源關聯的共同基礎。</div></div><button class="btn full" id="saveSettings">儲存工作模型</button><button class="btn gray full" id="resetProfile">重新初次認識</button><button class="btn red full" id="logoutBtn">登出</button><div class="entry"><b>版本</b><div class="muted">${VERSION}</div></div></section>`;
+  const tasks = ecpTasks();
+  return `<section class="panel" style="margin-top:18px"><h2>⚙️ 設定</h2><div class="entry"><b>目前使用者</b><div class="muted">${escapeHtml(session.name)}｜${escapeHtml(session.status || session.email || "")}</div></div><label>角色</label><select id="roleSet" class="input">${roles.map(r => `<option ${profile && profile.role === r ? "selected" : ""}>${r}</option>`).join("")}</select><div class="work-model-section"><label>工作模型</label><div class="work-model-list" id="workModelList">${workModelChecks(models, models)}</div><div class="work-model-add"><input class="input" id="newWorkModel" placeholder="新增工作模型，例如：ISO 稽核"><button class="btn2" id="addWorkModel" type="button">＋ 新增工作模型</button></div><div class="muted">工作模型給 AI 學習、推理與推薦使用，不直接等於 ECP 匯入欄位。</div></div><div class="work-model-section"><label>ECP 設定</label><label>ECP 負責人</label><input class="input" id="ecpOwner" value="${escapeHtml(profile?.ecpOwner || "")}" placeholder="例如：陳彥達-UU"><label>ECP 負責部門</label><input class="input" id="ecpDepartment" value="${escapeHtml(profile?.ecpDepartment || "")}" placeholder="例如：UU管理部"><label>ECP 任務</label>${ecpTaskList(tasks)}<div class="work-model-add"><input class="input" id="newEcpTask" placeholder="新增 ECP 任務，例如：採購案件處理"><button class="btn2" id="addEcpTask" type="button">＋ 新增 ECP 任務</button></div><div class="muted">ECP 任務專供匯出使用，可設定常用 ECP 任務；快速紀錄可選「不指定 ECP 任務」。</div></div><button class="btn full" id="saveSettings">儲存設定</button><button class="btn gray full" id="resetProfile">重新初次認識</button><button class="btn red full" id="logoutBtn">登出</button><div class="entry"><b>版本</b><div class="muted">${VERSION}</div></div></section>`;
 }
 
 function currentViewHtml() {
@@ -639,6 +1303,7 @@ function render() {
   normalizeEntries();
   clearInvalidAuthState();
   if (!session) { root.innerHTML = authScreen(); bindAuth(); return; }
+  if (migrationRequired) { root.innerHTML = migrationScreen(); bindMigration(); bindGlobal(); return; }
   root.innerHTML = osShell();
   bind();
   bindGlobal();
@@ -646,6 +1311,10 @@ function render() {
 
 function bindAuth() {
   document.getElementById("googleLoginBtn").onclick = () => signInWithGoogle();
+}
+
+function bindMigration() {
+  document.querySelectorAll("[data-run-migration]").forEach(b => b.onclick = () => DataService.runMigration());
 }
 
 function bindDashboard() {}
@@ -683,10 +1352,22 @@ function bind() {
   document.querySelectorAll("[data-toggle-mobile-calendar]").forEach(b => b.onclick = () => { mobileCalendarOpen = !mobileCalendarOpen; render(); });
   document.querySelectorAll("[data-action=add]").forEach(b => b.onclick = () => { editingEntryId = null; captureSeed = null; activeWorkspace = "worklog"; if (!openTabs.includes("worklog")) openTabs.push("worklog"); rememberWorkspace("worklog"); view = "capture"; saveAll(); render(); });
   const today = document.querySelector("[data-today]"); if (today) today.onclick = () => { selected = new Date(); saveAll(); render(); };
-  const exportBtn = document.querySelector("[data-export-month]"); if (exportBtn) exportBtn.onclick = () => exportMonthXls();
+  const exportBtn = document.querySelector("[data-export-month]"); if (exportBtn) exportBtn.onclick = () => exportEcpImportFile();
   document.querySelectorAll("[data-accept]").forEach(b => b.onclick = () => acceptSuggestion(b.dataset.accept));
   document.querySelectorAll("[data-adjust]").forEach(b => b.onclick = () => adjustSuggestion(b.dataset.adjust));
-  document.querySelectorAll("[data-del-id]").forEach(b => b.onclick = () => { entries = entries.filter(e => e.id !== b.dataset.delId); saveAll(); toast("已刪除"); render(); });
+  document.querySelectorAll("[data-del-id]").forEach(b => b.onclick = async () => {
+    const removed = entries.find(e => e.id === b.dataset.delId);
+    if (!removed) return;
+    try {
+      await DataService.deleteEntry(removed);
+      saveAll({ skipSync: true });
+      toast("已刪除");
+      render();
+    } catch (error) {
+      console.error("Delete entry failed", error);
+      toast("刪除同步失敗，請稍後再試");
+    }
+  });
   document.querySelectorAll("[data-edit-id]").forEach(b => b.onclick = () => { editingEntryId = b.dataset.editId; captureSeed = null; activeWorkspace = "worklog"; if (!openTabs.includes("worklog")) openTabs.push("worklog"); rememberWorkspace("worklog"); view = "capture"; saveAll(); render(); });
   bindLibrary();
   if (activeWorkspace === "worklog" && view === "capture") bindCapture();
@@ -695,12 +1376,46 @@ function bind() {
   if (activeWorkspace === "settings") bindSettings();
 }
 
-function acceptSuggestion(id) {
+
+function createEntry(input = {}) {
+  const at = input.at || nextAvailableStart(input.date || key(), input.hours || 1, input.id || null);
+  const date = input.date || String(at).slice(0, 10);
+  return {
+    id: input.id || uid(),
+    date,
+    at,
+    title: String(input.title || "").trim(),
+    note: String(input.note || "").trim(),
+    ecpTask: input.ecpTask == null ? defaultEcpTaskName(input.title || "") : String(input.ecpTask || "").trim(),
+    hours: Number(input.hours || 1),
+    type: input.type || "工作",
+    source: input.source || "manual",
+    status: input.status || "completed",
+    cloudId: input.cloudId || undefined
+  };
+}
+
+async function persistEntry(item, options = {}) {
+  try {
+    return await DataService.saveEntry(item);
+  } catch (error) {
+    if (options.requireCloud) throw error;
+    toast("工時同步失敗，請稍後再試");
+    return null;
+  }
+}
+
+async function acceptSuggestion(id) {
   const s = makeSuggestions().find(x => x.id === id);
   if (!s) return;
-  entries.push({ id: uid(), date: key(), at: s.at, title: s.title, task: s.task, hours: 1, type: "工作", source: "ai-card" });
+  const item = createEntry({ title: s.title, note: s.note || "", hours: s.hours || 1, at: s.at, ecpTask: s.ecpTask || defaultEcpTaskName(s.title), source: "ai-card" });
+  const error = validateEntry(item); if (error) return toast(error);
+  const saved = await persistEntry(item);
+  if (!saved) return;
   feedback[s.id] = (feedback[s.id] || 0) + 1;
-  saveAll(); toast("已加入我的工作"); render();
+  saveAll({ skipSync: true });
+  toast("已加入我的工作");
+  render();
 }
 
 function adjustSuggestion(id) {
@@ -720,25 +1435,98 @@ function bindCapture(editId = null) {
   const editingEntry = editId ? entries.find(e => e.id === editId) : null;
   let selectedH = editingEntry ? Number(editingEntry.hours) : 1;
   document.querySelectorAll("[data-capture-back],[data-capture-cancel]").forEach(b => b.onclick = () => { view = "center"; editingEntryId = null; captureSeed = null; saveAll(); render(); });
-  const addModelBtn = document.querySelector("[data-add-capture-model]");
-  if (addModelBtn) addModelBtn.onclick = () => {
-    const input = document.getElementById("newModelCapture");
-    if (!addWorkModel(input.value)) return toast("請輸入工作模型名稱");
+  const titleInput = document.getElementById("title");
+  const bindDescriptionSuggestions = () => {
+    document.querySelectorAll("[data-title-suggestion]").forEach(b => b.onclick = () => {
+      titleInput.value = b.dataset.titleSuggestion;
+    });
+    document.querySelectorAll("[data-open-work-description-dialog]").forEach(b => b.onclick = () => {
+      const dialog = document.getElementById("workDescriptionDialog");
+      const input = document.getElementById("newWorkDescription");
+      if (dialog) dialog.style.display = "grid";
+      if (input) {
+        input.value = "";
+        setTimeout(() => input.focus(), 0);
+      }
+    });
+    document.querySelectorAll("[data-cancel-work-description]").forEach(b => b.onclick = () => {
+      const dialog = document.getElementById("workDescriptionDialog");
+      const input = document.getElementById("newWorkDescription");
+      if (input) input.value = "";
+      if (dialog) dialog.style.display = "none";
+    });
+    document.querySelectorAll("[data-add-work-description]").forEach(b => b.onclick = async () => {
+      const dialog = document.getElementById("workDescriptionDialog");
+      const input = document.getElementById("newWorkDescription");
+      const name = input?.value.trim() || "";
+      if (!name) return toast("請輸入工作描述名稱");
+      b.disabled = true;
+      try {
+        await saveWorkModel(name);
+        titleInput.value = name;
+        const box = document.getElementById("descriptionSuggestions");
+        if (box) {
+          box.outerHTML = descriptionSuggestionChips(titleInput.value);
+          bindDescriptionSuggestions();
+        }
+        const nextDialog = document.getElementById("workDescriptionDialog");
+        if (nextDialog) nextDialog.style.display = "none";
+        if (dialog) dialog.style.display = "none";
+        toast("已選取工作描述並同步");
+      } catch (error) {
+        console.error("Add work description failed", error);
+        toast("工作描述同步失敗，請稍後再試");
+      } finally {
+        b.disabled = false;
+      }
+    });
+    const input = document.getElementById("newWorkDescription");
+    if (input) input.onkeydown = e => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        document.querySelector("[data-add-work-description]")?.click();
+      }
+      if (e.key === "Escape") document.querySelector("[data-cancel-work-description]")?.click();
+    };
+  };
+  bindDescriptionSuggestions();
+  if (titleInput) titleInput.oninput = () => {
+    const box = document.getElementById("descriptionSuggestions");
+    if (box) {
+      box.outerHTML = descriptionSuggestionChips(titleInput.value);
+      bindDescriptionSuggestions();
+    }
+  };
+  const ecpTaskSelect = document.getElementById("ecpTaskSelect");
+  const quickAdd = document.getElementById("ecpTaskQuickAdd");
+  if (ecpTaskSelect) ecpTaskSelect.onchange = () => {
+    if (quickAdd) quickAdd.style.display = ecpTaskSelect.value === "__add__" ? "grid" : "none";
+  };
+  const addEcpTaskBtn = document.querySelector("[data-add-capture-ecp-task]");
+  if (addEcpTaskBtn) addEcpTaskBtn.onclick = () => {
+    const input = document.getElementById("newEcpTaskCapture");
+    const name = input.value.trim();
+    if (!name) return toast("請輸入 ECP 任務名稱");
+    const tasks = ecpTasks();
+    profile.ecpTasks = tasks.includes(name) ? tasks : [...tasks, name];
+    profile.ecpTask = "";
     saveAll();
-    const select = document.getElementById("title");
-    select.innerHTML = workModelOptions(input.value.trim());
-    select.value = input.value.trim();
+    ecpTaskSelect.innerHTML = ecpTaskOptions(name);
+    ecpTaskSelect.value = name;
     input.value = "";
-    toast("已新增工作模型");
+    if (quickAdd) quickAdd.style.display = "none";
+    toast("已新增 ECP 任務");
   };
   document.querySelectorAll(".hour").forEach(b => b.onclick = () => { selectedH = Number(b.dataset.h); document.querySelectorAll(".hour").forEach(x => x.classList.remove("selected")); b.classList.add("selected"); });
-  document.getElementById("saveEntry").onclick = () => {
+  document.getElementById("saveEntry").onclick = async () => {
     const at = document.getElementById("dt").value;
-    const model = document.getElementById("title").value.trim();
-    const item = { id: editingEntry ? editingEntry.id : uid(), date: at.slice(0, 10), at, title: model, hours: selectedH, type: document.getElementById("eventType").value, task: document.getElementById("task").value || model, source: editingEntry ? editingEntry.source : "manual" };
+    const description = document.getElementById("title").value.trim();
+    const selectedEcpTask = document.getElementById("ecpTaskSelect").value === "__add__" ? "" : document.getElementById("ecpTaskSelect").value.trim();
+    const item = createEntry({ id: editingEntry ? editingEntry.id : undefined, date: at.slice(0, 10), at, title: description, ecpTask: selectedEcpTask, hours: selectedH, type: editingEntry ? editingEntry.type || "工作" : "工作", note: document.getElementById("note").value.trim(), source: editingEntry ? editingEntry.source : "manual", cloudId: editingEntry?.cloudId });
     const error = validateEntry(item); if (error) return toast(error);
-    if (editingEntry) entries[entries.findIndex(e => e.id === editingEntry.id)] = item; else entries.push(item);
-    selected = new Date(at); view = "center"; editingEntryId = null; captureSeed = null; saveAll(); toast("已儲存工時"); render();
+    const saved = await persistEntry(item);
+    if (!saved) return;
+    view = "center"; editingEntryId = null; captureSeed = null; toast("已儲存工時"); render();
   };
 }
 
@@ -764,6 +1552,21 @@ function bindSettings() {
     const list = document.getElementById("workModelList");
     if (list) list.innerHTML = workModelChecks(models, selectedModels);
   };
+  const renderEcpTasks = tasks => {
+    const list = document.getElementById("ecpTaskList");
+    if (list) {
+      list.outerHTML = ecpTaskList(tasks);
+      bindEcpTaskRemove();
+    }
+  };
+  const currentEcpTasks = () => [...document.querySelectorAll("#ecpTaskList .ecp-task-item span")].map(x => x.textContent.trim()).filter(Boolean);
+  const bindEcpTaskRemove = () => {
+    document.querySelectorAll("[data-remove-ecp-task]").forEach(b => b.onclick = () => {
+      const next = currentEcpTasks().filter(task => task !== b.dataset.removeEcpTask);
+      renderEcpTasks(next);
+    });
+  };
+  bindEcpTaskRemove();
   const roleSet = document.getElementById("roleSet");
   if (roleSet) roleSet.onchange = e => renderModelChecks(tagsForRole(e.target.value), tagsForRole(e.target.value));
   const add = document.getElementById("addWorkModel");
@@ -778,28 +1581,343 @@ function bindSettings() {
     input.value = "";
     toast("已新增工作模型");
   };
+  const addEcp = document.getElementById("addEcpTask");
+  if (addEcp) addEcp.onclick = () => {
+    const input = document.getElementById("newEcpTask");
+    const name = input.value.trim();
+    if (!name) return toast("請輸入 ECP 任務名稱");
+    const tasks = currentEcpTasks();
+    renderEcpTasks(tasks.includes(name) ? tasks : [...tasks, name]);
+    input.value = "";
+    toast("已新增 ECP 任務");
+  };
   document.getElementById("saveSettings").onclick = () => {
     profile.role = document.getElementById("roleSet").value;
     const selectedModels = [...document.querySelectorAll(".work-model-option:checked")].map(x => x.value.trim()).filter(Boolean);
     profile.tags = selectedModels.length ? [...new Set(selectedModels)] : tagsForRole(profile.role);
+    profile.ecpOwner = document.getElementById("ecpOwner").value.trim();
+    profile.ecpDepartment = document.getElementById("ecpDepartment").value.trim();
+    profile.ecpTasks = currentEcpTasks();
+    profile.ecpTask = "";
     saveAll(); toast("工作模型已更新"); render();
   };
   document.getElementById("resetProfile").onclick = () => { profile = null; saveAll(); render(); };
   document.getElementById("logoutBtn").onclick = () => doLogout();
 }
 
-function exportMonthXls() {
-  const rows = monthEntries();
-  const ym = monthKey();
-  const trs = rows.length ? rows.map(e => `<tr><td>${escapeHtml(e.date)}</td><td>${fmt(e.at)}</td><td>${escapeHtml(e.type || "工作")}</td><td>${escapeHtml(e.title)}</td><td>${escapeHtml(e.task || "")}</td><td>${Number(e.hours || 0)}</td></tr>`).join("") : `<tr><td colspan="6">本月尚無工時資料</td></tr>`;
-  const html = `<!doctype html><html><head><meta charset="utf-8"></head><body><table border="1"><tr><th colspan="6">WorkLog ${ym} 本月工時</th></tr><tr><th>日期</th><th>時間</th><th>類型</th><th>工作內容</th><th>任務</th><th>工時</th></tr>${trs}<tr><td colspan="5">合計</td><td>${hours(rows)}</td></tr></table></body></html>`;
-  const blob = new Blob([html], { type: "application/vnd.ms-excel;charset=utf-8" });
+const CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
+
+function crc32(bytes) {
+  let c = 0xffffffff;
+  for (const b of bytes) c = CRC_TABLE[(c ^ b) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+function u16(view, offset) { return view.getUint16(offset, true); }
+function u32(view, offset) { return view.getUint32(offset, true); }
+function setU16(view, offset, value) { view.setUint16(offset, value, true); }
+function setU32(view, offset, value) { view.setUint32(offset, value, true); }
+
+function parseZip(arrayBuffer) {
+  const bytes = new Uint8Array(arrayBuffer);
+  const view = new DataView(arrayBuffer);
+  let eocd = -1;
+  for (let i = bytes.length - 22; i >= 0; i--) {
+    if (u32(view, i) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error("找不到 XLSX ZIP 結尾資料");
+  const total = u16(view, eocd + 10);
+  let ptr = u32(view, eocd + 16);
+  const decoder = new TextDecoder();
+  const entries = [];
+  for (let i = 0; i < total; i++) {
+    if (u32(view, ptr) !== 0x02014b50) throw new Error("XLSX ZIP 中央目錄格式錯誤");
+    const method = u16(view, ptr + 10);
+    const compressedSize = u32(view, ptr + 20);
+    const uncompressedSize = u32(view, ptr + 24);
+    const nameLen = u16(view, ptr + 28);
+    const extraLen = u16(view, ptr + 30);
+    const commentLen = u16(view, ptr + 32);
+    const localOffset = u32(view, ptr + 42);
+    const name = decoder.decode(bytes.slice(ptr + 46, ptr + 46 + nameLen));
+    if (u32(view, localOffset) !== 0x04034b50) throw new Error(`XLSX ZIP local header 錯誤：${name}`);
+    const localNameLen = u16(view, localOffset + 26);
+    const localExtraLen = u16(view, localOffset + 28);
+    const dataStart = localOffset + 30 + localNameLen + localExtraLen;
+    if (method !== 0) throw new Error(`Template 必須使用未壓縮 ZIP entry：${name}`);
+    const data = bytes.slice(dataStart, dataStart + compressedSize);
+    if (data.length !== uncompressedSize) throw new Error(`Template entry 長度不一致：${name}`);
+    entries.push({ name, data });
+    ptr += 46 + nameLen + extraLen + commentLen;
+  }
+  return entries;
+}
+
+function writeZip(entries) {
+  const encoder = new TextEncoder();
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+  for (const entry of entries) {
+    const nameBytes = encoder.encode(entry.name);
+    const data = entry.data instanceof Uint8Array ? entry.data : encoder.encode(String(entry.data));
+    const crc = crc32(data);
+    const local = new Uint8Array(30 + nameBytes.length);
+    const localView = new DataView(local.buffer);
+    setU32(localView, 0, 0x04034b50);
+    setU16(localView, 4, 20);
+    setU16(localView, 6, 0x0800);
+    setU16(localView, 8, 0);
+    setU32(localView, 14, crc);
+    setU32(localView, 18, data.length);
+    setU32(localView, 22, data.length);
+    setU16(localView, 26, nameBytes.length);
+    local.set(nameBytes, 30);
+    localParts.push(local, data);
+
+    const central = new Uint8Array(46 + nameBytes.length);
+    const centralView = new DataView(central.buffer);
+    setU32(centralView, 0, 0x02014b50);
+    setU16(centralView, 4, 20);
+    setU16(centralView, 6, 20);
+    setU16(centralView, 8, 0x0800);
+    setU16(centralView, 10, 0);
+    setU32(centralView, 16, crc);
+    setU32(centralView, 20, data.length);
+    setU32(centralView, 24, data.length);
+    setU16(centralView, 28, nameBytes.length);
+    setU32(centralView, 42, offset);
+    central.set(nameBytes, 46);
+    centralParts.push(central);
+    offset += local.length + data.length;
+  }
+  const centralOffset = offset;
+  const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0);
+  const eocd = new Uint8Array(22);
+  const eocdView = new DataView(eocd.buffer);
+  setU32(eocdView, 0, 0x06054b50);
+  setU16(eocdView, 8, entries.length);
+  setU16(eocdView, 10, entries.length);
+  setU32(eocdView, 12, centralSize);
+  setU32(eocdView, 16, centralOffset);
+  return new Blob([...localParts, ...centralParts, eocd], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+}
+
+async function fetchResource(path) {
+  const candidates = [path, `../${path}`, `../../${path}`, `/${path}`];
+  for (const url of candidates) {
+    try {
+      const res = await fetch(url);
+      if (res.ok) return res;
+    } catch {}
+  }
+  throw new Error(`找不到資源：${path}`);
+}
+
+async function loadExportProfile(path) {
+  const res = await fetchResource(path);
+  return res.json();
+}
+
+async function loadTemplateEntries(path) {
+  const res = await fetchResource(path);
+  return parseZip(await res.arrayBuffer());
+}
+
+function findZipEntry(entries, name) {
+  const entry = entries.find(e => e.name === name);
+  if (!entry) throw new Error(`Template 缺少檔案：${name}`);
+  return entry;
+}
+
+function xmlText(entries, name) {
+  return new TextDecoder().decode(findZipEntry(entries, name).data);
+}
+
+function updateZipText(entries, name, text) {
+  findZipEntry(entries, name).data = new TextEncoder().encode(text);
+}
+
+function parseXml(text) {
+  const doc = new DOMParser().parseFromString(text, "application/xml");
+  if (doc.querySelector("parsererror")) throw new Error("Template XML 解析失敗");
+  return doc;
+}
+
+function spreadsheetNs(doc, tag) {
+  return doc.createElementNS("http://schemas.openxmlformats.org/spreadsheetml/2006/main", tag);
+}
+
+function columnName(index) {
+  let name = "";
+  while (index > 0) {
+    const mod = (index - 1) % 26;
+    name = String.fromCharCode(65 + mod) + name;
+    index = Math.floor((index - mod) / 26);
+  }
+  return name;
+}
+
+function columnIndexFromRef(ref) {
+  return ref.replace(/[0-9]/g, "").split("").reduce((sum, ch) => sum * 26 + ch.charCodeAt(0) - 64, 0);
+}
+
+function cellText(cell) {
+  const inlineText = cell.getElementsByTagNameNS("http://schemas.openxmlformats.org/spreadsheetml/2006/main", "t")[0];
+  const v = cell.getElementsByTagNameNS("http://schemas.openxmlformats.org/spreadsheetml/2006/main", "v")[0];
+  return (inlineText?.textContent ?? v?.textContent ?? "").trim();
+}
+
+function resolveSheetPath(entries, sheetName) {
+  const workbook = parseXml(xmlText(entries, "xl/workbook.xml"));
+  const sheets = [...workbook.getElementsByTagNameNS("http://schemas.openxmlformats.org/spreadsheetml/2006/main", "sheet")];
+  const sheet = sheets.find(s => s.getAttribute("name") === sheetName);
+  if (!sheet) throw new Error(`Template 找不到 Sheet：${sheetName}`);
+  const relId = sheet.getAttribute("r:id") || sheet.getAttribute("id");
+  const rels = parseXml(xmlText(entries, "xl/_rels/workbook.xml.rels"));
+  const relationships = [...rels.getElementsByTagName("Relationship")];
+  const rel = relationships.find(r => r.getAttribute("Id") === relId);
+  if (!rel) throw new Error(`Template 找不到 Sheet 關聯：${sheetName}`);
+  return `xl/${rel.getAttribute("Target").replace(new RegExp("^/"), "")}`.replace("xl/xl/", "xl/");
+}
+
+function buildHeaderMap(sheetDoc, headerRow) {
+  const rows = [...sheetDoc.getElementsByTagNameNS("http://schemas.openxmlformats.org/spreadsheetml/2006/main", "row")];
+  const row = rows.find(r => Number(r.getAttribute("r")) === headerRow);
+  if (!row) throw new Error(`Template 找不到 Header Row：${headerRow}`);
+  const map = {};
+  [...row.getElementsByTagNameNS("http://schemas.openxmlformats.org/spreadsheetml/2006/main", "c")].forEach(cell => {
+    const header = cellText(cell);
+    if (header) map[header] = columnIndexFromRef(cell.getAttribute("r"));
+  });
+  return map;
+}
+
+function makeInlineStringCell(doc, ref, value) {
+  const cell = spreadsheetNs(doc, "c");
+  cell.setAttribute("r", ref);
+  cell.setAttribute("t", "inlineStr");
+  if (value !== "") {
+    const is = spreadsheetNs(doc, "is");
+    const t = spreadsheetNs(doc, "t");
+    t.textContent = String(value);
+    is.appendChild(t);
+    cell.appendChild(is);
+  }
+  return cell;
+}
+
+function makeNumberCell(doc, ref, value) {
+  const cell = spreadsheetNs(doc, "c");
+  cell.setAttribute("r", ref);
+  cell.setAttribute("t", "n");
+  const v = spreadsheetNs(doc, "v");
+  v.textContent = String(Number(value || 0));
+  cell.appendChild(v);
+  return cell;
+}
+
+function exportFieldValue(rule, row) {
+  if (!rule || rule.type === "blank") return "";
+  if (rule.type === "literal") return rule.value || "";
+  if (rule.type === "field") return row[rule.field] ?? "";
+  return "";
+}
+
+function clearDataRows(sheetDoc, dataStartRow) {
+  const sheetData = sheetDoc.getElementsByTagNameNS("http://schemas.openxmlformats.org/spreadsheetml/2006/main", "sheetData")[0];
+  [...sheetData.getElementsByTagNameNS("http://schemas.openxmlformats.org/spreadsheetml/2006/main", "row")]
+    .filter(row => Number(row.getAttribute("r")) >= dataStartRow)
+    .forEach(row => sheetData.removeChild(row));
+  return sheetData;
+}
+
+function writeRowsByHeaderName(sheetDoc, profile, rows) {
+  const headerMap = buildHeaderMap(sheetDoc, profile.headerRow);
+  const missing = Object.keys(profile.fieldMapping).filter(header => !(header in headerMap));
+  if (missing.length) throw new Error(`Template 缺少欄位：${missing.join("、")}`);
+  const sheetData = clearDataRows(sheetDoc, profile.dataStartRow);
+  rows.forEach((data, i) => {
+    const rowNumber = profile.dataStartRow + i;
+    const row = spreadsheetNs(sheetDoc, "row");
+    row.setAttribute("r", rowNumber);
+    Object.entries(profile.fieldMapping).forEach(([header, rule]) => {
+      const col = headerMap[header];
+      const ref = `${columnName(col)}${rowNumber}`;
+      const value = exportFieldValue(rule, data);
+      row.appendChild(header === "時數" ? makeNumberCell(sheetDoc, ref, value) : makeInlineStringCell(sheetDoc, ref, value));
+    });
+    sheetData.appendChild(row);
+  });
+  const dimension = sheetDoc.getElementsByTagNameNS("http://schemas.openxmlformats.org/spreadsheetml/2006/main", "dimension")[0];
+  if (dimension) {
+    const maxCol = Math.max(...Object.values(headerMap));
+    const lastRow = Math.max(profile.headerRow, profile.dataStartRow + rows.length - 1);
+    dimension.setAttribute("ref", `A1:${columnName(maxCol)}${lastRow}`);
+  }
+}
+
+function formatEcpDateTime(value) {
+  const d = safeDate(value);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+function addHoursToDate(value, h) {
+  const d = safeDate(value);
+  d.setMinutes(d.getMinutes() + Math.round(Number(h || 0) * 60));
+  return d;
+}
+
+function workLogRowsForEcp() {
+  return monthEntries().map(entry => ({
+    title: entry.title || "",
+    ecpTask: entry.ecpTask || "",
+    startAt: formatEcpDateTime(entry.at),
+    endAt: formatEcpDateTime(addHoursToDate(entry.at, entry.hours)),
+    hours: Number(entry.hours || 0),
+    ecpOwner: profile?.ecpOwner || "",
+    ecpDepartment: profile?.ecpDepartment || ""
+  }));
+}
+
+function profileFileName(profileConfig) {
+  return profileConfig.filename.replace("{YYYYMM}", monthKey().replace("-", ""));
+}
+
+async function exportByProfile(rows, profileConfig) {
+  const entries = await loadTemplateEntries(profileConfig.template);
+  const sheetPath = resolveSheetPath(entries, profileConfig.sheet);
+  const sheetDoc = parseXml(xmlText(entries, sheetPath));
+  writeRowsByHeaderName(sheetDoc, profileConfig, rows);
+  updateZipText(entries, sheetPath, new XMLSerializer().serializeToString(sheetDoc));
+  const blob = writeZip(entries);
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `WorkLog-${ym}-工時.xls`;
+  a.download = profileFileName(profileConfig);
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  toast("已下載本月工時 Excel");
+}
+
+async function exportEcpImportFile() {
+  try {
+    if (!profile?.ecpOwner || !profile?.ecpDepartment) return toast("請先完成 ECP 設定。");
+    const rows = workLogRowsForEcp();
+    if (!rows.length) return toast("本月份尚無工時資料可匯出。");
+    const profileConfig = await loadExportProfile(ECP_EXPORT_PROFILE_PATH);
+    await exportByProfile(rows, profileConfig);
+    toast("已下載 ECP 匯入檔");
+  } catch (error) {
+    console.error(error);
+    toast(`ECP 匯出失敗：${error.message || "請稍後再試"}`);
+  }
 }
 
 async function boot() {
@@ -809,6 +1927,9 @@ async function boot() {
       session = googleSessionFromUser(googleAuth.user, googleAuth.authSession);
       if (authCallbackCaptured) { activeModule = "dashboard"; activeWorkspace = "worklog"; openTabs = ["worklog"]; recentWorkspaces = ["worklog"]; view = "center"; hasOsShellState = true; }
       saveAll();
+      await DataService.init();
+    } else if (hasGoogleOAuthSession()) {
+      await DataService.init();
     }
   } catch {
     clearStoredAuthSession();
