@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260710-0844";
+const BUILD_TIME = "20260710-0911";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const AUTH_SESSION_KEY = "zhuge_ai_os_google_auth_session_v1";
@@ -91,6 +91,43 @@ function currentUserUuid() {
 
 function currentAccessToken() {
   return session?.access_token || getStoredAuthSession()?.access_token || "";
+}
+
+function tokenExpiresAtMs(value) {
+  const raw = Number(value || 0);
+  if (!raw) return 0;
+  return raw > 1000000000000 ? raw : raw * 1000;
+}
+
+function decodeJwtPayload(token = "") {
+  try {
+    const payload = token.split(".")[1];
+    if (!payload) return null;
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+    return JSON.parse(atob(padded));
+  } catch {
+    return null;
+  }
+}
+
+function currentAccessTokenExpiresAtMs() {
+  const stored = getStoredAuthSession();
+  const explicit = tokenExpiresAtMs(session?.expires_at) || tokenExpiresAtMs(stored?.expires_at);
+  if (explicit) return explicit;
+  const jwt = decodeJwtPayload(currentAccessToken());
+  return tokenExpiresAtMs(jwt?.exp);
+}
+
+function accessTokenNeedsRefresh(skewMs = 120000) {
+  const expiresAt = currentAccessTokenExpiresAtMs();
+  if (!currentAccessToken()) return true;
+  if (!expiresAt) return false;
+  return Date.now() + skewMs >= expiresAt;
+}
+
+function persistAiOsSessionOnly() {
+  localStorage.setItem(AI_OS_SESSION_KEY, JSON.stringify(session));
 }
 
 function cloudHeaders(extra = {}) {
@@ -184,35 +221,52 @@ const LocalCache = {
 };
 
 const SupabaseRepository = {
+  async requestError(path, options, res) {
+    const body = await res.text().catch(() => "");
+    let parsedBody = null;
+    try { parsedBody = body ? JSON.parse(body) : null; } catch { parsedBody = null; }
+    let payload = null;
+    try { payload = options.body ? JSON.parse(options.body) : null; } catch { payload = options.body || null; }
+    const details = {
+      path,
+      method: options.method || "GET",
+      status: res.status,
+      statusText: res.statusText,
+      code: parsedBody?.code || "",
+      message: parsedBody?.message || body || res.statusText,
+      details: parsedBody?.details || "",
+      hint: parsedBody?.hint || "",
+      body,
+      payload,
+      user_uuid: currentUserUuid(),
+      has_access_token: !!currentAccessToken(),
+      access_token_expires_at: currentAccessTokenExpiresAtMs() ? new Date(currentAccessTokenExpiresAtMs()).toISOString() : ""
+    };
+    console.error("Supabase request failed", details);
+    const error = new Error(`Supabase ${res.status}: ${details.message}`);
+    error.supabase = details;
+    return error;
+  },
+  shouldRefreshAfter(error) {
+    const text = `${error?.supabase?.code || ""} ${error?.supabase?.message || ""} ${error?.supabase?.body || ""}`;
+    return error?.supabase?.status === 401 && /jwt expired|PGRST303|expired/i.test(text);
+  },
   async request(path, options = {}) {
-    const res = await fetch(`${AUTH_CONFIG.supabaseUrl}/rest/v1/${path}`, {
+    await ensureFreshAuthSession(false);
+    const run = () => fetch(`${AUTH_CONFIG.supabaseUrl}/rest/v1/${path}`, {
       ...options,
       headers: cloudHeaders(options.headers || {})
     });
+    let res = await run();
     if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      let parsedBody = null;
-      try { parsedBody = body ? JSON.parse(body) : null; } catch { parsedBody = null; }
-      let payload = null;
-      try { payload = options.body ? JSON.parse(options.body) : null; } catch { payload = options.body || null; }
-      const details = {
-        path,
-        method: options.method || "GET",
-        status: res.status,
-        statusText: res.statusText,
-        code: parsedBody?.code || "",
-        message: parsedBody?.message || body || res.statusText,
-        details: parsedBody?.details || "",
-        hint: parsedBody?.hint || "",
-        body,
-        payload,
-        user_uuid: currentUserUuid(),
-        has_access_token: !!currentAccessToken()
-      };
-      console.error("Supabase request failed", details);
-      const error = new Error(`Supabase ${res.status}: ${details.message}`);
-      error.supabase = details;
-      throw error;
+      const firstError = await this.requestError(path, options, res);
+      if (this.shouldRefreshAfter(firstError)) {
+        await refreshAuthSession(true);
+        res = await run();
+        if (!res.ok) throw await this.requestError(path, options, res);
+      } else {
+        throw firstError;
+      }
     }
     if (res.status === 204) return null;
     const text = await res.text();
@@ -583,6 +637,61 @@ function setStoredAuthSession(value) {
   localStorage.removeItem("wl_google_auth_session_v1");
 }
 
+async function refreshAuthSession(force = false) {
+  const stored = getStoredAuthSession();
+  const refreshToken = stored?.refresh_token || session?.refresh_token || "";
+  if (!force && !accessTokenNeedsRefresh()) return stored || session;
+  if (!refreshToken) return null;
+  const res = await fetch(`${AUTH_CONFIG.supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ refresh_token: refreshToken })
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    let parsedBody = null;
+    try { parsedBody = body ? JSON.parse(body) : null; } catch { parsedBody = null; }
+    console.error("Supabase refresh session failed", {
+      status: res.status,
+      statusText: res.statusText,
+      code: parsedBody?.code || "",
+      message: parsedBody?.message || body || res.statusText,
+      details: parsedBody?.details || "",
+      hint: parsedBody?.hint || "",
+      body,
+      has_refresh_token: !!refreshToken
+    });
+    return null;
+  }
+  const data = await res.json();
+  const sessionValue = {
+    access_token: data.access_token,
+    refresh_token: data.refresh_token || refreshToken,
+    token_type: data.token_type || "bearer",
+    expires_in: Number(data.expires_in || 3600),
+    expires_at: Date.now() + Number(data.expires_in || 3600) * 1000
+  };
+  setStoredAuthSession(sessionValue);
+  if (session?.provider === "google-oauth") {
+    session = {
+      ...session,
+      access_token: sessionValue.access_token,
+      refresh_token: sessionValue.refresh_token,
+      token_type: sessionValue.token_type,
+      expires_in: sessionValue.expires_in,
+      expires_at: sessionValue.expires_at
+    };
+    persistAiOsSessionOnly();
+  }
+  return sessionValue;
+}
+
+async function ensureFreshAuthSession(force = false) {
+  if (!currentUserUuid() && !session?.email) return null;
+  if (!force && !accessTokenNeedsRefresh()) return getStoredAuthSession() || session;
+  return refreshAuthSession(force);
+}
+
 function clearStoredAuthSession() {
   localStorage.removeItem(AUTH_SESSION_KEY);
   localStorage.removeItem("wl_google_auth_session_v1");
@@ -681,7 +790,7 @@ async function exchangeCodeForSession() {
 }
 
 async function getAuthSession() {
-  return captureHashAuthSession() || await exchangeCodeForSession() || getStoredAuthSession();
+  return captureHashAuthSession() || await exchangeCodeForSession() || await refreshAuthSession(false) || getStoredAuthSession();
 }
 
 async function signInWithGoogle() {
@@ -721,7 +830,15 @@ function googleSessionFromUser(authUser, authSession = {}) {
 async function getGoogleAuthUser() {
   const authSession = await getAuthSession();
   if (!authSession?.access_token) return null;
-  const res = await fetch(`${AUTH_CONFIG.supabaseUrl}/auth/v1/user`, { headers: authHeaders(authSession.access_token) });
+  let activeAuthSession = authSession;
+  let res = await fetch(`${AUTH_CONFIG.supabaseUrl}/auth/v1/user`, { headers: authHeaders(activeAuthSession.access_token) });
+  if (res.status === 401) {
+    const refreshed = await refreshAuthSession(true);
+    if (refreshed?.access_token) {
+      activeAuthSession = refreshed;
+      res = await fetch(`${AUTH_CONFIG.supabaseUrl}/auth/v1/user`, { headers: authHeaders(activeAuthSession.access_token) });
+    }
+  }
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     recordOAuthDebug("auth_user_fetch_failed", { status: res.status, body });
@@ -729,7 +846,7 @@ async function getGoogleAuthUser() {
     return null;
   }
   const user = await res.json();
-  return { user, authSession };
+  return { user, authSession: activeAuthSession };
 }
 
 function hasGoogleOAuthSession() {
