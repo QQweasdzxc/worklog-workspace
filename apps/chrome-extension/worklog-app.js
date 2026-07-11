@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260711-1459";
+const BUILD_TIME = "20260711-1516";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const IS_EXTENSION_ENTRY = document.body?.classList.contains("extension");
@@ -44,6 +44,8 @@ let editingEntryId = null;
 let captureSeed = null;
 let sidebarOpen = false;
 let mobileCalendarOpen = false;
+let conversationMessagesState = null;
+let conversationPendingState = undefined;
 const AI_REASON_QUEUE_SIZE = 5;
 
 const roles = ["採購", "行政", "人資", "業務", "行銷", "IT", "自訂"];
@@ -550,6 +552,18 @@ const SupabaseRepository = {
   }
 };
 
+const ConversationRepository = {
+  load() {
+    return SupabaseRepository.loadAssistantConversation();
+  },
+  saveMessage(message = {}, channel = assistantChannel()) {
+    return SupabaseRepository.saveAssistantMessage(message, channel);
+  },
+  saveState(command = null, channel = assistantChannel()) {
+    return SupabaseRepository.saveAssistantState(command, channel);
+  }
+};
+
 function nextMonthKey(month = monthKey()) {
   const [year, m] = month.split("-").map(Number);
   const d = new Date(year, m, 1);
@@ -694,7 +708,7 @@ const DataService = {
   async loadConversation() {
     if (!hasGoogleOAuthSession() || migrationRequired || migrationRunning) return null;
     try {
-      const bundle = await SupabaseRepository.loadAssistantConversation();
+      const bundle = await ConversationRepository.load();
       conversationFoundationNotInitialized = false;
       applyCloudConversation(bundle);
       return bundle;
@@ -715,7 +729,7 @@ const DataService = {
   async saveConversationMessage(message = {}) {
     if (!hasGoogleOAuthSession() || dataServiceHydrating || migrationRequired || migrationRunning) return null;
     try {
-      const saved = await SupabaseRepository.saveAssistantMessage(message, assistantChannel());
+      const saved = await ConversationRepository.saveMessage(message, assistantChannel());
       conversationFoundationNotInitialized = false;
       return saved;
     } catch (error) {
@@ -734,7 +748,7 @@ const DataService = {
   async saveConversationState(command = null) {
     if (!hasGoogleOAuthSession() || dataServiceHydrating || migrationRequired || migrationRunning) return null;
     try {
-      const saved = await SupabaseRepository.saveAssistantState(command, assistantChannel());
+      const saved = await ConversationRepository.saveState(command, assistantChannel());
       conversationFoundationNotInitialized = false;
       return saved;
     } catch (error) {
@@ -1722,12 +1736,16 @@ function hasSeenAssistantWelcome() {
 }
 
 function conversationMessages() {
-  const messages = readJson(conversationKey(), []);
-  return Array.isArray(messages) && messages.length ? messages : [assistantGreeting()];
+  if (!Array.isArray(conversationMessagesState)) {
+    const cached = readJson(conversationKey(), []);
+    conversationMessagesState = Array.isArray(cached) ? cached : [];
+  }
+  return conversationMessagesState.length ? conversationMessagesState : [assistantGreeting()];
 }
 
 function saveConversationMessages(messages = []) {
-  writeJson(conversationKey(), messages.slice(-20));
+  conversationMessagesState = Array.isArray(messages) ? messages.slice(-50) : [];
+  writeJson(conversationKey(), conversationMessagesState);
 }
 
 function messageFromCloud(row = {}) {
@@ -1742,8 +1760,9 @@ function messageFromCloud(row = {}) {
 
 function applyCloudConversation(bundle = {}) {
   const rows = Array.isArray(bundle.messages) ? bundle.messages : [];
-  if (rows.length) saveConversationMessages(rows.map(messageFromCloud));
-  if (bundle.state?.pending_action) writeJson(conversationPendingKey(), bundle.state.pending_action);
+  saveConversationMessages(rows.map(messageFromCloud));
+  conversationPendingState = bundle.state?.pending_action || null;
+  if (conversationPendingState) writeJson(conversationPendingKey(), conversationPendingState);
   else localStorage.removeItem(conversationPendingKey());
 }
 
@@ -1780,20 +1799,24 @@ function scrollAssistantToBottom() {
 }
 
 function getAssistantPendingCommand() {
-  return readJson(conversationPendingKey(), null);
+  if (conversationPendingState === undefined) conversationPendingState = readJson(conversationPendingKey(), null);
+  return conversationPendingState || null;
 }
 
 function setAssistantPendingCommand(command = null) {
   if (!command) {
+    conversationPendingState = null;
     localStorage.removeItem(conversationPendingKey());
     DataService.saveConversationState(null).catch(error => console.warn("Conversation state cloud sync deferred", { error, supabase: error.supabase || null }));
     return;
   }
+  conversationPendingState = command;
   writeJson(conversationPendingKey(), command);
   DataService.saveConversationState(command).catch(error => console.warn("Conversation state cloud sync deferred", { error, supabase: error.supabase || null }));
 }
 
 function clearAssistantPendingCommand() {
+  conversationPendingState = null;
   localStorage.removeItem(conversationPendingKey());
   DataService.saveConversationState(null).catch(error => console.warn("Conversation state cloud sync deferred", { error, supabase: error.supabase || null }));
 }
@@ -2636,7 +2659,7 @@ function bindWorklogWelcome() {
 function bindWorklogAssistant() {
   document.querySelectorAll("[data-open-assistant]").forEach(button => button.onclick = () => {
     localStorage.setItem(assistantOpenKey(), "1");
-    render();
+    DataService.loadConversation().finally(() => render());
   });
   document.querySelectorAll("[data-close-assistant]").forEach(button => button.onclick = () => {
     localStorage.setItem(assistantOpenKey(), "0");
