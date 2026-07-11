@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260711-0710";
+const BUILD_TIME = "20260711-0802";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const IS_EXTENSION_ENTRY = document.body?.classList.contains("extension");
@@ -10,6 +10,7 @@ const AUTH_CODE_VERIFIER_KEY = "zhuge_ai_os_pkce_code_verifier_v1";
 const AI_OS_SESSION_KEY = "zhuge_ai_os_session_v1";
 const WORKLOG_WELCOME_KEY = "zhuge_worklog_welcome_seen_v1";
 const WORKLOG_CHAT_KEY = "zhuge_worklog_chat_v1";
+const WORKLOG_CHAT_PENDING_KEY = "zhuge_worklog_chat_pending_v1";
 const ACTIVE_MODULE_KEY = "zhuge_active_module_v1";
 const OS_OPEN_TABS_KEY = "zhuge_os_open_tabs_v1";
 const OS_ACTIVE_WORKSPACE_KEY = "zhuge_os_active_workspace_v1";
@@ -1574,6 +1575,10 @@ function conversationKey() {
   return scopedLocalKey(WORKLOG_CHAT_KEY);
 }
 
+function conversationPendingKey() {
+  return scopedLocalKey(WORKLOG_CHAT_PENDING_KEY);
+}
+
 function conversationMessages() {
   const messages = readJson(conversationKey(), []);
   return Array.isArray(messages) && messages.length ? messages : [assistantGreeting()];
@@ -1583,10 +1588,26 @@ function saveConversationMessages(messages = []) {
   writeJson(conversationKey(), messages.slice(-20));
 }
 
-function addConversationMessage(role, text) {
+function addConversationMessage(role, text, meta = {}) {
   const messages = conversationMessages();
-  messages.push({ role, text: String(text || ""), at: new Date().toISOString() });
+  messages.push({ role, text: String(text || ""), at: new Date().toISOString(), ...meta });
   saveConversationMessages(messages);
+}
+
+function getAssistantPendingCommand() {
+  return readJson(conversationPendingKey(), null);
+}
+
+function setAssistantPendingCommand(command = null) {
+  if (!command) {
+    localStorage.removeItem(conversationPendingKey());
+    return;
+  }
+  writeJson(conversationPendingKey(), command);
+}
+
+function clearAssistantPendingCommand() {
+  localStorage.removeItem(conversationPendingKey());
 }
 
 const chineseNumberMap = { "零": 0, "一": 1, "二": 2, "兩": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10 };
@@ -1641,6 +1662,15 @@ function parseAssistantTimeRange(text = "", dateKey = key()) {
   return { at: `${dateKey}T${String(start.hour).padStart(2, "0")}:${String(start.minute).padStart(2, "0")}`, hours: hoursValue };
 }
 
+function parseAssistantSingleStart(text = "", dateKey = key()) {
+  const pattern = /(上午|下午|晚上|晚間|中午|凌晨)?\s*([0-9一二兩三四五六七八九十]{1,3})\s*(?:點|:)\s*(半|\d{1,2})?/;
+  const match = String(text).match(pattern);
+  if (!match) return null;
+  const start = parseAssistantTimeToken(match[1] || "", match[2], match[3] || "");
+  if (!start) return null;
+  return `${dateKey}T${String(start.hour).padStart(2, "0")}:${String(start.minute).padStart(2, "0")}`;
+}
+
 function parseAssistantDuration(text = "") {
   const half = String(text).match(/半\s*(?:小時|h|H)/);
   if (half) return 0.5;
@@ -1653,6 +1683,58 @@ function assistantFallbackText() {
   return "目前我是工時助手。目前僅支援工時相關操作。未來會逐步擴充更多能力。";
 }
 
+function assistantEntryTitle(raw = "", entryType = "work") {
+  const text = String(raw || "");
+  if (/開會|會議/.test(text)) return "會議";
+  const cleaned = text
+    .replace(/^(新增|記錄|紀錄|補)/, "")
+    .replace(/今天|今日|明天|明日|昨天|昨日/g, "")
+    .replace(/上午|下午|晚上|晚間|中午|凌晨/g, "")
+    .replace(/[0-9一二兩三四五六七八九十半]+點(半|\d{1,2})?(到|至|-|~)?[0-9一二兩三四五六七八九十半]*點?(半|\d{1,2})?/g, "")
+    .replace(/[0-9一二兩三四五六七八九十半]+(小時|h|H)/g, "")
+    .replace(/工時/g, "")
+    .trim();
+  return cleaned || (entryType === "leave" ? "請假" : "工時紀錄");
+}
+
+function buildAssistantEntry(command = {}) {
+  return createEntry({
+    title: command.title,
+    at: command.at,
+    date: String(command.at || "").slice(0, 10),
+    hours: command.hours,
+    entryType: command.entryType || "work",
+    source: "assistant"
+  });
+}
+
+function assistantCommandFromParts({ raw = "", dateKey = key(), at = "", hours = 1, entryType = "work" } = {}) {
+  return {
+    title: assistantEntryTitle(raw, entryType),
+    dateKey,
+    at,
+    hours: Number(hours || 1),
+    entryType
+  };
+}
+
+function assistantConfirmationPayload(command = {}) {
+  const item = buildAssistantEntry(command);
+  return {
+    title: item.title,
+    date: item.date,
+    start: String(item.at || "").slice(11, 16),
+    end: timeFromMinutes(entryEndMinutes(item)),
+    hours: item.hours,
+    entryType: item.entryType,
+    at: item.at
+  };
+}
+
+function assistantResult(text = "", card = null) {
+  return card ? { text, card } : { text };
+}
+
 function parseWorklogIntent(text = "") {
   const raw = String(text || "").trim();
   if (!raw) return { type: "empty" };
@@ -1663,56 +1745,78 @@ function parseWorklogIntent(text = "") {
   if (/(新增|記錄|紀錄|補|請假|特休|病假|事假|公假|婚假|喪假|補休|會議|工時|開會|教育訓練)/.test(raw)) {
     const dateKey = parseAssistantDate(raw);
     const range = parseAssistantTimeRange(raw, dateKey);
+    const singleStart = parseAssistantSingleStart(raw, dateKey);
     const duration = parseAssistantDuration(raw);
     const entryType = entryTypeFromDescription(raw);
-    const hoursValue = range?.hours || duration || (entryType === "leave" ? 8 : 1);
-    const at = range?.at || (entryType === "leave" ? `${dateKey}T09:00` : nextAvailableStart(dateKey, hoursValue));
-    const title = raw
-      .replace(/^(新增|記錄|紀錄|補)/, "")
-      .replace(/今天|今日|明天|明日|昨天|昨日/g, "")
-      .replace(/上午|下午|晚上|晚間|中午|凌晨/g, "")
-      .replace(/[0-9一二兩三四五六七八九十半]+點(半|\d{1,2})?(到|至|-|~)?[0-9一二兩三四五六七八九十半]*點?(半|\d{1,2})?/g, "")
-      .replace(/[0-9一二兩三四五六七八九十半]+(小時|h|H)/g, "")
-      .replace(/工時/g, "")
-      .trim() || (entryType === "leave" ? "請假" : "工時紀錄");
-    return { type: "add_entry", title, at, hours: hoursValue, entryType };
+    if (range) {
+      const parsedCommand = assistantCommandFromParts({ raw, dateKey, at: range.at, hours: range.hours, entryType });
+      return { type: "confirm_add_entry", parsedCommand, entryPayload: assistantConfirmationPayload(parsedCommand) };
+    }
+    if (singleStart && !duration && entryType !== "leave") {
+      const parsedCommand = assistantCommandFromParts({ raw, dateKey, at: singleStart, hours: 0, entryType });
+      return { type: "need_duration", parsedCommand };
+    }
+    const hoursValue = duration || (entryType === "leave" ? 8 : 1);
+    const at = singleStart || (entryType === "leave" ? `${dateKey}T09:00` : nextAvailableStart(dateKey, hoursValue));
+    const parsedCommand = assistantCommandFromParts({ raw, dateKey, at, hours: hoursValue, entryType });
+    return { type: "confirm_add_entry", parsedCommand, entryPayload: assistantConfirmationPayload(parsedCommand) };
   }
   return { type: "unsupported" };
 }
 
+async function saveAssistantEntry(command = {}) {
+  if (!session || !hasGoogleOAuthSession()) throw new Error("尚未完成 Google Login");
+  if (!profile) throw new Error("尚未完成基本設定");
+  const item = buildAssistantEntry(command);
+  const error = validateEntry(item);
+  if (error) throw new Error(error);
+  if (!confirmOvertimeEntry(item)) return { cancelled: true };
+  const saved = await persistEntry(item, { requireCloud: true });
+  if (!saved) throw new Error("DataService.saveEntry 回傳失敗");
+  return { saved, item };
+}
+
 async function executeWorklogCommand(intent) {
-  if (intent.type === "empty") return "請直接告訴我想記錄的工時，例如：今天下午三點到四點開會。";
-  if (intent.type === "query_today") return `今天已記錄 ${hours(entriesForDate(new Date()))}h。`;
-  if (intent.type === "query_week") return `本週已記錄 ${hours(weekEntries(new Date()))}h。`;
+  if (intent.type === "empty") return assistantResult("請直接告訴我想記錄的工時，例如：今天下午三點到四點開會。");
+  if (intent.type === "query_today") return assistantResult(`今天已記錄 ${hours(entriesForDate(new Date()))}h。`);
+  if (intent.type === "query_week") return assistantResult(`本週已記錄 ${hours(weekEntries(new Date()))}h。`);
   if (intent.type === "delete_last") {
     const list = dayEntries();
     const last = list[list.length - 1];
-    if (!last) return "今天目前沒有可刪除的工時。";
+    if (!last) return assistantResult("今天目前沒有可刪除的工時。");
     await DataService.deleteEntry(last);
-    return `已刪除最後一筆工時：${last.title}。`;
+    return assistantResult(`已刪除最後一筆工時：${last.title}。`);
   }
   if (intent.type === "update_last") {
     const list = dayEntries();
     const last = list[list.length - 1];
-    if (!last) return "今天目前沒有可修改的工時。";
-    if (!intent.hours) return "請告訴我要把最後一筆改成幾小時。";
+    if (!last) return assistantResult("今天目前沒有可修改的工時。");
+    if (!intent.hours) return assistantResult("請告訴我要把最後一筆改成幾小時。");
     const item = createEntry({ ...last, hours: intent.hours, id: last.id, cloudId: last.cloudId });
-    const error = validateEntry(item); if (error) return error;
+    const error = validateEntry(item); if (error) return assistantResult(error);
     await persistEntry(item, { requireCloud: true });
-    return `已將最後一筆「${last.title}」調整為 ${intent.hours}h。`;
+    return assistantResult(`已將最後一筆「${last.title}」調整為 ${intent.hours}h。`);
   }
-  if (intent.type === "unsupported_delete") return "刪除工時目前請指定「刪除最後一筆」，或先到我的工作列表操作。";
-  if (intent.type === "unsupported_update") return "修改工時目前請指定「修改最後一筆為 X 小時」，或先到我的工作列表操作。";
-  if (intent.type === "add_entry") {
-    if (!session || !hasGoogleOAuthSession()) return "請先登入 ZhuGe AI OS Web，完成 Google Login 後我才能幫您寫入工時。";
-    if (!profile) return "請先完成基本設定，我才能幫您建立工時。";
-    const item = createEntry({ title: intent.title, at: intent.at, date: intent.at.slice(0, 10), hours: intent.hours, entryType: intent.entryType, source: "assistant" });
-    const error = validateEntry(item); if (error) return error;
-    if (!confirmOvertimeEntry(item)) return "已取消儲存。";
-    await persistEntry(item, { requireCloud: true });
-    return `已新增工時：${item.title}｜${fmt(item.at)}｜${item.hours}h。`;
+  if (intent.type === "unsupported_delete") return assistantResult("刪除工時目前請指定「刪除最後一筆」，或先到我的工作列表操作。");
+  if (intent.type === "unsupported_update") return assistantResult("修改工時目前請指定「修改最後一筆為 X 小時」，或先到我的工作列表操作。");
+  if (intent.type === "need_duration") {
+    setAssistantPendingCommand({ action: "add_entry_duration", command: intent.parsedCommand });
+    return assistantResult("預計開多久？", { type: "duration_prompt", command: intent.parsedCommand });
   }
-  return assistantFallbackText();
+  if (intent.type === "confirm_add_entry") {
+    const item = buildAssistantEntry(intent.parsedCommand);
+    const error = validateEntry(item);
+    if (error) throw new Error(error);
+    setAssistantPendingCommand({ action: "confirm_add_entry", command: intent.parsedCommand });
+    return assistantResult("請確認這筆工時：", { type: "confirm_entry", payload: assistantConfirmationPayload(intent.parsedCommand) });
+  }
+  if (intent.type === "confirm_pending_entry") {
+    const result = await saveAssistantEntry(intent.parsedCommand);
+    clearAssistantPendingCommand();
+    if (result.cancelled) return assistantResult("已取消儲存。");
+    return assistantResult(`已新增工時：${result.item.title}｜${fmt(result.item.at)}｜${result.item.hours}h。`);
+  }
+  return assistantResult(assistantFallbackText());
 }
 
 function userBadge() {
@@ -1993,12 +2097,29 @@ function suggestionPanel() {
   return `<div class="panel-head"><h2>🤖 推理預測</h2><div class="tag">${queueItems.length} / ${s.length}</div></div><div class="ai-suggestion-list queue-list">${slots.map(x => x ? `<div class="suggestion compact-card"><div class="suggestion-title-row"><h3>${escapeHtml(x.title)}</h3><div class="actions suggestion-actions"><button class="btn green" data-accept="${escapeHtml(x.id)}">採納</button><button class="btn amber" data-adjust="${escapeHtml(x.id)}">編輯</button></div></div><div class="suggestion-source">${escapeHtml(x.sourceLabel || "🤖 AI 推理")}｜🕘 建議 ${escapeHtml(x.suggestedTimeLabel || String(x.at || "").slice(11, 16))}</div></div>` : `<div class="suggestion compact-card placeholder-card"><div class="muted">等待新的推理預測</div></div>`).join("")}</div>`;
 }
 
+function renderAssistantCard(card = null) {
+  if (!card) return "";
+  if (card.type === "confirm_entry") {
+    const p = card.payload || {};
+    return `<div class="assistant-command-card"><div class="assistant-card-title">請確認這筆工時</div><div class="assistant-card-grid"><span>日期</span><b>${escapeHtml(p.date || "")}</b><span>時間</span><b>${escapeHtml(p.start || "")}–${escapeHtml(p.end || "")}</b><span>工時</span><b>${escapeHtml(String(p.hours || ""))}h</b><span>描述</span><b>${escapeHtml(p.title || "")}</b></div><div class="assistant-card-actions"><button class="btn green" type="button" data-assistant-confirm-entry="1">確認建立</button><button class="btn2" type="button" data-assistant-cancel-command="1">取消</button></div></div>`;
+  }
+  if (card.type === "duration_prompt") {
+    return `<div class="assistant-command-card"><div class="assistant-card-title">預計開多久？</div><div class="assistant-duration-row">${[0.5, 1, 1.5, 2].map(h => `<button class="btn2" type="button" data-assistant-duration="${h}">${h === 0.5 ? "30m" : h + "h"}</button>`).join("")}</div></div>`;
+  }
+  return "";
+}
+
+function renderAssistantMessage(msg = {}) {
+  const roleClass = msg.role === "user" ? "user" : "bot";
+  return `<div class="assistant-msg ${roleClass}">${escapeHtml(msg.text)}${renderAssistantCard(msg.card)}</div>`;
+}
+
 function worklogAssistantPanel(mode = "web") {
   const messages = conversationMessages();
   const intro = mode === "extension"
     ? `<div class="muted">您可以直接告訴我：今天下午三點到四點開會、明天下午請特休、今天補一小時工時。</div>`
     : `<div class="muted">今天想完成什麼？</div>`;
-  return `<section class="panel assistant-panel ${mode === "extension" ? "extension-assistant" : "assistant-module"}"><div class="panel-head"><div><h2>👤 諸葛工時助手</h2>${intro}</div></div><div class="assistant-thread" id="assistantThread">${messages.map(msg => `<div class="assistant-msg ${msg.role === "user" ? "user" : "bot"}">${escapeHtml(msg.text)}</div>`).join("")}</div><div class="assistant-input-row"><input class="input" id="assistantInput" placeholder="例如：今天下午三點到四點開會"><button class="btn" id="assistantSend" type="button">送出</button></div>${mode === "extension" ? `<a class="btn full assistant-web-link" href="${WEB_APP_URL}" target="_blank" rel="noopener">🖥 開啟 ZhuGe AI OS</a>` : ""}</section>`;
+  return `<section class="panel assistant-panel ${mode === "extension" ? "extension-assistant" : "assistant-module"}"><div class="panel-head"><div><h2>👤 諸葛工時助手</h2>${intro}</div></div><div class="assistant-thread" id="assistantThread">${messages.map(renderAssistantMessage).join("")}</div><div class="assistant-input-row"><input class="input" id="assistantInput" placeholder="例如：今天下午三點到四點開會"><button class="btn" id="assistantSend" type="button">送出</button></div>${mode === "extension" ? `<a class="btn full assistant-web-link" href="${WEB_APP_URL}" target="_blank" rel="noopener">🖥 開啟 ZhuGe AI OS</a>` : ""}</section>`;
 }
 
 function extensionAssistantScreen() {
@@ -2216,17 +2337,29 @@ function bindWorklogAssistant() {
   const input = document.getElementById("assistantInput");
   const send = document.getElementById("assistantSend");
   if (!input || !send) return;
+  const addAssistantResult = result => {
+    const normalized = typeof result === "string" ? { text: result } : (result || { text: "" });
+    addConversationMessage("assistant", normalized.text || "", normalized.card ? { card: normalized.card } : {});
+  };
   const submit = async () => {
     const text = input.value.trim();
     if (!text) return;
     input.value = "";
     addConversationMessage("user", text);
+    let parsedIntent = null;
     try {
-      const response = await executeWorklogCommand(parseWorklogIntent(text));
-      addConversationMessage("assistant", response);
+      parsedIntent = parseWorklogIntent(text);
+      const response = await executeWorklogCommand(parsedIntent);
+      addAssistantResult(response);
     } catch (error) {
-      console.error("WorkLog assistant command failed", error);
-      addConversationMessage("assistant", "工時操作失敗，請稍後再試。");
+      console.error("WorkLog chatbot command failed", {
+        input: text,
+        parsedIntent,
+        parsedCommand: parsedIntent?.parsedCommand || null,
+        entryPayload: parsedIntent?.entryPayload || null,
+        error
+      });
+      addConversationMessage("assistant", `工時建立失敗：${error?.message || "未知錯誤"}`);
     }
     render();
   };
@@ -2237,6 +2370,44 @@ function bindWorklogAssistant() {
       submit();
     }
   };
+  document.querySelectorAll("[data-assistant-duration]").forEach(button => button.onclick = () => {
+    const pending = getAssistantPendingCommand();
+    const hoursValue = Number(button.dataset.assistantDuration || 0);
+    if (!pending?.command || !hoursValue) return toast("找不到待建立的工時");
+    const parsedCommand = { ...pending.command, hours: hoursValue };
+    const entryPayload = assistantConfirmationPayload(parsedCommand);
+    setAssistantPendingCommand({ action: "confirm_add_entry", command: parsedCommand });
+    addConversationMessage("user", hoursValue === 0.5 ? "30m" : `${hoursValue}h`);
+    addConversationMessage("assistant", "請確認這筆工時：", { card: { type: "confirm_entry", payload: entryPayload } });
+    render();
+  });
+  document.querySelectorAll("[data-assistant-cancel-command]").forEach(button => button.onclick = () => {
+    clearAssistantPendingCommand();
+    addConversationMessage("user", "取消");
+    addConversationMessage("assistant", "已取消這筆工時建立。");
+    render();
+  });
+  document.querySelectorAll("[data-assistant-confirm-entry]").forEach(button => button.onclick = async () => {
+    const pending = getAssistantPendingCommand();
+    const parsedCommand = pending?.command || null;
+    const entryPayload = parsedCommand ? assistantConfirmationPayload(parsedCommand) : null;
+    addConversationMessage("user", "確認建立");
+    try {
+      if (!parsedCommand) throw new Error("找不到待確認的工時");
+      const response = await executeWorklogCommand({ type: "confirm_pending_entry", parsedCommand, entryPayload });
+      addAssistantResult(response);
+    } catch (error) {
+      console.error("WorkLog chatbot command failed", {
+        input: "assistant_confirm_entry",
+        parsedIntent: { type: "confirm_pending_entry", parsedCommand, entryPayload },
+        parsedCommand,
+        entryPayload,
+        error
+      });
+      addConversationMessage("assistant", `工時建立失敗：${error?.message || "未知錯誤"}`);
+    }
+    render();
+  });
 }
 
 function bindGlobal() {
