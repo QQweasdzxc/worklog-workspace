@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260711-2234";
+const BUILD_TIME = "20260712-0734";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const IS_EXTENSION_ENTRY = document.body?.classList.contains("extension");
@@ -2001,11 +2001,15 @@ function parseAssistantSingleStart(text = "", dateKey = key()) {
 }
 
 function parseAssistantDuration(text = "") {
-  if (/半天|半日/.test(String(text))) return 4;
-  if (/整天|整日|全天|一整天|一天/.test(String(text))) return 8;
-  const half = String(text).match(/半\s*(?:小時|h|H)/);
+  const raw = String(text || "");
+  if (/半天|半日/.test(raw)) return 4;
+  if (/整天|整日|全天|一整天|一天/.test(raw)) return 8;
+  const numberAndHalf = raw.match(/([0-9]+|[一二兩三四五六七八九十]+)\s*(?:個)?半\s*(?:小時|鐘頭|h|H)/);
+  if (numberAndHalf) return parseNumberToken(numberAndHalf[1]) + 0.5;
+  if (/(一個|1個)?半\s*(?:小時|鐘頭|h|H)/.test(raw)) return 0.5;
+  const half = raw.match(/半\s*(?:小時|鐘頭|h|H)/);
   if (half) return 0.5;
-  const match = String(text).match(/([0-9]+(?:\.[0-9]+)?|[一二兩三四五六七八九十]+)\s*(?:小時|h|H)/);
+  const match = raw.match(/([0-9]+(?:\.[0-9]+)?|[一二兩三四五六七八九十]+)\s*(?:小時|鐘頭|h|H)/);
   if (!match) return null;
   return parseNumberToken(match[1]);
 }
@@ -2097,11 +2101,12 @@ function buildAssistantEntry(command = {}) {
 }
 
 function assistantCommandFromParts({ raw = "", dateKey = key(), at = "", hours = 1, entryType = "work" } = {}) {
+  const hasHours = hours !== undefined && hours !== null && hours !== "";
   return {
     title: assistantEntryTitle(raw, entryType),
     dateKey,
     at,
-    hours: Number(hours || 1),
+    hours: hasHours ? Number(hours) : 1,
     entryType
   };
 }
@@ -2123,6 +2128,23 @@ function isWorkNatureCalendar(command = {}) {
   return /會議|開會|教育訓練|訓練|拜訪|客戶|專案|工作/.test(String(command.title || ""));
 }
 
+function isDurationPending(pending = null) {
+  return ["awaiting_duration", "add_entry_duration", "calendar_duration"].includes(String(pending?.action || ""));
+}
+
+function durationPendingIntent(pending = null) {
+  if (pending?.intent) return pending.intent;
+  if (pending?.action === "calendar_duration") return "calendar";
+  if (pending?.command?.entryType === "leave") return "leave";
+  return "worklog";
+}
+
+function assistantDurationQuestion(intent = "worklog", command = {}) {
+  if (intent === "calendar") return `我可以幫您建立 Calendar。想確認一下，這場${command.title || "行程"}預計多久？`;
+  if (intent === "leave") return "請問是全天、半天，還是幾個小時？";
+  return "請問大約花了多久？";
+}
+
 function assistantResult(text = "", card = null) {
   return card ? { text, card } : { text };
 }
@@ -2139,6 +2161,10 @@ function assistantCommandErrorDebug({ input = "", parsedIntent = null, parsedCom
     details: error?.supabase?.details || error?.details || "",
     hint: error?.supabase?.hint || error?.hint || ""
   };
+}
+
+function hasExplicitAssistantDuration(raw = "") {
+  return Boolean(parseAssistantDuration(raw) || parseAssistantTimeRange(raw, parseAssistantDate(raw)));
 }
 
 async function callWorkLogDomainLLM(raw = "") {
@@ -2188,7 +2214,9 @@ function intentFromDomainDraft(raw = "", draft = null) {
   const dateKey = String(draft.date || "").match(/^\d{4}-\d{2}-\d{2}$/) ? draft.date : parseAssistantDate(raw);
   const startTime = normalizeClock(draft.startTime || draft.start_time || "");
   const endTime = normalizeClock(draft.endTime || draft.end_time || "");
-  const duration = Number(draft.durationHours || draft.duration_hours || draft.hours || 0) || (startTime && endTime ? hoursBetween(startTime, endTime) : 0);
+  const explicitDuration = hasExplicitAssistantDuration(raw);
+  const draftDuration = Number(draft.durationHours || draft.duration_hours || draft.hours || 0);
+  const duration = explicitDuration ? (draftDuration || (startTime && endTime ? hoursBetween(startTime, endTime) : 0)) : 0;
   const entryType = intent === "leave" ? "leave" : entryTypeFromDescription(draft.description || raw);
   const title = String(draft.description || draft.title || extractAssistantDescription(raw) || (entryType === "leave" ? "請假" : "工時紀錄")).trim();
   const at = startTime ? `${dateKey}T${startTime}` : (entryType === "leave" ? `${dateKey}T09:00` : "");
@@ -2200,8 +2228,8 @@ function intentFromDomainDraft(raw = "", draft = null) {
     return { type: "confirm_calendar", parsedCommand: command, entryPayload: assistantConfirmationPayload(command), llmDraft: draft };
   }
   if (intent === "worklog" || intent === "leave") {
-    if (parsedCommand.at && !parsedCommand.hours && entryType !== "leave") return { type: "need_duration", parsedCommand, llmDraft: draft };
-    const hoursValue = parsedCommand.hours || (entryType === "leave" ? 8 : 0);
+    if (!parsedCommand.hours) return { type: "need_duration", parsedCommand: { ...parsedCommand, at: parsedCommand.at || (entryType === "leave" ? `${dateKey}T09:00` : nextAvailableStart(dateKey, 1)) }, llmDraft: draft };
+    const hoursValue = parsedCommand.hours;
     if (!hoursValue) return { type: "need_duration", parsedCommand: { ...parsedCommand, at: parsedCommand.at || nextAvailableStart(dateKey, 1) }, llmDraft: draft };
     const command = { ...parsedCommand, hours: hoursValue, at: parsedCommand.at || nextAvailableStart(dateKey, hoursValue) };
     return { type: "confirm_add_entry", parsedCommand: command, entryPayload: assistantConfirmationPayload(command), llmDraft: draft };
@@ -2238,7 +2266,15 @@ function parseWorklogIntentLocal(text = "") {
       const parsedCommand = assistantCommandFromParts({ raw, dateKey, at: start, hours: 0, entryType });
       return { type: "need_duration", parsedCommand };
     }
-    const hoursValue = duration || (entryType === "leave" ? 8 : 1);
+    if (entryType === "leave" && !duration && !/半天|半日|整天|整日|全天|一整天|一天/.test(raw)) {
+      const parsedCommand = assistantCommandFromParts({ raw, dateKey, at: start || `${dateKey}T09:00`, hours: 0, entryType });
+      return { type: "need_duration", parsedCommand };
+    }
+    if (!duration && !start) {
+      const parsedCommand = assistantCommandFromParts({ raw, dateKey, at: nextAvailableStart(dateKey, 1), hours: 0, entryType });
+      return { type: "need_duration", parsedCommand };
+    }
+    const hoursValue = duration || (entryType === "leave" ? 8 : 0);
     const at = start || (entryType === "leave" ? `${dateKey}T09:00` : nextAvailableStart(dateKey, hoursValue));
     const parsedCommand = assistantCommandFromParts({ raw, dateKey, at, hours: hoursValue, entryType });
     return { type: "confirm_add_entry", parsedCommand, entryPayload: assistantConfirmationPayload(parsedCommand) };
@@ -2293,12 +2329,13 @@ async function executeWorklogCommand(intent) {
   if (intent.type === "unsupported_delete") return assistantResult("刪除工時目前請指定「刪除最後一筆」，或先到我的工作列表操作。");
   if (intent.type === "unsupported_update") return assistantResult("修改工時目前請指定「修改最後一筆為 X 小時」，或先到我的工作列表操作。");
   if (intent.type === "need_duration") {
-    await setAssistantPendingCommand({ action: "add_entry_duration", command: intent.parsedCommand });
-    return assistantResult("預計開多久？", { type: "duration_prompt", command: intent.parsedCommand });
+    const pendingIntent = intent.parsedCommand?.entryType === "leave" ? "leave" : "worklog";
+    await setAssistantPendingCommand({ action: "awaiting_duration", intent: pendingIntent, command: intent.parsedCommand });
+    return assistantResult(assistantDurationQuestion(pendingIntent, intent.parsedCommand), { type: "duration_prompt", intent: pendingIntent, command: intent.parsedCommand });
   }
   if (intent.type === "calendar_need_duration") {
-    await setAssistantPendingCommand({ action: "calendar_duration", command: intent.parsedCommand });
-    return assistantResult("我已整理成 Calendar 草稿。請問預計多久？", { type: "duration_prompt", command: intent.parsedCommand });
+    await setAssistantPendingCommand({ action: "awaiting_duration", intent: "calendar", command: intent.parsedCommand });
+    return assistantResult(assistantDurationQuestion("calendar", intent.parsedCommand), { type: "duration_prompt", intent: "calendar", command: intent.parsedCommand });
   }
   if (intent.type === "task_draft") {
     return assistantResult("我先幫您整理成任務草稿：", { type: "task_draft", payload: intent.parsedCommand });
@@ -2623,7 +2660,8 @@ function renderAssistantCard(card = null) {
     return `<div class="assistant-command-card"><div class="assistant-card-title">請確認這筆工時</div><div class="assistant-card-grid"><span>日期</span><b>${escapeHtml(p.date || "")}</b><span>時間</span><b>${escapeHtml(p.start || "")}–${escapeHtml(p.end || "")}</b><span>工時</span><b>${escapeHtml(String(p.hours || ""))}h</b><span>描述</span><b>${escapeHtml(p.title || "")}</b></div><div class="assistant-card-actions"><button class="btn green" type="button" data-assistant-confirm-entry="1">確認建立</button><button class="btn2" type="button" data-assistant-cancel-command="1">取消</button></div></div>`;
   }
   if (card.type === "duration_prompt") {
-    return `<div class="assistant-command-card"><div class="assistant-card-title">預計開多久？</div><div class="assistant-duration-row">${[0.5, 1, 1.5, 2].map(h => `<button class="btn2" type="button" data-assistant-duration="${h}">${h === 0.5 ? "30m" : h + "h"}</button>`).join("")}</div></div>`;
+    const title = card.intent === "leave" ? "請選擇請假時間" : "請選擇預計時間";
+    return `<div class="assistant-command-card"><div class="assistant-card-title">${escapeHtml(title)}</div><div class="assistant-duration-row">${[0.5, 1, 1.5, 2].map(h => `<button class="btn2" type="button" data-assistant-duration="${h}">${h === 0.5 ? "30m" : h + "h"}</button>`).join("")}<button class="btn2" type="button" data-assistant-custom-duration="1">自訂</button></div></div>`;
   }
   if (card.type === "entry_created") {
     const p = card.payload || {};
@@ -2947,6 +2985,25 @@ function bindWorklogAssistant() {
   updateSendState();
   input.addEventListener("input", updateSendState);
   scrollAssistantToBottom();
+  const completePendingDuration = async (hoursValue, userLabel = "") => {
+    const pending = getAssistantPendingCommand();
+    if (!pending?.command || !hoursValue || !isDurationPending(pending)) return toast("找不到待補充時間的草稿");
+    const parsedCommand = { ...pending.command, hours: hoursValue };
+    const entryPayload = assistantConfirmationPayload(parsedCommand);
+    if (userLabel) addConversationMessage("user", userLabel);
+    const thinkingId = addAssistantThinkingMessage();
+    render();
+    await new Promise(resolve => setTimeout(resolve, 250));
+    removeConversationMessage(thinkingId);
+    if (durationPendingIntent(pending) === "calendar") {
+      await setAssistantPendingCommand({ action: "confirm_calendar", command: parsedCommand });
+      addConversationMessage("assistant", "請確認建立 Calendar：", { card: { type: "confirm_calendar", payload: entryPayload } });
+    } else {
+      await setAssistantPendingCommand({ action: "confirm_add_entry", command: parsedCommand });
+      addConversationMessage("assistant", "請確認這筆工時：", { card: { type: "confirm_entry", payload: entryPayload } });
+    }
+    render();
+  };
   const submit = async () => {
     const text = input.value.trim();
     if (!text) return;
@@ -2958,6 +3015,22 @@ function bindWorklogAssistant() {
     await new Promise(resolve => setTimeout(resolve, 350));
     let parsedIntent = null;
     try {
+      const pending = getAssistantPendingCommand();
+      const durationReply = isDurationPending(pending) ? parseAssistantDuration(text) : null;
+      if (durationReply) {
+        removeConversationMessage(thinkingId);
+        const parsedCommand = { ...pending.command, hours: durationReply };
+        const entryPayload = assistantConfirmationPayload(parsedCommand);
+        if (durationPendingIntent(pending) === "calendar") {
+          await setAssistantPendingCommand({ action: "confirm_calendar", command: parsedCommand });
+          addAssistantResult({ text: "請確認建立 Calendar：", card: { type: "confirm_calendar", payload: entryPayload } });
+        } else {
+          await setAssistantPendingCommand({ action: "confirm_add_entry", command: parsedCommand });
+          addAssistantResult({ text: "請確認這筆工時：", card: { type: "confirm_entry", payload: entryPayload } });
+        }
+        render();
+        return;
+      }
       parsedIntent = await parseWorklogIntent(text);
       const response = await executeWorklogCommand(parsedIntent);
       removeConversationMessage(thinkingId);
@@ -2983,24 +3056,12 @@ function bindWorklogAssistant() {
     }
   };
   document.querySelectorAll("[data-assistant-duration]").forEach(button => button.onclick = async () => {
-    const pending = getAssistantPendingCommand();
     const hoursValue = Number(button.dataset.assistantDuration || 0);
-    if (!pending?.command || !hoursValue) return toast("找不到待建立的工時");
-    const parsedCommand = { ...pending.command, hours: hoursValue };
-    const entryPayload = assistantConfirmationPayload(parsedCommand);
-    addConversationMessage("user", hoursValue === 0.5 ? "30m" : `${hoursValue}h`);
-    const thinkingId = addAssistantThinkingMessage();
-    render();
-    await new Promise(resolve => setTimeout(resolve, 250));
-    removeConversationMessage(thinkingId);
-    if (pending.action === "calendar_duration") {
-      await setAssistantPendingCommand({ action: "confirm_calendar", command: parsedCommand });
-      addConversationMessage("assistant", "請確認建立 Calendar：", { card: { type: "confirm_calendar", payload: entryPayload } });
-    } else {
-      await setAssistantPendingCommand({ action: "confirm_add_entry", command: parsedCommand });
-      addConversationMessage("assistant", "請確認這筆工時：", { card: { type: "confirm_entry", payload: entryPayload } });
-    }
-    render();
+    await completePendingDuration(hoursValue, hoursValue === 0.5 ? "30m" : `${hoursValue}h`);
+  });
+  document.querySelectorAll("[data-assistant-custom-duration]").forEach(button => button.onclick = () => {
+    input.placeholder = "請輸入工時，例如：一個半小時、1.5h、半天";
+    input.focus();
   });
   document.querySelectorAll("[data-assistant-cancel-command]").forEach(button => button.onclick = () => {
     clearAssistantPendingCommand();
