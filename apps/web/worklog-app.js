@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260711-1516";
+const BUILD_TIME = "20260711-1540";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const IS_EXTENSION_ENTRY = document.body?.classList.contains("extension");
@@ -1732,7 +1732,12 @@ function isAssistantOpen() {
 }
 
 function hasSeenAssistantWelcome() {
-  return localStorage.getItem(assistantWelcomeKey()) === "1";
+  return localStorage.getItem(assistantWelcomeKey()) === "1" || hasConversationStarted();
+}
+
+function hasConversationStarted() {
+  const cached = Array.isArray(conversationMessagesState) ? conversationMessagesState : readJson(conversationKey(), []);
+  return (Array.isArray(cached) && cached.length > 0) || !!getAssistantPendingCommand();
 }
 
 function conversationMessages() {
@@ -1989,6 +1994,10 @@ function assistantConfirmationPayload(command = {}) {
   };
 }
 
+function isWorkNatureCalendar(command = {}) {
+  return /會議|開會|教育訓練|訓練|拜訪|客戶|專案|工作/.test(String(command.title || ""));
+}
+
 function assistantResult(text = "", card = null) {
   return card ? { text, card } : { text };
 }
@@ -2023,7 +2032,7 @@ function parseWorklogIntent(text = "") {
     const at = slots.range?.at || slots.singleStart || `${slots.dateKey}T09:00`;
     const parsedCommand = assistantCommandFromParts({ raw, dateKey: slots.dateKey, at, hours: slots.range?.hours || slots.duration || 0, entryType: "work" });
     if (!parsedCommand.hours) return { type: "calendar_need_duration", parsedCommand };
-    return { type: "calendar_draft", parsedCommand, entryPayload: assistantConfirmationPayload(parsedCommand) };
+    return { type: "confirm_calendar", parsedCommand, entryPayload: assistantConfirmationPayload(parsedCommand) };
   }
   if (intent === "worklog" || intent === "leave") {
     const { dateKey, range, singleStart, duration, entryType } = slots;
@@ -2084,13 +2093,29 @@ async function executeWorklogCommand(intent) {
   }
   if (intent.type === "calendar_need_duration") {
     setAssistantPendingCommand({ action: "calendar_duration", command: intent.parsedCommand });
-    return assistantResult("預計開多久？", { type: "duration_prompt", command: intent.parsedCommand });
+    return assistantResult("我已整理成 Calendar 草稿。請問預計多久？", { type: "duration_prompt", command: intent.parsedCommand });
   }
   if (intent.type === "task_draft") {
     return assistantResult("我先幫您整理成任務草稿：", { type: "task_draft", payload: intent.parsedCommand });
   }
-  if (intent.type === "calendar_draft") {
-    return assistantResult("我先幫您整理成 Calendar 草稿：", { type: "calendar_draft", payload: assistantConfirmationPayload(intent.parsedCommand) });
+  if (intent.type === "confirm_calendar") {
+    setAssistantPendingCommand({ action: "confirm_calendar", command: intent.parsedCommand });
+    return assistantResult("請確認建立 Calendar：", { type: "confirm_calendar", payload: assistantConfirmationPayload(intent.parsedCommand) });
+  }
+  if (intent.type === "confirm_pending_calendar") {
+    clearAssistantPendingCommand();
+    const payload = assistantConfirmationPayload(intent.parsedCommand);
+    if (isWorkNatureCalendar(intent.parsedCommand)) {
+      setAssistantPendingCommand({ action: "calendar_worklog_offer", command: intent.parsedCommand });
+      return assistantResult("Calendar 已建立。這看起來也可能是工作相關事件，是否同步建立工時？", { type: "calendar_created", payload, offerWorklog: true });
+    }
+    return assistantResult("Calendar 已建立。", { type: "calendar_created", payload });
+  }
+  if (intent.type === "create_worklog_from_calendar") {
+    const result = await saveAssistantEntry(intent.parsedCommand);
+    clearAssistantPendingCommand();
+    if (result.cancelled) return assistantResult("已取消儲存工時。");
+    return assistantResult("已同步建立工時。", { type: "entry_created", payload: assistantConfirmationPayload(result.item) });
   }
   if (intent.type === "confirm_add_entry") {
     const item = buildAssistantEntry(intent.parsedCommand);
@@ -2406,6 +2431,14 @@ function renderAssistantCard(card = null) {
   if (card.type === "calendar_draft") {
     const p = card.payload || {};
     return `<div class="assistant-command-card"><div class="assistant-card-title">📅 Calendar 草稿</div><div class="assistant-card-grid"><span>日期</span><b>${escapeHtml(p.date || "")}</b><span>時間</span><b>${escapeHtml(p.start || "")}–${escapeHtml(p.end || "")}</b><span>內容</span><b>${escapeHtml(p.title || "")}</b><span>狀態</span><b>待建立 Calendar 寫入功能</b></div></div>`;
+  }
+  if (card.type === "confirm_calendar") {
+    const p = card.payload || {};
+    return `<div class="assistant-command-card"><div class="assistant-card-title">請確認建立 Calendar</div><div class="assistant-card-grid"><span>日期</span><b>${escapeHtml(p.date || "")}</b><span>時間</span><b>${escapeHtml(p.start || "")}–${escapeHtml(p.end || "")}</b><span>Duration</span><b>${escapeHtml(String(p.hours || ""))}h</b><span>內容</span><b>${escapeHtml(p.title || "")}</b></div><div class="assistant-card-actions"><button class="btn green" type="button" data-assistant-confirm-calendar="1">確認建立</button><button class="btn2" type="button" data-assistant-cancel-command="1">取消</button></div></div>`;
+  }
+  if (card.type === "calendar_created") {
+    const p = card.payload || {};
+    return `<div class="assistant-command-card assistant-created-card"><div class="assistant-card-title">✅ Calendar 已建立</div><div class="assistant-card-grid"><span>內容</span><b>${escapeHtml(p.title || "")}</b><span>日期</span><b>${escapeHtml(p.date || "")}</b><span>時間</span><b>${escapeHtml(p.start || "")}–${escapeHtml(p.end || "")}</b><span>Duration</span><b>${escapeHtml(String(p.hours || ""))}h</b></div>${card.offerWorklog ? `<div class="assistant-card-actions"><button class="btn green" type="button" data-assistant-calendar-to-worklog="1">建立工時</button><button class="btn2" type="button" data-assistant-calendar-no-worklog="1">不用</button></div>` : ""}</div>`;
   }
   return "";
 }
@@ -2724,8 +2757,8 @@ function bindWorklogAssistant() {
     await new Promise(resolve => setTimeout(resolve, 250));
     removeConversationMessage(thinkingId);
     if (pending.action === "calendar_duration") {
-      clearAssistantPendingCommand();
-      addConversationMessage("assistant", "我先幫您整理成 Calendar 草稿：", { card: { type: "calendar_draft", payload: entryPayload } });
+      setAssistantPendingCommand({ action: "confirm_calendar", command: parsedCommand });
+      addConversationMessage("assistant", "請確認建立 Calendar：", { card: { type: "confirm_calendar", payload: entryPayload } });
     } else {
       setAssistantPendingCommand({ action: "confirm_add_entry", command: parsedCommand });
       addConversationMessage("assistant", "請確認這筆工時：", { card: { type: "confirm_entry", payload: entryPayload } });
@@ -2762,6 +2795,64 @@ function bindWorklogAssistant() {
       }));
       addConversationMessage("assistant", `工時建立失敗：${error?.message || "未知錯誤"}`);
     }
+    render();
+  });
+  document.querySelectorAll("[data-assistant-confirm-calendar]").forEach(button => button.onclick = async () => {
+    const pending = getAssistantPendingCommand();
+    const parsedCommand = pending?.command || null;
+    const entryPayload = parsedCommand ? assistantConfirmationPayload(parsedCommand) : null;
+    addConversationMessage("user", "確認建立 Calendar");
+    const thinkingId = addAssistantThinkingMessage();
+    render();
+    await new Promise(resolve => setTimeout(resolve, 300));
+    try {
+      if (!parsedCommand) throw new Error("找不到待確認的 Calendar");
+      const response = await executeWorklogCommand({ type: "confirm_pending_calendar", parsedCommand, entryPayload });
+      removeConversationMessage(thinkingId);
+      addAssistantResult(response);
+    } catch (error) {
+      removeConversationMessage(thinkingId);
+      console.error("Calendar conversation command failed", assistantCommandErrorDebug({
+        input: "assistant_confirm_calendar",
+        parsedIntent: { type: "confirm_pending_calendar", parsedCommand, entryPayload },
+        parsedCommand,
+        entryPayload,
+        error
+      }));
+      addConversationMessage("assistant", `Calendar 建立失敗：${error?.message || "未知錯誤"}`);
+    }
+    render();
+  });
+  document.querySelectorAll("[data-assistant-calendar-to-worklog]").forEach(button => button.onclick = async () => {
+    const pending = getAssistantPendingCommand();
+    const parsedCommand = pending?.command || null;
+    const entryPayload = parsedCommand ? assistantConfirmationPayload(parsedCommand) : null;
+    addConversationMessage("user", "建立工時");
+    const thinkingId = addAssistantThinkingMessage();
+    render();
+    await new Promise(resolve => setTimeout(resolve, 300));
+    try {
+      if (!parsedCommand) throw new Error("找不到可同步建立的工時");
+      const response = await executeWorklogCommand({ type: "create_worklog_from_calendar", parsedCommand, entryPayload });
+      removeConversationMessage(thinkingId);
+      addAssistantResult(response);
+    } catch (error) {
+      removeConversationMessage(thinkingId);
+      console.error("Calendar to WorkLog command failed", assistantCommandErrorDebug({
+        input: "assistant_calendar_to_worklog",
+        parsedIntent: { type: "create_worklog_from_calendar", parsedCommand, entryPayload },
+        parsedCommand,
+        entryPayload,
+        error
+      }));
+      addConversationMessage("assistant", `工時建立失敗：${error?.message || "未知錯誤"}`);
+    }
+    render();
+  });
+  document.querySelectorAll("[data-assistant-calendar-no-worklog]").forEach(button => button.onclick = () => {
+    clearAssistantPendingCommand();
+    addConversationMessage("user", "不用");
+    addConversationMessage("assistant", "好的，已保留 Calendar，不建立工時。");
     render();
   });
 }
