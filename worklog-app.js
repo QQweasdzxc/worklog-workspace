@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260711-1315";
+const BUILD_TIME = "20260711-1447";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const IS_EXTENSION_ENTRY = document.body?.classList.contains("extension");
@@ -251,6 +251,7 @@ let autoSaveTimer = null;
 let autoSaveInFlight = false;
 const autoSaveDirtyScopes = new Set();
 let knowledgeFoundationNotInitialized = cloudSync.status === "knowledge_uninitialized";
+let conversationFoundationNotInitialized = false;
 let migrationRequired = false;
 let migrationPreview = null;
 let migrationRunning = false;
@@ -399,6 +400,59 @@ const SupabaseRepository = {
   },
   saveEcpTasks(names) {
     return this.syncNameList("user_ecp_tasks", names);
+  },
+  async ensureAssistantConversation() {
+    if (!currentUserUuid() || !currentAccessToken()) throw new Error("Cloud Sync 尚未就緒");
+    const payload = {
+      user_uuid: currentUserUuid(),
+      thread_key: "main",
+      title: "諸葛先生",
+      status: "active",
+      updated_at: new Date().toISOString()
+    };
+    const rows = await this.request("assistant_conversations?on_conflict=user_uuid,thread_key", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=representation" }, body: JSON.stringify(payload) });
+    return rows?.[0] || null;
+  },
+  async loadAssistantConversation() {
+    const conversation = await this.ensureAssistantConversation();
+    const conversationId = conversation?.id;
+    const messages = conversationId
+      ? await this.select("assistant_messages", `?select=*&conversation_id=eq.${encodeURIComponent(conversationId)}&order=created_at.desc&limit=50`)
+      : [];
+    const states = await this.select("assistant_conversation_states", "?select=*&state_key=eq.main&limit=1");
+    return { conversation, messages: (messages || []).slice().reverse(), state: states?.[0] || null };
+  },
+  async saveAssistantMessage(message = {}, channel = assistantChannel()) {
+    if (!message || message.transient || message.role === "system") return null;
+    const conversation = await this.ensureAssistantConversation();
+    if (!conversation?.id) throw new Error("Conversation 尚未就緒");
+    const payload = {
+      user_uuid: currentUserUuid(),
+      conversation_id: conversation.id,
+      client_message_id: message.id || uid("msg"),
+      role: message.role || "assistant",
+      content: String(message.text || ""),
+      card: message.card || null,
+      channel,
+      created_at: message.at || new Date().toISOString()
+    };
+    const rows = await this.request("assistant_messages?on_conflict=user_uuid,client_message_id", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=representation" }, body: JSON.stringify(payload) });
+    return rows?.[0] || null;
+  },
+  async saveAssistantState(command = null, channel = assistantChannel()) {
+    if (!currentUserUuid() || !currentAccessToken()) throw new Error("Cloud Sync 尚未就緒");
+    const conversation = await this.ensureAssistantConversation();
+    const payload = {
+      user_uuid: currentUserUuid(),
+      conversation_id: conversation?.id || null,
+      state_key: "main",
+      state_type: command ? (command.action || "pending_action") : "idle",
+      pending_action: command || null,
+      channel,
+      updated_at: new Date().toISOString()
+    };
+    const rows = await this.request("assistant_conversation_states?on_conflict=user_uuid,state_key", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=representation" }, body: JSON.stringify(payload) });
+    return rows?.[0] || null;
   },
   async hasCloudCoreData() {
     const checks = await Promise.allSettled([
@@ -637,6 +691,65 @@ const DataService = {
     if (autoSaveTimer) clearTimeout(autoSaveTimer);
     autoSaveTimer = setTimeout(() => this.flushAutoSaveQueue(), 0);
   },
+  async loadConversation() {
+    if (!hasGoogleOAuthSession() || migrationRequired || migrationRunning) return null;
+    try {
+      const bundle = await SupabaseRepository.loadAssistantConversation();
+      conversationFoundationNotInitialized = false;
+      applyCloudConversation(bundle);
+      return bundle;
+    } catch (error) {
+      if (isConversationNotInitializedError(error)) {
+        conversationFoundationNotInitialized = true;
+        console.warn("Conversation Foundation not initialized", {
+          tables: ["assistant_conversations", "assistant_messages", "assistant_conversation_states"],
+          setupSql: "docs/supabase/20260711_p4_1_conversation_foundation_schema.sql",
+          error
+        });
+        return null;
+      }
+      console.error("Conversation load failed", { error, supabase: error.supabase || null });
+      return null;
+    }
+  },
+  async saveConversationMessage(message = {}) {
+    if (!hasGoogleOAuthSession() || dataServiceHydrating || migrationRequired || migrationRunning) return null;
+    try {
+      const saved = await SupabaseRepository.saveAssistantMessage(message, assistantChannel());
+      conversationFoundationNotInitialized = false;
+      return saved;
+    } catch (error) {
+      if (isConversationNotInitializedError(error)) {
+        conversationFoundationNotInitialized = true;
+        console.warn("Conversation message saved locally; Conversation Foundation not initialized", {
+          setupSql: "docs/supabase/20260711_p4_1_conversation_foundation_schema.sql",
+          error
+        });
+        return null;
+      }
+      console.error("Conversation message sync failed", { error, supabase: error.supabase || null, message });
+      return null;
+    }
+  },
+  async saveConversationState(command = null) {
+    if (!hasGoogleOAuthSession() || dataServiceHydrating || migrationRequired || migrationRunning) return null;
+    try {
+      const saved = await SupabaseRepository.saveAssistantState(command, assistantChannel());
+      conversationFoundationNotInitialized = false;
+      return saved;
+    } catch (error) {
+      if (isConversationNotInitializedError(error)) {
+        conversationFoundationNotInitialized = true;
+        console.warn("Conversation state saved locally; Conversation Foundation not initialized", {
+          setupSql: "docs/supabase/20260711_p4_1_conversation_foundation_schema.sql",
+          error
+        });
+        return null;
+      }
+      console.error("Conversation state sync failed", { error, supabase: error.supabase || null, command });
+      return null;
+    }
+  },
   async loadAll() {
     if (!dataServiceReady || dataServiceHydrating) return;
     dataServiceHydrating = true;
@@ -669,6 +782,7 @@ const DataService = {
       const ecpTaskRows = await safeLoad("ecp_tasks", () => SupabaseRepository.loadEcpTasks(), []);
       const entryRows = await safeLoad("entries", () => SupabaseRepository.loadEntries(selectedMonth), []);
       const knowledgeRows = await safeLoad("knowledge", () => SupabaseRepository.loadKnowledgeSources(), []);
+      await this.loadConversation();
       if (cloudProfile || exportSettings || !failedLoads.has("work_models") || !failedLoads.has("ecp_tasks")) {
         profile = profileFromCloud(cloudProfile, exportSettings, workModelsRows || [], ecpTaskRows || [], {
           workModelsLoaded: !failedLoads.has("work_models"),
@@ -1463,6 +1577,11 @@ function isKnowledgeNotInitializedError(error) {
   return /404/.test(text) && /knowledge_sources/i.test(text);
 }
 
+function isConversationNotInitializedError(error) {
+  const text = `${error?.supabase?.status || ""} ${error?.supabase?.message || ""} ${error?.supabase?.body || ""} ${error?.message || ""}`;
+  return /404/.test(text) && /assistant_(conversations|messages|conversation_states)/i.test(text);
+}
+
 function minutesFromTime(value = "09:00") {
   const [h = 9, m = 0] = String(value || "09:00").slice(0, 5).split(":").map(Number);
   return h * 60 + (m || 0);
@@ -1589,6 +1708,11 @@ function assistantOpenKey() {
   return scopedLocalKey(ZHUGE_ASSISTANT_OPEN_KEY);
 }
 
+function assistantChannel() {
+  if (IS_EXTENSION_ENTRY) return "chrome";
+  return window.matchMedia?.("(max-width: 767px)")?.matches ? "mobile" : "web";
+}
+
 function isAssistantOpen() {
   return localStorage.getItem(assistantOpenKey()) === "1";
 }
@@ -1606,10 +1730,29 @@ function saveConversationMessages(messages = []) {
   writeJson(conversationKey(), messages.slice(-20));
 }
 
+function messageFromCloud(row = {}) {
+  return {
+    id: row.client_message_id || row.id || uid("msg"),
+    role: row.role || "assistant",
+    text: row.content || "",
+    at: row.created_at || new Date().toISOString(),
+    card: row.card || null
+  };
+}
+
+function applyCloudConversation(bundle = {}) {
+  const rows = Array.isArray(bundle.messages) ? bundle.messages : [];
+  if (rows.length) saveConversationMessages(rows.map(messageFromCloud));
+  if (bundle.state?.pending_action) writeJson(conversationPendingKey(), bundle.state.pending_action);
+  else localStorage.removeItem(conversationPendingKey());
+}
+
 function addConversationMessage(role, text, meta = {}) {
   const messages = conversationMessages();
-  messages.push({ role, text: String(text || ""), at: new Date().toISOString(), ...meta });
+  const message = { id: uid("msg"), role, text: String(text || ""), at: new Date().toISOString(), ...meta };
+  messages.push(message);
   saveConversationMessages(messages);
+  DataService.saveConversationMessage(message).catch(error => console.warn("Conversation message cloud sync deferred", { error, supabase: error.supabase || null }));
 }
 
 function removeConversationMessage(id) {
@@ -1643,13 +1786,16 @@ function getAssistantPendingCommand() {
 function setAssistantPendingCommand(command = null) {
   if (!command) {
     localStorage.removeItem(conversationPendingKey());
+    DataService.saveConversationState(null).catch(error => console.warn("Conversation state cloud sync deferred", { error, supabase: error.supabase || null }));
     return;
   }
   writeJson(conversationPendingKey(), command);
+  DataService.saveConversationState(command).catch(error => console.warn("Conversation state cloud sync deferred", { error, supabase: error.supabase || null }));
 }
 
 function clearAssistantPendingCommand() {
   localStorage.removeItem(conversationPendingKey());
+  DataService.saveConversationState(null).catch(error => console.warn("Conversation state cloud sync deferred", { error, supabase: error.supabase || null }));
 }
 
 const chineseNumberMap = { "零": 0, "一": 1, "二": 2, "兩": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10 };
@@ -1722,7 +1868,7 @@ function parseAssistantDuration(text = "") {
 }
 
 function assistantFallbackText() {
-  return "目前我是工時助手。目前僅支援工時相關操作。未來會逐步擴充更多能力。";
+  return "目前我主要協助您處理工時、任務與 Calendar，其他能力仍在持續學習中。";
 }
 
 function assistantEntryTitle(raw = "", entryType = "work") {
