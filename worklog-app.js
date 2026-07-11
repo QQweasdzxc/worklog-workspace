@@ -1,10 +1,11 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260711-2132";
+const BUILD_TIME = "20260711-2216";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const IS_EXTENSION_ENTRY = document.body?.classList.contains("extension");
 const WEB_APP_URL = "https://qqweasdzxc.github.io/worklog-workspace/";
+const CHROME_EXTENSION_STORE_URL = "";
 const AUTH_SESSION_KEY = "zhuge_ai_os_google_auth_session_v1";
 const AUTH_CODE_VERIFIER_KEY = "zhuge_ai_os_pkce_code_verifier_v1";
 const AI_OS_SESSION_KEY = "zhuge_ai_os_session_v1";
@@ -2575,16 +2576,26 @@ function worklogAssistantPanel(mode = "web") {
   const messages = conversationMessages();
   const intro = mode === "extension"
     ? `<div class="muted">您可以直接告訴我：今天下午三點到四點開會、明天下午請特休、今天補一小時工時。</div>`
-    : (mode === "standalone" ? `<div class="muted">One User / One UUID / One AI。這裡是諸葛先生的全頁聊天室。</div>` : `<div class="muted">今天想完成什麼？</div>`);
-  const title = mode === "floating" || mode === "standalone" ? "👤 諸葛先生" : "👤 諸葛工時助手";
+    : `<div class="muted">今天想完成什麼？</div>`;
+  const title = "👤 諸葛先生";
   const modeClass = mode === "extension" ? "extension-assistant" : (mode === "floating" ? "floating-assistant" : (mode === "standalone" ? "standalone-assistant" : "assistant-module"));
-  const close = mode === "floating" ? `<button class="mini" type="button" data-close-assistant="1">×</button>` : "";
+  const installAction = mode === "standalone"
+    ? (CHROME_EXTENSION_STORE_URL
+      ? `<a class="assistant-icon-action" href="${escapeHtml(CHROME_EXTENSION_STORE_URL)}" target="_blank" rel="noopener" title="安裝 Chrome 擴充功能" aria-label="安裝 Chrome 擴充功能">🧩</a>`
+      : `<button class="assistant-icon-action disabled" type="button" disabled title="安裝 Chrome 擴充功能（即將推出）" aria-label="安裝 Chrome 擴充功能（即將推出）">🧩</button>`)
+    : "";
+  const osAction = mode === "extension" || mode === "standalone"
+    ? `<a class="assistant-icon-action" href="${escapeHtml(appHomeUrl())}" target="${mode === "extension" ? "_blank" : "_self"}" rel="noopener" title="開啟 ZhuGe AI OS" aria-label="開啟 ZhuGe AI OS">🖥</a>`
+    : "";
+  const fullscreenAction = mode === "floating"
+    ? `<a class="assistant-icon-action" href="${escapeHtml(standaloneChatUrl())}" title="全螢幕開啟" aria-label="全螢幕開啟">↗</a>`
+    : "";
+  const close = mode === "floating" ? `<button class="assistant-icon-action" type="button" data-close-assistant="1" title="關閉" aria-label="關閉">×</button>` : "";
+  const headerActions = `<div class="assistant-header-actions">${installAction}${osAction}${fullscreenAction}${close}</div>`;
   const statusNotice = conversationSync.status === "uninitialized"
     ? `<div class="assistant-sync-warning">Conversation 尚未初始化，聊天目前僅儲存在此瀏覽器。</div>`
     : (conversationSync.status === "failed" ? `<div class="assistant-sync-warning">Conversation 同步失敗：${escapeHtml(conversationSync.error || "請稍後再試")}</div>` : "");
-  const chatLink = mode === "floating" ? `<a class="btn2 full assistant-web-link" href="${escapeHtml(standaloneChatUrl())}">↗ 全螢幕開啟</a>` : "";
-  const homeLink = mode === "extension" || mode === "standalone" ? `<a class="btn full assistant-web-link" href="${escapeHtml(appHomeUrl())}" target="${mode === "extension" ? "_blank" : "_self"}" rel="noopener">🖥 開啟 ZhuGe AI OS</a>` : "";
-  return `<section class="panel assistant-panel ${modeClass}"><div class="panel-head"><div><h2>${title}</h2>${intro}</div>${close}</div>${statusNotice}<div class="assistant-thread" id="assistantThread">${messages.map(renderAssistantMessage).join("")}</div><div class="assistant-input-row"><input class="input" id="assistantInput" placeholder="例如：今天下午三點到四點開會"><button class="btn" id="assistantSend" type="button">送出</button></div>${chatLink}${homeLink}</section>`;
+  return `<section class="panel assistant-panel ${modeClass}"><div class="panel-head assistant-chat-head"><div><h2>${title}</h2>${intro}</div>${headerActions}</div>${statusNotice}<div class="assistant-thread" id="assistantThread">${messages.map(renderAssistantMessage).join("")}</div><div class="assistant-input-row chat-composer"><textarea class="input" id="assistantInput" rows="1" placeholder="例如：今天下午三點到四點開會"></textarea><button class="assistant-send" id="assistantSend" type="button" disabled title="送出" aria-label="送出">➤</button></div></section>`;
 }
 
 function extensionAssistantScreen() {
@@ -2832,11 +2843,21 @@ function bindWorklogAssistant() {
     const normalized = typeof result === "string" ? { text: result } : (result || { text: "" });
     addConversationMessage("assistant", normalized.text || "", normalized.card ? { card: normalized.card } : {});
   };
+  const updateSendState = () => {
+    const hasText = input.value.trim().length > 0;
+    send.disabled = !hasText;
+    send.classList.toggle("ready", hasText);
+    input.style.height = "auto";
+    input.style.height = `${Math.min(input.scrollHeight, 140)}px`;
+  };
+  updateSendState();
+  input.addEventListener("input", updateSendState);
   scrollAssistantToBottom();
   const submit = async () => {
     const text = input.value.trim();
     if (!text) return;
     input.value = "";
+    updateSendState();
     addConversationMessage("user", text);
     const thinkingId = addAssistantThinkingMessage();
     render();
@@ -2862,7 +2883,7 @@ function bindWorklogAssistant() {
   };
   send.onclick = submit;
   input.onkeydown = e => {
-    if (e.key === "Enter") {
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       submit();
     }
