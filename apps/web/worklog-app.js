@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260711-2216";
+const BUILD_TIME = "20260711-2234";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const IS_EXTENSION_ENTRY = document.body?.classList.contains("extension");
@@ -22,6 +22,7 @@ const AUTH_CONFIG = {
   supabaseUrl: "https://lenpbbhwxyyfwgvjcozf.supabase.co",
   supabaseAnonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxlbnBiYmh3eHl5Zndndmpjb3pmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyOTM1ODksImV4cCI6MjA5NTg2OTU4OX0.TAFfLoMC8Tqr4r7nlAtsOke3YcjBIBmr5fN1a6iwSFQ"
 };
+const WORKLOG_LLM_FUNCTION = "worklog-llm";
 
 let activeModule = localStorage.getItem(ACTIVE_MODULE_KEY) || "dashboard";
 let authCallbackCaptured = false;
@@ -2000,11 +2001,21 @@ function parseAssistantSingleStart(text = "", dateKey = key()) {
 }
 
 function parseAssistantDuration(text = "") {
+  if (/半天|半日/.test(String(text))) return 4;
+  if (/整天|整日|全天|一整天|一天/.test(String(text))) return 8;
   const half = String(text).match(/半\s*(?:小時|h|H)/);
   if (half) return 0.5;
   const match = String(text).match(/([0-9]+(?:\.[0-9]+)?|[一二兩三四五六七八九十]+)\s*(?:小時|h|H)/);
   if (!match) return null;
   return parseNumberToken(match[1]);
+}
+
+function parseAssistantVagueStart(text = "", dateKey = key()) {
+  const raw = String(text || "");
+  if (/上午/.test(raw)) return `${dateKey}T09:00`;
+  if (/下午/.test(raw)) return `${dateKey}T13:00`;
+  if (/晚上|晚間/.test(raw)) return `${dateKey}T18:00`;
+  return null;
 }
 
 function assistantFallbackText() {
@@ -2031,8 +2042,9 @@ function stripAssistantSlots(raw = "") {
     .replace(/[0-9一二兩三四五六七八九十半]+點(半|\d{1,2})?\s*(到|至|-|~)\s*(上午|下午|晚上|晚間|中午|凌晨)?\s*[0-9一二兩三四五六七八九十半]+點?(半|\d{1,2})?/g, "")
     .replace(/[0-9一二兩三四五六七八九十半]+點(半|\d{1,2})?/g, "")
     .replace(/[0-9一二兩三四五六七八九十半]+(?:\.[0-9]+)?\s*(?:小時|h|H)/g, "")
+    .replace(/半天|半日|整天|整日|全天|一整天|一天/g, "")
     .replace(/^(我|幫我|請幫我|麻煩|請|要|想要|需要|有|新增|建立|記錄|紀錄|補|提醒我|提醒)/g, "")
-    .replace(/(工時|一下|一筆|預計|大概|約|大約|的|了|有)/g, "")
+    .replace(/(工時|一下|一筆|一個|預計|大概|約|大約|的|了|有|都在|忘了)/g, "")
     .replace(/[，,。.!！?？]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -2049,15 +2061,16 @@ function parseAssistantSlots(raw = "") {
   const dateKey = parseAssistantDate(raw);
   const range = parseAssistantTimeRange(raw, dateKey);
   const singleStart = parseAssistantSingleStart(raw, dateKey);
+  const vagueStart = parseAssistantVagueStart(raw, dateKey);
   const duration = parseAssistantDuration(raw);
   const entryType = entryTypeFromDescription(raw);
   const description = assistantEntryTitle(raw, entryType);
-  return { dateKey, range, singleStart, duration, entryType, description };
+  return { dateKey, range, singleStart, vagueStart, duration, entryType, description };
 }
 
 function inferAssistantIntent(raw = "", slots = {}) {
   const text = String(raw || "");
-  const hasTime = Boolean(slots.range || slots.singleStart);
+  const hasTime = Boolean(slots.range || slots.singleStart || slots.vagueStart);
   const hasDuration = Boolean(slots.duration);
   const isLeave = slots.entryType === "leave";
   const taskWords = ["提醒我", "提醒", "待辦", "todo", "Todo", "建立待辦", "新增待辦"];
@@ -2066,6 +2079,7 @@ function inferAssistantIntent(raw = "", slots = {}) {
   if (isLeave) return "leave";
   if (includesAny(text, taskWords)) return "task";
   if (/新增.+案件|建立.+案件/.test(text) && !hasTime && !hasDuration) return "task";
+  if (hasTime && includesAny(text, ["面試", "看醫生", "就醫", "聚餐", "私人"])) return "calendar";
   if (/明天|明日|下星期|下週|下周|下禮拜|下礼拜/.test(text) && hasTime && !hasDuration && !/工時|補/.test(text)) return "calendar";
   if (hasTime || hasDuration || includesAny(text, ["工時", "補", "記錄", "紀錄", "開會", "會議", "驗收", "寫程式", "拜訪", "處理", "整理", "請款", "採購", "教育訓練"])) return "worklog";
   return "unknown";
@@ -2127,7 +2141,75 @@ function assistantCommandErrorDebug({ input = "", parsedIntent = null, parsedCom
   };
 }
 
-function parseWorklogIntent(text = "") {
+async function callWorkLogDomainLLM(raw = "") {
+  if (!hasGoogleOAuthSession()) return null;
+  try {
+    await ensureFreshAuthSession(false);
+    const res = await fetch(`${AUTH_CONFIG.supabaseUrl}/functions/v1/${WORKLOG_LLM_FUNCTION}`, {
+      method: "POST",
+      headers: cloudHeaders(),
+      body: JSON.stringify({
+        input: String(raw || ""),
+        today: key(new Date()),
+        selectedDate: key(selected),
+        timezone: "Asia/Taipei",
+        scope: ["WorkLog", "Task", "Calendar"]
+      })
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.warn("WorkLog Domain LLM unavailable; fallback to local parser", { status: res.status, body });
+      return null;
+    }
+    const data = await res.json();
+    return data?.draft || data || null;
+  } catch (error) {
+    console.warn("WorkLog Domain LLM failed; fallback to local parser", { error });
+    return null;
+  }
+}
+
+function normalizeClock(value = "") {
+  const match = String(value || "").match(/^(\d{1,2}):(\d{1,2})/);
+  if (!match) return "";
+  return `${String(Number(match[1])).padStart(2, "0")}:${String(Number(match[2])).padStart(2, "0")}`;
+}
+
+function hoursBetween(start = "", end = "") {
+  const s = minutesFromTime(start);
+  let e = minutesFromTime(end);
+  if (e <= s) e += 24 * 60;
+  return Math.max(0.5, Math.round((e - s) / 30) / 2);
+}
+
+function intentFromDomainDraft(raw = "", draft = null) {
+  if (!draft || typeof draft !== "object") return null;
+  const intent = String(draft.intent || "").toLowerCase();
+  const dateKey = String(draft.date || "").match(/^\d{4}-\d{2}-\d{2}$/) ? draft.date : parseAssistantDate(raw);
+  const startTime = normalizeClock(draft.startTime || draft.start_time || "");
+  const endTime = normalizeClock(draft.endTime || draft.end_time || "");
+  const duration = Number(draft.durationHours || draft.duration_hours || draft.hours || 0) || (startTime && endTime ? hoursBetween(startTime, endTime) : 0);
+  const entryType = intent === "leave" ? "leave" : entryTypeFromDescription(draft.description || raw);
+  const title = String(draft.description || draft.title || extractAssistantDescription(raw) || (entryType === "leave" ? "請假" : "工時紀錄")).trim();
+  const at = startTime ? `${dateKey}T${startTime}` : (entryType === "leave" ? `${dateKey}T09:00` : "");
+  const parsedCommand = { title, dateKey, at, hours: duration, entryType };
+  if (intent === "task") return { type: "task_draft", parsedCommand: { title, raw, llmDraft: draft } };
+  if (intent === "calendar") {
+    const command = { ...parsedCommand, at: at || `${dateKey}T09:00`, entryType: "work" };
+    if (!command.hours) return { type: "calendar_need_duration", parsedCommand: command, llmDraft: draft };
+    return { type: "confirm_calendar", parsedCommand: command, entryPayload: assistantConfirmationPayload(command), llmDraft: draft };
+  }
+  if (intent === "worklog" || intent === "leave") {
+    if (parsedCommand.at && !parsedCommand.hours && entryType !== "leave") return { type: "need_duration", parsedCommand, llmDraft: draft };
+    const hoursValue = parsedCommand.hours || (entryType === "leave" ? 8 : 0);
+    if (!hoursValue) return { type: "need_duration", parsedCommand: { ...parsedCommand, at: parsedCommand.at || nextAvailableStart(dateKey, 1) }, llmDraft: draft };
+    const command = { ...parsedCommand, hours: hoursValue, at: parsedCommand.at || nextAvailableStart(dateKey, hoursValue) };
+    return { type: "confirm_add_entry", parsedCommand: command, entryPayload: assistantConfirmationPayload(command), llmDraft: draft };
+  }
+  return null;
+}
+
+function parseWorklogIntentLocal(text = "") {
   const raw = String(text || "").trim();
   if (!raw) return { type: "empty" };
   if (/(今天|今日).*(工時|完成)|工時.*(今天|今日)/.test(raw)) return { type: "query_today" };
@@ -2146,21 +2228,33 @@ function parseWorklogIntent(text = "") {
     return { type: "confirm_calendar", parsedCommand, entryPayload: assistantConfirmationPayload(parsedCommand) };
   }
   if (intent === "worklog" || intent === "leave") {
-    const { dateKey, range, singleStart, duration, entryType } = slots;
+    const { dateKey, range, singleStart, vagueStart, duration, entryType } = slots;
     if (range) {
       const parsedCommand = assistantCommandFromParts({ raw, dateKey, at: range.at, hours: range.hours, entryType });
       return { type: "confirm_add_entry", parsedCommand, entryPayload: assistantConfirmationPayload(parsedCommand) };
     }
-    if (singleStart && !duration && entryType !== "leave") {
-      const parsedCommand = assistantCommandFromParts({ raw, dateKey, at: singleStart, hours: 0, entryType });
+    const start = singleStart || vagueStart;
+    if (start && !duration && entryType !== "leave") {
+      const parsedCommand = assistantCommandFromParts({ raw, dateKey, at: start, hours: 0, entryType });
       return { type: "need_duration", parsedCommand };
     }
     const hoursValue = duration || (entryType === "leave" ? 8 : 1);
-    const at = singleStart || (entryType === "leave" ? `${dateKey}T09:00` : nextAvailableStart(dateKey, hoursValue));
+    const at = start || (entryType === "leave" ? `${dateKey}T09:00` : nextAvailableStart(dateKey, hoursValue));
     const parsedCommand = assistantCommandFromParts({ raw, dateKey, at, hours: hoursValue, entryType });
     return { type: "confirm_add_entry", parsedCommand, entryPayload: assistantConfirmationPayload(parsedCommand) };
   }
   return { type: "unsupported" };
+}
+
+async function parseWorklogIntent(text = "") {
+  const localFirst = String(text || "").trim();
+  if (!localFirst) return { type: "empty" };
+  if (/(今天|今日).*(工時|完成)|工時.*(今天|今日)/.test(localFirst)) return parseWorklogIntentLocal(localFirst);
+  if (/(本週|本周|這週|這周).*(工時|完成)|工時.*(本週|本周|這週|這周)/.test(localFirst)) return parseWorklogIntentLocal(localFirst);
+  if (/刪除|移除|修改|改成|調整/.test(localFirst)) return parseWorklogIntentLocal(localFirst);
+  const llmDraft = await callWorkLogDomainLLM(localFirst);
+  const llmIntent = intentFromDomainDraft(localFirst, llmDraft);
+  return llmIntent || parseWorklogIntentLocal(localFirst);
 }
 
 async function saveAssistantEntry(command = {}) {
@@ -2864,7 +2958,7 @@ function bindWorklogAssistant() {
     await new Promise(resolve => setTimeout(resolve, 350));
     let parsedIntent = null;
     try {
-      parsedIntent = parseWorklogIntent(text);
+      parsedIntent = await parseWorklogIntent(text);
       const response = await executeWorklogCommand(parsedIntent);
       removeConversationMessage(thinkingId);
       addAssistantResult(response);
