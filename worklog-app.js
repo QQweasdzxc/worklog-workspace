@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260711-2107";
+const BUILD_TIME = "20260711-2132";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const IS_EXTENSION_ENTRY = document.body?.classList.contains("extension");
@@ -1791,6 +1791,21 @@ function assistantOpenKey() {
   return scopedLocalKey(ZHUGE_ASSISTANT_OPEN_KEY);
 }
 
+function isStandaloneChatRoute() {
+  return /\/chat\/?$/.test(location.pathname) || new URLSearchParams(location.search).get("chat") === "1";
+}
+
+function appHomeUrl() {
+  if (isStandaloneChatRoute()) return location.href.replace(/\/chat\/?(\?.*)?$/, "/").replace(/[?&]chat=1/, "");
+  return WEB_APP_URL;
+}
+
+function standaloneChatUrl() {
+  if (/\/chat\/?$/.test(location.pathname)) return location.href;
+  const base = location.href.replace(/[?#].*$/, "").replace(/\/(index\.html)?$/, "/");
+  return `${base}chat/`;
+}
+
 function assistantChannel() {
   if (IS_EXTENSION_ENTRY) return "chrome";
   return window.matchMedia?.("(max-width: 767px)")?.matches ? "mobile" : "web";
@@ -1916,7 +1931,7 @@ function refreshConversationFromCloud(renderAfter = true) {
   if (conversationRefreshTimer) clearTimeout(conversationRefreshTimer);
   conversationRefreshTimer = setTimeout(() => {
     DataService.loadConversation().finally(() => {
-      if (renderAfter && (isAssistantOpen() || IS_EXTENSION_ENTRY)) render();
+      if (renderAfter && (isAssistantOpen() || IS_EXTENSION_ENTRY || isStandaloneChatRoute())) render();
     });
   }, 150);
 }
@@ -2552,25 +2567,33 @@ function assistantNudgeText() {
 }
 
 function assistantWelcomePanel(mode = "floating") {
-  return `<section class="panel assistant-panel ${mode === "extension" ? "extension-assistant" : "floating-assistant"}"><div class="assistant-welcome"><h2>歡迎來到 ZhuGe AI OS</h2><p>我是諸葛先生。</p><p>我會協助你管理工時，之後也會協助你閱讀公司的知識。</p><p>今天先完成工時助手。</p><button class="btn full" type="button" data-start-assistant="1">開始</button>${mode === "floating" ? `<button class="btn2 full" type="button" data-close-assistant="1">稍後</button>` : ""}</div></section>`;
+  const modeClass = mode === "extension" ? "extension-assistant" : (mode === "standalone" ? "standalone-assistant" : "floating-assistant");
+  return `<section class="panel assistant-panel ${modeClass}"><div class="assistant-welcome"><h2>歡迎來到 ZhuGe AI OS</h2><p>我是諸葛先生。</p><p>我會協助你管理工時，之後也會協助你閱讀公司的知識。</p><p>今天先完成工時助手。</p><button class="btn full" type="button" data-start-assistant="1">開始</button>${mode === "floating" ? `<button class="btn2 full" type="button" data-close-assistant="1">稍後</button>` : ""}</div></section>`;
 }
 
 function worklogAssistantPanel(mode = "web") {
   const messages = conversationMessages();
   const intro = mode === "extension"
     ? `<div class="muted">您可以直接告訴我：今天下午三點到四點開會、明天下午請特休、今天補一小時工時。</div>`
-    : `<div class="muted">今天想完成什麼？</div>`;
-  const title = mode === "floating" ? "👤 諸葛先生" : "👤 諸葛工時助手";
-  const modeClass = mode === "extension" ? "extension-assistant" : (mode === "floating" ? "floating-assistant" : "assistant-module");
+    : (mode === "standalone" ? `<div class="muted">One User / One UUID / One AI。這裡是諸葛先生的全頁聊天室。</div>` : `<div class="muted">今天想完成什麼？</div>`);
+  const title = mode === "floating" || mode === "standalone" ? "👤 諸葛先生" : "👤 諸葛工時助手";
+  const modeClass = mode === "extension" ? "extension-assistant" : (mode === "floating" ? "floating-assistant" : (mode === "standalone" ? "standalone-assistant" : "assistant-module"));
   const close = mode === "floating" ? `<button class="mini" type="button" data-close-assistant="1">×</button>` : "";
   const statusNotice = conversationSync.status === "uninitialized"
     ? `<div class="assistant-sync-warning">Conversation 尚未初始化，聊天目前僅儲存在此瀏覽器。</div>`
     : (conversationSync.status === "failed" ? `<div class="assistant-sync-warning">Conversation 同步失敗：${escapeHtml(conversationSync.error || "請稍後再試")}</div>` : "");
-  return `<section class="panel assistant-panel ${modeClass}"><div class="panel-head"><div><h2>${title}</h2>${intro}</div>${close}</div>${statusNotice}<div class="assistant-thread" id="assistantThread">${messages.map(renderAssistantMessage).join("")}</div><div class="assistant-input-row"><input class="input" id="assistantInput" placeholder="例如：今天下午三點到四點開會"><button class="btn" id="assistantSend" type="button">送出</button></div>${mode === "extension" ? `<a class="btn full assistant-web-link" href="${WEB_APP_URL}" target="_blank" rel="noopener">🖥 開啟 ZhuGe AI OS</a>` : ""}</section>`;
+  const chatLink = mode === "floating" ? `<a class="btn2 full assistant-web-link" href="${escapeHtml(standaloneChatUrl())}">↗ 全螢幕開啟</a>` : "";
+  const homeLink = mode === "extension" || mode === "standalone" ? `<a class="btn full assistant-web-link" href="${escapeHtml(appHomeUrl())}" target="${mode === "extension" ? "_blank" : "_self"}" rel="noopener">🖥 開啟 ZhuGe AI OS</a>` : "";
+  return `<section class="panel assistant-panel ${modeClass}"><div class="panel-head"><div><h2>${title}</h2>${intro}</div>${close}</div>${statusNotice}<div class="assistant-thread" id="assistantThread">${messages.map(renderAssistantMessage).join("")}</div><div class="assistant-input-row"><input class="input" id="assistantInput" placeholder="例如：今天下午三點到四點開會"><button class="btn" id="assistantSend" type="button">送出</button></div>${chatLink}${homeLink}</section>`;
 }
 
 function extensionAssistantScreen() {
   return `<div class="wrap extension-quick-entry"><div class="card">${hasSeenAssistantWelcome() ? worklogAssistantPanel("extension") : assistantWelcomePanel("extension")}</div></div>`;
+}
+
+function standaloneChatScreen() {
+  const body = hasSeenAssistantWelcome() ? worklogAssistantPanel("standalone") : assistantWelcomePanel("standalone");
+  return `<main class="standalone-chat-page">${body}</main>`;
 }
 
 function floatingAssistantWidget() {
@@ -2759,6 +2782,7 @@ function render() {
   clearInvalidAuthState();
   if (!session) { root.innerHTML = authScreen(); bindAuth(); return; }
   if (migrationRequired) { root.innerHTML = migrationScreen(); bindMigration(); bindGlobal(); return; }
+  if (isStandaloneChatRoute()) { root.innerHTML = standaloneChatScreen(); bindWorklogAssistant(); bindGlobal(); return; }
   if (needsWorklogWelcome()) { root.innerHTML = worklogWelcomeScreen(); bindWorklogWelcome(); bindGlobal(); return; }
   root.innerHTML = osShell();
   bind();
