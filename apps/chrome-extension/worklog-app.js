@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260711-1304";
+const BUILD_TIME = "20260711-1315";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const IS_EXTENSION_ENTRY = document.body?.classList.contains("extension");
@@ -1612,6 +1612,30 @@ function addConversationMessage(role, text, meta = {}) {
   saveConversationMessages(messages);
 }
 
+function removeConversationMessage(id) {
+  if (!id) return;
+  saveConversationMessages(conversationMessages().filter(msg => msg.id !== id));
+}
+
+function assistantThinkingMessage() {
+  return { id: uid("thinking"), transient: true, role: "assistant", text: "諸葛先生正在整理工時...", at: new Date().toISOString() };
+}
+
+function addAssistantThinkingMessage() {
+  const message = assistantThinkingMessage();
+  const messages = conversationMessages();
+  messages.push(message);
+  saveConversationMessages(messages);
+  return message.id;
+}
+
+function scrollAssistantToBottom() {
+  requestAnimationFrame(() => {
+    const thread = document.getElementById("assistantThread");
+    if (thread) thread.scrollTop = thread.scrollHeight;
+  });
+}
+
 function getAssistantPendingCommand() {
   return readJson(conversationPendingKey(), null);
 }
@@ -1846,7 +1870,7 @@ async function executeWorklogCommand(intent) {
     const result = await saveAssistantEntry(intent.parsedCommand);
     clearAssistantPendingCommand();
     if (result.cancelled) return assistantResult("已取消儲存。");
-    return assistantResult(`已新增工時：${result.item.title}｜${fmt(result.item.at)}｜${result.item.hours}h。`);
+    return assistantResult("還需要新增其他工時嗎？", { type: "entry_created", payload: assistantConfirmationPayload(result.item) });
   }
   return assistantResult(assistantFallbackText());
 }
@@ -2138,12 +2162,16 @@ function renderAssistantCard(card = null) {
   if (card.type === "duration_prompt") {
     return `<div class="assistant-command-card"><div class="assistant-card-title">預計開多久？</div><div class="assistant-duration-row">${[0.5, 1, 1.5, 2].map(h => `<button class="btn2" type="button" data-assistant-duration="${h}">${h === 0.5 ? "30m" : h + "h"}</button>`).join("")}</div></div>`;
   }
+  if (card.type === "entry_created") {
+    const p = card.payload || {};
+    return `<div class="assistant-command-card assistant-created-card"><div class="assistant-card-title">✅ 已建立工時</div><div class="assistant-card-grid"><span>描述</span><b>${escapeHtml(p.title || "")}</b><span>日期</span><b>${escapeHtml(p.date || "")}</b><span>時間</span><b>${escapeHtml(p.start || "")}–${escapeHtml(p.end || "")}</b><span>工時</span><b>${escapeHtml(String(p.hours || ""))}h</b></div></div>`;
+  }
   return "";
 }
 
 function renderAssistantMessage(msg = {}) {
   const roleClass = msg.role === "user" ? "user" : "bot";
-  return `<div class="assistant-msg ${roleClass}">${escapeHtml(msg.text)}${renderAssistantCard(msg.card)}</div>`;
+  return `<div class="assistant-msg ${roleClass} ${msg.transient ? "thinking" : ""}">${escapeHtml(msg.text)}${renderAssistantCard(msg.card)}</div>`;
 }
 
 function assistantNudgeText() {
@@ -2408,17 +2436,23 @@ function bindWorklogAssistant() {
     const normalized = typeof result === "string" ? { text: result } : (result || { text: "" });
     addConversationMessage("assistant", normalized.text || "", normalized.card ? { card: normalized.card } : {});
   };
+  scrollAssistantToBottom();
   const submit = async () => {
     const text = input.value.trim();
     if (!text) return;
     input.value = "";
     addConversationMessage("user", text);
+    const thinkingId = addAssistantThinkingMessage();
+    render();
+    await new Promise(resolve => setTimeout(resolve, 350));
     let parsedIntent = null;
     try {
       parsedIntent = parseWorklogIntent(text);
       const response = await executeWorklogCommand(parsedIntent);
+      removeConversationMessage(thinkingId);
       addAssistantResult(response);
     } catch (error) {
+      removeConversationMessage(thinkingId);
       console.error("WorkLog chatbot command failed", assistantCommandErrorDebug({
         input: text,
         parsedIntent,
@@ -2437,7 +2471,7 @@ function bindWorklogAssistant() {
       submit();
     }
   };
-  document.querySelectorAll("[data-assistant-duration]").forEach(button => button.onclick = () => {
+  document.querySelectorAll("[data-assistant-duration]").forEach(button => button.onclick = async () => {
     const pending = getAssistantPendingCommand();
     const hoursValue = Number(button.dataset.assistantDuration || 0);
     if (!pending?.command || !hoursValue) return toast("找不到待建立的工時");
@@ -2445,6 +2479,10 @@ function bindWorklogAssistant() {
     const entryPayload = assistantConfirmationPayload(parsedCommand);
     setAssistantPendingCommand({ action: "confirm_add_entry", command: parsedCommand });
     addConversationMessage("user", hoursValue === 0.5 ? "30m" : `${hoursValue}h`);
+    const thinkingId = addAssistantThinkingMessage();
+    render();
+    await new Promise(resolve => setTimeout(resolve, 250));
+    removeConversationMessage(thinkingId);
     addConversationMessage("assistant", "請確認這筆工時：", { card: { type: "confirm_entry", payload: entryPayload } });
     render();
   });
@@ -2459,11 +2497,16 @@ function bindWorklogAssistant() {
     const parsedCommand = pending?.command || null;
     const entryPayload = parsedCommand ? assistantConfirmationPayload(parsedCommand) : null;
     addConversationMessage("user", "確認建立");
+    const thinkingId = addAssistantThinkingMessage();
+    render();
+    await new Promise(resolve => setTimeout(resolve, 350));
     try {
       if (!parsedCommand) throw new Error("找不到待確認的工時");
       const response = await executeWorklogCommand({ type: "confirm_pending_entry", parsedCommand, entryPayload });
+      removeConversationMessage(thinkingId);
       addAssistantResult(response);
     } catch (error) {
+      removeConversationMessage(thinkingId);
       console.error("WorkLog chatbot command failed", assistantCommandErrorDebug({
         input: "assistant_confirm_entry",
         parsedIntent: { type: "confirm_pending_entry", parsedCommand, entryPayload },
