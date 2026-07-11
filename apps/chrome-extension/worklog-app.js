@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260711-1447";
+const BUILD_TIME = "20260711-1459";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const IS_EXTENSION_ENTRY = document.body?.classList.contains("extension");
@@ -1818,6 +1818,7 @@ function parseAssistantDate(text = "") {
   const base = new Date();
   if (/明天|明日/.test(text)) base.setDate(base.getDate() + 1);
   if (/昨天|昨日/.test(text)) base.setDate(base.getDate() - 1);
+  if (/下星期|下週|下周|下禮拜|下礼拜/.test(text)) base.setDate(base.getDate() + 7);
   const explicit = String(text).match(/(\d{1,2})[/-](\d{1,2})/);
   if (explicit) {
     base.setMonth(Number(explicit[1]) - 1);
@@ -1868,21 +1869,67 @@ function parseAssistantDuration(text = "") {
 }
 
 function assistantFallbackText() {
-  return "目前我主要協助您處理工時、任務與 Calendar，其他能力仍在持續學習中。";
+  return "目前我主要協助您管理工時、任務與 Calendar，其他能力仍持續學習中。";
 }
 
 function assistantEntryTitle(raw = "", entryType = "work") {
   const text = String(raw || "");
-  if (/開會|會議/.test(text)) return "會議";
-  const cleaned = text
-    .replace(/^(新增|記錄|紀錄|補)/, "")
-    .replace(/今天|今日|明天|明日|昨天|昨日/g, "")
-    .replace(/上午|下午|晚上|晚間|中午|凌晨/g, "")
-    .replace(/[0-9一二兩三四五六七八九十半]+點(半|\d{1,2})?(到|至|-|~)?[0-9一二兩三四五六七八九十半]*點?(半|\d{1,2})?/g, "")
-    .replace(/[0-9一二兩三四五六七八九十半]+(小時|h|H)/g, "")
-    .replace(/工時/g, "")
-    .trim();
+  const cleaned = extractAssistantDescription(text);
+  if (/開會|會議/.test(text) && !cleaned) return "會議";
   return cleaned || (entryType === "leave" ? "請假" : "工時紀錄");
+}
+
+function includesAny(text = "", words = []) {
+  const raw = String(text || "");
+  return words.some(word => raw.includes(word));
+}
+
+function stripAssistantSlots(raw = "") {
+  return String(raw || "")
+    .replace(/(\d{1,2})[/-](\d{1,2})/g, "")
+    .replace(/今天|今日|明天|明日|昨天|昨日|下星期|下週|下周|下禮拜|下礼拜/g, "")
+    .replace(/上午|下午|晚上|晚間|中午|凌晨/g, "")
+    .replace(/[0-9一二兩三四五六七八九十半]+點(半|\d{1,2})?\s*(到|至|-|~)\s*(上午|下午|晚上|晚間|中午|凌晨)?\s*[0-9一二兩三四五六七八九十半]+點?(半|\d{1,2})?/g, "")
+    .replace(/[0-9一二兩三四五六七八九十半]+點(半|\d{1,2})?/g, "")
+    .replace(/[0-9一二兩三四五六七八九十半]+(?:\.[0-9]+)?\s*(?:小時|h|H)/g, "")
+    .replace(/^(我|幫我|請幫我|麻煩|請|要|想要|需要|有|新增|建立|記錄|紀錄|補|提醒我|提醒)/g, "")
+    .replace(/(工時|一下|一筆|預計|大概|約|大約|的|了|有)/g, "")
+    .replace(/[，,。.!！?？]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractAssistantDescription(raw = "") {
+  const text = String(raw || "");
+  if (/開會/.test(text)) return "會議";
+  const cleaned = stripAssistantSlots(text);
+  return cleaned || "";
+}
+
+function parseAssistantSlots(raw = "") {
+  const dateKey = parseAssistantDate(raw);
+  const range = parseAssistantTimeRange(raw, dateKey);
+  const singleStart = parseAssistantSingleStart(raw, dateKey);
+  const duration = parseAssistantDuration(raw);
+  const entryType = entryTypeFromDescription(raw);
+  const description = assistantEntryTitle(raw, entryType);
+  return { dateKey, range, singleStart, duration, entryType, description };
+}
+
+function inferAssistantIntent(raw = "", slots = {}) {
+  const text = String(raw || "");
+  const hasTime = Boolean(slots.range || slots.singleStart);
+  const hasDuration = Boolean(slots.duration);
+  const isLeave = slots.entryType === "leave";
+  const taskWords = ["提醒我", "提醒", "待辦", "todo", "Todo", "建立待辦", "新增待辦"];
+  const unsupportedWords = ["股票", "投資", "基金", "ETF", "新聞", "天氣", "匯率", "餐廳", "旅遊"];
+  if (includesAny(text, unsupportedWords)) return "unknown";
+  if (isLeave) return "leave";
+  if (includesAny(text, taskWords)) return "task";
+  if (/新增.+案件|建立.+案件/.test(text) && !hasTime && !hasDuration) return "task";
+  if (/明天|明日|下星期|下週|下周|下禮拜|下礼拜/.test(text) && hasTime && !hasDuration && !/工時|補/.test(text)) return "calendar";
+  if (hasTime || hasDuration || includesAny(text, ["工時", "補", "記錄", "紀錄", "開會", "會議", "驗收", "寫程式", "拜訪", "處理", "整理", "請款", "採購", "教育訓練"])) return "worklog";
+  return "unknown";
 }
 
 function buildAssistantEntry(command = {}) {
@@ -1944,12 +1991,19 @@ function parseWorklogIntent(text = "") {
   if (/(本週|本周|這週|這周).*(工時|完成)|工時.*(本週|本周|這週|這周)/.test(raw)) return { type: "query_week" };
   if (/刪除|移除/.test(raw)) return { type: /最後|上一筆|剛剛/.test(raw) ? "delete_last" : "unsupported_delete" };
   if (/修改|改成|調整/.test(raw)) return { type: /最後|上一筆|剛剛/.test(raw) ? "update_last" : "unsupported_update", hours: parseAssistantDuration(raw) };
-  if (/(新增|記錄|紀錄|補|請假|特休|病假|事假|公假|婚假|喪假|補休|會議|工時|開會|教育訓練)/.test(raw)) {
-    const dateKey = parseAssistantDate(raw);
-    const range = parseAssistantTimeRange(raw, dateKey);
-    const singleStart = parseAssistantSingleStart(raw, dateKey);
-    const duration = parseAssistantDuration(raw);
-    const entryType = entryTypeFromDescription(raw);
+  const slots = parseAssistantSlots(raw);
+  const intent = inferAssistantIntent(raw, slots);
+  if (intent === "task") {
+    return { type: "task_draft", parsedCommand: { title: slots.description || stripAssistantSlots(raw) || "待辦", raw } };
+  }
+  if (intent === "calendar") {
+    const at = slots.range?.at || slots.singleStart || `${slots.dateKey}T09:00`;
+    const parsedCommand = assistantCommandFromParts({ raw, dateKey: slots.dateKey, at, hours: slots.range?.hours || slots.duration || 0, entryType: "work" });
+    if (!parsedCommand.hours) return { type: "calendar_need_duration", parsedCommand };
+    return { type: "calendar_draft", parsedCommand, entryPayload: assistantConfirmationPayload(parsedCommand) };
+  }
+  if (intent === "worklog" || intent === "leave") {
+    const { dateKey, range, singleStart, duration, entryType } = slots;
     if (range) {
       const parsedCommand = assistantCommandFromParts({ raw, dateKey, at: range.at, hours: range.hours, entryType });
       return { type: "confirm_add_entry", parsedCommand, entryPayload: assistantConfirmationPayload(parsedCommand) };
@@ -2004,6 +2058,16 @@ async function executeWorklogCommand(intent) {
   if (intent.type === "need_duration") {
     setAssistantPendingCommand({ action: "add_entry_duration", command: intent.parsedCommand });
     return assistantResult("預計開多久？", { type: "duration_prompt", command: intent.parsedCommand });
+  }
+  if (intent.type === "calendar_need_duration") {
+    setAssistantPendingCommand({ action: "calendar_duration", command: intent.parsedCommand });
+    return assistantResult("預計開多久？", { type: "duration_prompt", command: intent.parsedCommand });
+  }
+  if (intent.type === "task_draft") {
+    return assistantResult("我先幫您整理成任務草稿：", { type: "task_draft", payload: intent.parsedCommand });
+  }
+  if (intent.type === "calendar_draft") {
+    return assistantResult("我先幫您整理成 Calendar 草稿：", { type: "calendar_draft", payload: assistantConfirmationPayload(intent.parsedCommand) });
   }
   if (intent.type === "confirm_add_entry") {
     const item = buildAssistantEntry(intent.parsedCommand);
@@ -2311,6 +2375,14 @@ function renderAssistantCard(card = null) {
   if (card.type === "entry_created") {
     const p = card.payload || {};
     return `<div class="assistant-command-card assistant-created-card"><div class="assistant-card-title">✅ 已建立工時</div><div class="assistant-card-grid"><span>描述</span><b>${escapeHtml(p.title || "")}</b><span>日期</span><b>${escapeHtml(p.date || "")}</b><span>時間</span><b>${escapeHtml(p.start || "")}–${escapeHtml(p.end || "")}</b><span>工時</span><b>${escapeHtml(String(p.hours || ""))}h</b></div></div>`;
+  }
+  if (card.type === "task_draft") {
+    const p = card.payload || {};
+    return `<div class="assistant-command-card"><div class="assistant-card-title">📝 任務草稿</div><div class="assistant-card-grid"><span>任務</span><b>${escapeHtml(p.title || "待辦")}</b><span>狀態</span><b>待建立正式任務功能</b></div></div>`;
+  }
+  if (card.type === "calendar_draft") {
+    const p = card.payload || {};
+    return `<div class="assistant-command-card"><div class="assistant-card-title">📅 Calendar 草稿</div><div class="assistant-card-grid"><span>日期</span><b>${escapeHtml(p.date || "")}</b><span>時間</span><b>${escapeHtml(p.start || "")}–${escapeHtml(p.end || "")}</b><span>內容</span><b>${escapeHtml(p.title || "")}</b><span>狀態</span><b>待建立 Calendar 寫入功能</b></div></div>`;
   }
   return "";
 }
@@ -2623,13 +2695,18 @@ function bindWorklogAssistant() {
     if (!pending?.command || !hoursValue) return toast("找不到待建立的工時");
     const parsedCommand = { ...pending.command, hours: hoursValue };
     const entryPayload = assistantConfirmationPayload(parsedCommand);
-    setAssistantPendingCommand({ action: "confirm_add_entry", command: parsedCommand });
     addConversationMessage("user", hoursValue === 0.5 ? "30m" : `${hoursValue}h`);
     const thinkingId = addAssistantThinkingMessage();
     render();
     await new Promise(resolve => setTimeout(resolve, 250));
     removeConversationMessage(thinkingId);
-    addConversationMessage("assistant", "請確認這筆工時：", { card: { type: "confirm_entry", payload: entryPayload } });
+    if (pending.action === "calendar_duration") {
+      clearAssistantPendingCommand();
+      addConversationMessage("assistant", "我先幫您整理成 Calendar 草稿：", { card: { type: "calendar_draft", payload: entryPayload } });
+    } else {
+      setAssistantPendingCommand({ action: "confirm_add_entry", command: parsedCommand });
+      addConversationMessage("assistant", "請確認這筆工時：", { card: { type: "confirm_entry", payload: entryPayload } });
+    }
     render();
   });
   document.querySelectorAll("[data-assistant-cancel-command]").forEach(button => button.onclick = () => {
