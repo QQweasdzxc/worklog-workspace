@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260711-0802";
+const BUILD_TIME = "20260711-0830";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const IS_EXTENSION_ENTRY = document.body?.classList.contains("extension");
@@ -1704,7 +1704,7 @@ function buildAssistantEntry(command = {}) {
     date: String(command.at || "").slice(0, 10),
     hours: command.hours,
     entryType: command.entryType || "work",
-    source: "assistant"
+    source: "manual"
   });
 }
 
@@ -1733,6 +1733,20 @@ function assistantConfirmationPayload(command = {}) {
 
 function assistantResult(text = "", card = null) {
   return card ? { text, card } : { text };
+}
+
+function assistantCommandErrorDebug({ input = "", parsedIntent = null, parsedCommand = null, entryPayload = null, error = null } = {}) {
+  return {
+    input,
+    parsedIntent,
+    parsedCommand,
+    entryPayload,
+    error,
+    code: error?.supabase?.code || error?.code || "",
+    message: error?.supabase?.message || error?.message || "",
+    details: error?.supabase?.details || error?.details || "",
+    hint: error?.supabase?.hint || error?.hint || ""
+  };
 }
 
 function parseWorklogIntent(text = "") {
@@ -2352,13 +2366,13 @@ function bindWorklogAssistant() {
       const response = await executeWorklogCommand(parsedIntent);
       addAssistantResult(response);
     } catch (error) {
-      console.error("WorkLog chatbot command failed", {
+      console.error("WorkLog chatbot command failed", assistantCommandErrorDebug({
         input: text,
         parsedIntent,
         parsedCommand: parsedIntent?.parsedCommand || null,
         entryPayload: parsedIntent?.entryPayload || null,
         error
-      });
+      }));
       addConversationMessage("assistant", `工時建立失敗：${error?.message || "未知錯誤"}`);
     }
     render();
@@ -2397,13 +2411,13 @@ function bindWorklogAssistant() {
       const response = await executeWorklogCommand({ type: "confirm_pending_entry", parsedCommand, entryPayload });
       addAssistantResult(response);
     } catch (error) {
-      console.error("WorkLog chatbot command failed", {
+      console.error("WorkLog chatbot command failed", assistantCommandErrorDebug({
         input: "assistant_confirm_entry",
         parsedIntent: { type: "confirm_pending_entry", parsedCommand, entryPayload },
         parsedCommand,
         entryPayload,
         error
-      });
+      }));
       addConversationMessage("assistant", `工時建立失敗：${error?.message || "未知錯誤"}`);
     }
     render();
