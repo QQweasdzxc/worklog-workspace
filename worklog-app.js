@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260711-1540";
+const BUILD_TIME = "20260711-2107";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const IS_EXTENSION_ENTRY = document.body?.classList.contains("extension");
@@ -46,6 +46,7 @@ let sidebarOpen = false;
 let mobileCalendarOpen = false;
 let conversationMessagesState = null;
 let conversationPendingState = undefined;
+let conversationRefreshTimer = null;
 const AI_REASON_QUEUE_SIZE = 5;
 
 const roles = ["採購", "行政", "人資", "業務", "行銷", "IT", "自訂"];
@@ -246,6 +247,7 @@ async function sha256Text(value) {
 }
 
 let cloudSync = readJson("wl_cloud_sync_status_v1", { status: "idle", lastSyncedAt: "", error: "" });
+let conversationSync = readJson("zhuge_conversation_sync_status_v1", { status: "unknown", lastSyncedAt: "", error: "" });
 let dataServiceReady = false;
 let dataServiceHydrating = false;
 let dataServiceSyncing = false;
@@ -258,6 +260,12 @@ let migrationRequired = false;
 let migrationPreview = null;
 let migrationRunning = false;
 let migrationError = "";
+
+function setConversationSyncStatus(status, error = "") {
+  conversationSync = { status, error, lastSyncedAt: status === "synced" ? new Date().toISOString() : conversationSync.lastSyncedAt || "" };
+  writeJson("zhuge_conversation_sync_status_v1", conversationSync);
+  refreshCloudSyncStatusDisplay();
+}
 
 const LocalCache = {
   load(name, fallback) { return readJson(cacheKey(name), fallback); },
@@ -707,14 +715,17 @@ const DataService = {
   },
   async loadConversation() {
     if (!hasGoogleOAuthSession() || migrationRequired || migrationRunning) return null;
+    setConversationSyncStatus("syncing");
     try {
       const bundle = await ConversationRepository.load();
       conversationFoundationNotInitialized = false;
       applyCloudConversation(bundle);
+      setConversationSyncStatus("synced");
       return bundle;
     } catch (error) {
       if (isConversationNotInitializedError(error)) {
         conversationFoundationNotInitialized = true;
+        setConversationSyncStatus("uninitialized", "Conversation 尚未初始化，聊天目前僅儲存在此瀏覽器。");
         console.warn("Conversation Foundation not initialized", {
           tables: ["assistant_conversations", "assistant_messages", "assistant_conversation_states"],
           setupSql: "docs/supabase/20260711_p4_1_conversation_foundation_schema.sql",
@@ -722,45 +733,85 @@ const DataService = {
         });
         return null;
       }
+      setConversationSyncStatus("failed", error?.supabase?.message || error?.message || "Conversation load failed");
       console.error("Conversation load failed", { error, supabase: error.supabase || null });
       return null;
     }
   },
   async saveConversationMessage(message = {}) {
     if (!hasGoogleOAuthSession() || dataServiceHydrating || migrationRequired || migrationRunning) return null;
+    setConversationSyncStatus("pending");
     try {
       const saved = await ConversationRepository.saveMessage(message, assistantChannel());
       conversationFoundationNotInitialized = false;
+      setConversationSyncStatus("synced");
+      console.info("Conversation message synced", {
+        user_uuid: currentUserUuid(),
+        conversation_id: saved?.conversation_id || "",
+        client_message_id: message.id || "",
+        channel: assistantChannel(),
+        role: message.role || ""
+      });
       return saved;
     } catch (error) {
       if (isConversationNotInitializedError(error)) {
         conversationFoundationNotInitialized = true;
+        setConversationSyncStatus("uninitialized", "Conversation 尚未初始化，聊天目前僅儲存在此瀏覽器。");
         console.warn("Conversation message saved locally; Conversation Foundation not initialized", {
           setupSql: "docs/supabase/20260711_p4_1_conversation_foundation_schema.sql",
           error
         });
         return null;
       }
-      console.error("Conversation message sync failed", { error, supabase: error.supabase || null, message });
+      setConversationSyncStatus("failed", error?.supabase?.message || error?.message || "Conversation message sync failed");
+      console.error("Conversation message sync failed", {
+        user_uuid: currentUserUuid(),
+        conversation_id: "",
+        client_message_id: message.id || "",
+        channel: assistantChannel(),
+        role: message.role || "",
+        status: error?.supabase?.status || "",
+        code: error?.supabase?.code || error?.code || "",
+        message: error?.supabase?.message || error?.message || "",
+        details: error?.supabase?.details || error?.details || "",
+        hint: error?.supabase?.hint || error?.hint || "",
+        error,
+        supabase: error.supabase || null
+      });
       return null;
     }
   },
   async saveConversationState(command = null) {
     if (!hasGoogleOAuthSession() || dataServiceHydrating || migrationRequired || migrationRunning) return null;
+    setConversationSyncStatus("pending");
     try {
       const saved = await ConversationRepository.saveState(command, assistantChannel());
       conversationFoundationNotInitialized = false;
+      setConversationSyncStatus("synced");
       return saved;
     } catch (error) {
       if (isConversationNotInitializedError(error)) {
         conversationFoundationNotInitialized = true;
+        setConversationSyncStatus("uninitialized", "Conversation 尚未初始化，聊天目前僅儲存在此瀏覽器。");
         console.warn("Conversation state saved locally; Conversation Foundation not initialized", {
           setupSql: "docs/supabase/20260711_p4_1_conversation_foundation_schema.sql",
           error
         });
         return null;
       }
-      console.error("Conversation state sync failed", { error, supabase: error.supabase || null, command });
+      setConversationSyncStatus("failed", error?.supabase?.message || error?.message || "Conversation state sync failed");
+      console.error("Conversation state sync failed", {
+        user_uuid: currentUserUuid(),
+        channel: assistantChannel(),
+        status: error?.supabase?.status || "",
+        code: error?.supabase?.code || error?.code || "",
+        message: error?.supabase?.message || error?.message || "",
+        details: error?.supabase?.details || error?.details || "",
+        hint: error?.supabase?.hint || error?.hint || "",
+        error,
+        supabase: error.supabase || null,
+        command
+      });
       return null;
     }
   },
@@ -1580,10 +1631,28 @@ function cloudSyncDetail() {
   return `最後同步：${fmt(cloudSync.lastSyncedAt)}`;
 }
 
+function conversationSyncLabel() {
+  if (conversationSync.status === "synced") return "💬 Conversation 已同步";
+  if (conversationSync.status === "syncing") return "💬 Conversation 同步中";
+  if (conversationSync.status === "pending") return "💬 Conversation 等待同步";
+  if (conversationSync.status === "uninitialized") return "💬 Conversation 尚未初始化";
+  if (conversationSync.status === "failed") return "💬 Conversation 同步失敗";
+  return "💬 Conversation 尚未同步";
+}
+
+function conversationSyncDetail() {
+  if (conversationSync.status === "uninitialized") return "聊天目前僅儲存在此瀏覽器";
+  if (conversationSync.status === "failed") return conversationSync.error || "請檢查 Conversation Cloud";
+  if (conversationSync.status === "pending") return "等待寫入 Supabase";
+  if (conversationSync.status === "syncing") return "正在讀取 / 寫入 Conversation";
+  if (!conversationSync.lastSyncedAt) return "等待 Conversation Cloud";
+  return `最後同步：${fmt(conversationSync.lastSyncedAt)}`;
+}
+
 function refreshCloudSyncStatusDisplay() {
   const box = document.getElementById("developerCloudSyncStatus");
   if (!box) return;
-  box.innerHTML = `<div>${escapeHtml(cloudSyncLabel())}</div><div>${escapeHtml(cloudSyncDetail())}</div>`;
+  box.innerHTML = `<div>${escapeHtml(cloudSyncLabel())}</div><div>${escapeHtml(cloudSyncDetail())}</div><div>${escapeHtml(conversationSyncLabel())}</div><div>${escapeHtml(conversationSyncDetail())}</div>`;
 }
 
 function isKnowledgeNotInitializedError(error) {
@@ -1759,24 +1828,41 @@ function messageFromCloud(row = {}) {
     role: row.role || "assistant",
     text: row.content || "",
     at: row.created_at || new Date().toISOString(),
-    card: row.card || null
+    card: row.card || null,
+    syncStatus: "synced"
   };
 }
 
 function applyCloudConversation(bundle = {}) {
   const rows = Array.isArray(bundle.messages) ? bundle.messages : [];
-  saveConversationMessages(rows.map(messageFromCloud));
+  const cloudMessages = rows.map(messageFromCloud);
+  const cloudIds = new Set(cloudMessages.map(msg => msg.id));
+  const localMessages = Array.isArray(conversationMessagesState) ? conversationMessagesState : readJson(conversationKey(), []);
+  const pendingLocal = (Array.isArray(localMessages) ? localMessages : [])
+    .filter(msg => ["pending_sync", "failed"].includes(msg?.syncStatus) && !cloudIds.has(msg.id));
+  saveConversationMessages([...cloudMessages, ...pendingLocal].sort((a, b) => new Date(a.at || 0) - new Date(b.at || 0)));
   conversationPendingState = bundle.state?.pending_action || null;
   if (conversationPendingState) writeJson(conversationPendingKey(), conversationPendingState);
   else localStorage.removeItem(conversationPendingKey());
 }
 
+function markConversationMessageSyncStatus(id, syncStatus) {
+  if (!id) return;
+  const next = conversationMessages().map(msg => msg.id === id ? { ...msg, syncStatus } : msg);
+  saveConversationMessages(next);
+}
+
 function addConversationMessage(role, text, meta = {}) {
   const messages = conversationMessages();
-  const message = { id: uid("msg"), role, text: String(text || ""), at: new Date().toISOString(), ...meta };
+  const message = { id: uid("msg"), role, text: String(text || ""), at: new Date().toISOString(), syncStatus: "pending_sync", ...meta };
   messages.push(message);
   saveConversationMessages(messages);
-  DataService.saveConversationMessage(message).catch(error => console.warn("Conversation message cloud sync deferred", { error, supabase: error.supabase || null }));
+  DataService.saveConversationMessage(message)
+    .then(saved => markConversationMessageSyncStatus(message.id, saved ? "synced" : "failed"))
+    .catch(error => {
+      markConversationMessageSyncStatus(message.id, "failed");
+      console.warn("Conversation message cloud sync deferred", { error, supabase: error.supabase || null });
+    });
 }
 
 function removeConversationMessage(id) {
@@ -1812,18 +1898,27 @@ function setAssistantPendingCommand(command = null) {
   if (!command) {
     conversationPendingState = null;
     localStorage.removeItem(conversationPendingKey());
-    DataService.saveConversationState(null).catch(error => console.warn("Conversation state cloud sync deferred", { error, supabase: error.supabase || null }));
-    return;
+    return DataService.saveConversationState(null).catch(error => console.warn("Conversation state cloud sync deferred", { error, supabase: error.supabase || null }));
   }
   conversationPendingState = command;
   writeJson(conversationPendingKey(), command);
-  DataService.saveConversationState(command).catch(error => console.warn("Conversation state cloud sync deferred", { error, supabase: error.supabase || null }));
+  return DataService.saveConversationState(command).catch(error => console.warn("Conversation state cloud sync deferred", { error, supabase: error.supabase || null }));
 }
 
 function clearAssistantPendingCommand() {
   conversationPendingState = null;
   localStorage.removeItem(conversationPendingKey());
-  DataService.saveConversationState(null).catch(error => console.warn("Conversation state cloud sync deferred", { error, supabase: error.supabase || null }));
+  return DataService.saveConversationState(null).catch(error => console.warn("Conversation state cloud sync deferred", { error, supabase: error.supabase || null }));
+}
+
+function refreshConversationFromCloud(renderAfter = true) {
+  if (!hasGoogleOAuthSession() || migrationRequired || migrationRunning) return;
+  if (conversationRefreshTimer) clearTimeout(conversationRefreshTimer);
+  conversationRefreshTimer = setTimeout(() => {
+    DataService.loadConversation().finally(() => {
+      if (renderAfter && (isAssistantOpen() || IS_EXTENSION_ENTRY)) render();
+    });
+  }, 150);
 }
 
 const chineseNumberMap = { "零": 0, "一": 1, "二": 2, "兩": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10 };
@@ -2088,32 +2183,32 @@ async function executeWorklogCommand(intent) {
   if (intent.type === "unsupported_delete") return assistantResult("刪除工時目前請指定「刪除最後一筆」，或先到我的工作列表操作。");
   if (intent.type === "unsupported_update") return assistantResult("修改工時目前請指定「修改最後一筆為 X 小時」，或先到我的工作列表操作。");
   if (intent.type === "need_duration") {
-    setAssistantPendingCommand({ action: "add_entry_duration", command: intent.parsedCommand });
+    await setAssistantPendingCommand({ action: "add_entry_duration", command: intent.parsedCommand });
     return assistantResult("預計開多久？", { type: "duration_prompt", command: intent.parsedCommand });
   }
   if (intent.type === "calendar_need_duration") {
-    setAssistantPendingCommand({ action: "calendar_duration", command: intent.parsedCommand });
+    await setAssistantPendingCommand({ action: "calendar_duration", command: intent.parsedCommand });
     return assistantResult("我已整理成 Calendar 草稿。請問預計多久？", { type: "duration_prompt", command: intent.parsedCommand });
   }
   if (intent.type === "task_draft") {
     return assistantResult("我先幫您整理成任務草稿：", { type: "task_draft", payload: intent.parsedCommand });
   }
   if (intent.type === "confirm_calendar") {
-    setAssistantPendingCommand({ action: "confirm_calendar", command: intent.parsedCommand });
+    await setAssistantPendingCommand({ action: "confirm_calendar", command: intent.parsedCommand });
     return assistantResult("請確認建立 Calendar：", { type: "confirm_calendar", payload: assistantConfirmationPayload(intent.parsedCommand) });
   }
   if (intent.type === "confirm_pending_calendar") {
-    clearAssistantPendingCommand();
+    await clearAssistantPendingCommand();
     const payload = assistantConfirmationPayload(intent.parsedCommand);
     if (isWorkNatureCalendar(intent.parsedCommand)) {
-      setAssistantPendingCommand({ action: "calendar_worklog_offer", command: intent.parsedCommand });
+      await setAssistantPendingCommand({ action: "calendar_worklog_offer", command: intent.parsedCommand });
       return assistantResult("Calendar 已建立。這看起來也可能是工作相關事件，是否同步建立工時？", { type: "calendar_created", payload, offerWorklog: true });
     }
     return assistantResult("Calendar 已建立。", { type: "calendar_created", payload });
   }
   if (intent.type === "create_worklog_from_calendar") {
     const result = await saveAssistantEntry(intent.parsedCommand);
-    clearAssistantPendingCommand();
+    await clearAssistantPendingCommand();
     if (result.cancelled) return assistantResult("已取消儲存工時。");
     return assistantResult("已同步建立工時。", { type: "entry_created", payload: assistantConfirmationPayload(result.item) });
   }
@@ -2121,12 +2216,12 @@ async function executeWorklogCommand(intent) {
     const item = buildAssistantEntry(intent.parsedCommand);
     const error = validateEntry(item);
     if (error) throw new Error(error);
-    setAssistantPendingCommand({ action: "confirm_add_entry", command: intent.parsedCommand });
+    await setAssistantPendingCommand({ action: "confirm_add_entry", command: intent.parsedCommand });
     return assistantResult("請確認這筆工時：", { type: "confirm_entry", payload: assistantConfirmationPayload(intent.parsedCommand) });
   }
   if (intent.type === "confirm_pending_entry") {
     const result = await saveAssistantEntry(intent.parsedCommand);
-    clearAssistantPendingCommand();
+    await clearAssistantPendingCommand();
     if (result.cancelled) return assistantResult("已取消儲存。");
     return assistantResult("還需要新增其他工時嗎？", { type: "entry_created", payload: assistantConfirmationPayload(result.item) });
   }
@@ -2223,7 +2318,7 @@ function sidebarSection(title, group) {
 
 function osSidebar() {
   const checked = new Date().toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false });
-  return `<aside class="os-sidebar"><button class="mini sidebar-close" data-close-sidebar="1">×</button>${agentStatusPanel()}${sidebarSection("🏕️ 營帳", "camp")}${sidebarSection("⚙️ 系統", "system")}<div class="developer-build-info"><div id="developerCloudSyncStatus" data-retry-cloud-sync="1"><div>${escapeHtml(cloudSyncLabel())}</div><div>${escapeHtml(cloudSyncDetail())}</div></div><div>${RELEASE_VERSION}</div><div>Build ${BUILD_TIME}</div><div>GitHub Pages：最後檢查 ${checked}</div><div>Source：${DEPLOY_SOURCE}</div></div></aside>`;
+  return `<aside class="os-sidebar"><button class="mini sidebar-close" data-close-sidebar="1">×</button>${agentStatusPanel()}${sidebarSection("🏕️ 營帳", "camp")}${sidebarSection("⚙️ 系統", "system")}<div class="developer-build-info"><div id="developerCloudSyncStatus" data-retry-cloud-sync="1"><div>${escapeHtml(cloudSyncLabel())}</div><div>${escapeHtml(cloudSyncDetail())}</div><div>${escapeHtml(conversationSyncLabel())}</div><div>${escapeHtml(conversationSyncDetail())}</div></div><div>${RELEASE_VERSION}</div><div>Build ${BUILD_TIME}</div><div>GitHub Pages：最後檢查 ${checked}</div><div>Source：${DEPLOY_SOURCE}</div></div></aside>`;
 }
 
 function workspaceTabs() {
@@ -2468,7 +2563,10 @@ function worklogAssistantPanel(mode = "web") {
   const title = mode === "floating" ? "👤 諸葛先生" : "👤 諸葛工時助手";
   const modeClass = mode === "extension" ? "extension-assistant" : (mode === "floating" ? "floating-assistant" : "assistant-module");
   const close = mode === "floating" ? `<button class="mini" type="button" data-close-assistant="1">×</button>` : "";
-  return `<section class="panel assistant-panel ${modeClass}"><div class="panel-head"><div><h2>${title}</h2>${intro}</div>${close}</div><div class="assistant-thread" id="assistantThread">${messages.map(renderAssistantMessage).join("")}</div><div class="assistant-input-row"><input class="input" id="assistantInput" placeholder="例如：今天下午三點到四點開會"><button class="btn" id="assistantSend" type="button">送出</button></div>${mode === "extension" ? `<a class="btn full assistant-web-link" href="${WEB_APP_URL}" target="_blank" rel="noopener">🖥 開啟 ZhuGe AI OS</a>` : ""}</section>`;
+  const statusNotice = conversationSync.status === "uninitialized"
+    ? `<div class="assistant-sync-warning">Conversation 尚未初始化，聊天目前僅儲存在此瀏覽器。</div>`
+    : (conversationSync.status === "failed" ? `<div class="assistant-sync-warning">Conversation 同步失敗：${escapeHtml(conversationSync.error || "請稍後再試")}</div>` : "");
+  return `<section class="panel assistant-panel ${modeClass}"><div class="panel-head"><div><h2>${title}</h2>${intro}</div>${close}</div>${statusNotice}<div class="assistant-thread" id="assistantThread">${messages.map(renderAssistantMessage).join("")}</div><div class="assistant-input-row"><input class="input" id="assistantInput" placeholder="例如：今天下午三點到四點開會"><button class="btn" id="assistantSend" type="button">送出</button></div>${mode === "extension" ? `<a class="btn full assistant-web-link" href="${WEB_APP_URL}" target="_blank" rel="noopener">🖥 開啟 ZhuGe AI OS</a>` : ""}</section>`;
 }
 
 function extensionAssistantScreen() {
@@ -2692,7 +2790,7 @@ function bindWorklogWelcome() {
 function bindWorklogAssistant() {
   document.querySelectorAll("[data-open-assistant]").forEach(button => button.onclick = () => {
     localStorage.setItem(assistantOpenKey(), "1");
-    DataService.loadConversation().finally(() => render());
+    refreshConversationFromCloud(true);
   });
   document.querySelectorAll("[data-close-assistant]").forEach(button => button.onclick = () => {
     localStorage.setItem(assistantOpenKey(), "0");
@@ -2757,10 +2855,10 @@ function bindWorklogAssistant() {
     await new Promise(resolve => setTimeout(resolve, 250));
     removeConversationMessage(thinkingId);
     if (pending.action === "calendar_duration") {
-      setAssistantPendingCommand({ action: "confirm_calendar", command: parsedCommand });
+      await setAssistantPendingCommand({ action: "confirm_calendar", command: parsedCommand });
       addConversationMessage("assistant", "請確認建立 Calendar：", { card: { type: "confirm_calendar", payload: entryPayload } });
     } else {
-      setAssistantPendingCommand({ action: "confirm_add_entry", command: parsedCommand });
+      await setAssistantPendingCommand({ action: "confirm_add_entry", command: parsedCommand });
       addConversationMessage("assistant", "請確認這筆工時：", { card: { type: "confirm_entry", payload: entryPayload } });
     }
     render();
@@ -3558,6 +3656,12 @@ async function boot() {
 }
 
 boot();
+
+window.addEventListener("focus", () => refreshConversationFromCloud(true));
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") refreshConversationFromCloud(true);
+});
+window.addEventListener("pageshow", () => refreshConversationFromCloud(true));
 
 window.addEventListener("beforeunload", event => {
   if (autoSaveInFlight || autoSaveDirtyScopes.size || cloudSync.status === "syncing" || cloudSync.status === "pending") {
