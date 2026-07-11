@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260712-0734";
+const BUILD_TIME = "20260712-0748";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const IS_EXTENSION_ENTRY = document.body?.classList.contains("extension");
@@ -2023,7 +2023,90 @@ function parseAssistantVagueStart(text = "", dateKey = key()) {
 }
 
 function assistantFallbackText() {
-  return "目前我主要協助您管理工時、任務與 Calendar，其他能力仍持續學習中。";
+  return assistantUnknownResponse();
+}
+
+function pickAssistantResponse(pool = []) {
+  if (!pool.length) return "";
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+const assistantSuggestionPool = [
+  "您也可以直接說：\n「今天下午兩點到四點開會」\n「明天下午三點面試」\n「今天請半天特休」",
+  "如果要開始，我可以協助您建立：工時、Calendar 或任務。",
+  "您可以用自然語言告訴我，例如：昨天補兩小時教育訓練。"
+];
+
+const assistantGreetingPool = [
+  "👋 您好！\n\n今天想完成什麼？\n\n我目前可以協助您：\n• 工時\n• Calendar\n• 任務",
+  "您好，我是諸葛先生。\n\n今天需要先建立工時、安排 Calendar，還是整理一個任務？",
+  "👋 您好。\n\n可以直接告訴我今天要記錄的工作，例如：今天下午三點到四點開會。"
+];
+
+const assistantMorningPool = [
+  "☀️ 早安！\n\n今天有安排會議嗎？還是先建立今天第一筆工時？",
+  "早安。\n\n我可以先協助您建立工時、Calendar 或任務。"
+];
+
+const assistantNightPool = [
+  "🌙 晚安。\n\n如果今天還有工時沒記錄，明天也可以再找我補登。",
+  "晚安。\n\n今天辛苦了。若還有工時或請假要補登，之後直接告訴我即可。"
+];
+
+const assistantThanksPool = [
+  "😊 不客氣！\n\n今天還有需要我幫忙建立工時或安排 Calendar 嗎？",
+  "不客氣。\n\n如果還有工時、Calendar 或任務，也可以直接告訴我。"
+];
+
+const assistantGoodbyePool = [
+  "好的，我在這裡。\n\n需要補登工時或安排 Calendar 時，再直接找我。",
+  "收到。祝您工作順利。"
+];
+
+const assistantUnknownPool = [
+  "😊 目前我還無法處理這類問題。\n\n不過如果今天有：\n• 工時記錄\n• Calendar 安排\n• 任務整理\n\n我可以協助您完成。",
+  "這部分我目前還在學習中。\n\n現在我主要協助您管理工時、任務與 Calendar。今天有工作需要我幫忙記錄嗎？",
+  "目前我主要協助您處理工時、任務與 Calendar。\n\n如果這件事需要記錄成工時，例如投資研究、開會或教育訓練，我可以幫您建立。"
+];
+
+function assistantWithSuggestion(text = "") {
+  return `${text}\n\n${pickAssistantResponse(assistantSuggestionPool)}`;
+}
+
+function assistantUnknownResponse() {
+  return assistantWithSuggestion(pickAssistantResponse(assistantUnknownPool));
+}
+
+function parseConversationIntent(text = "") {
+  const raw = String(text || "").trim();
+  if (!raw) return null;
+  if (/^(早安|早|早上好)(啊|呀|喔|哦|！|!|。)?$/i.test(raw)) return { type: "greeting", subtype: "morning" };
+  if (/^(晚安|晚上好)(啊|呀|喔|哦|！|!|。)?$/i.test(raw)) return { type: "greeting", subtype: "night" };
+  if (/^(你好|您好|哈囉|嗨|hi|hello|hey)(啊|呀|喔|哦|！|!|。)?$/i.test(raw)) return { type: "greeting", subtype: "hello" };
+  if (/^(謝謝|感謝|thanks|thank you|thx)(你|您)?(啦|喔|哦|！|!|。)?$/i.test(raw)) return { type: "thanks" };
+  if (/^(掰掰|拜拜|再見|bye|goodbye)(啦|喔|哦|！|!|。)?$/i.test(raw)) return { type: "goodbye" };
+  if (/^(收到|ok|okay|好的|好|嗯|了解|知道了)(啦|喔|哦|！|!|。)?$/i.test(raw)) return { type: "ack" };
+  return null;
+}
+
+function executeConversationIntent(intent = null) {
+  if (!intent) return null;
+  if (intent.type === "greeting" && intent.subtype === "morning") return assistantResult(assistantWithSuggestion(pickAssistantResponse(assistantMorningPool)));
+  if (intent.type === "greeting" && intent.subtype === "night") return assistantResult(pickAssistantResponse(assistantNightPool));
+  if (intent.type === "greeting") return assistantResult(assistantWithSuggestion(pickAssistantResponse(assistantGreetingPool)));
+  if (intent.type === "thanks") return assistantResult(pickAssistantResponse(assistantThanksPool));
+  if (intent.type === "goodbye") return assistantResult(pickAssistantResponse(assistantGoodbyePool));
+  if (intent.type === "ack") return assistantResult(assistantWithSuggestion("收到。"));
+  return null;
+}
+
+function pendingConversationGuidance(pending = null) {
+  if (!pending) return "";
+  if (isDurationPending(pending)) return "這筆草稿還缺少時間長度。您可以直接回覆：30m、1h、1.5h、2h，或輸入自訂時間。";
+  if (pending.action === "confirm_add_entry") return "目前有一筆工時等待確認。您可以按「確認建立」，或按「取消」重新開始。";
+  if (pending.action === "confirm_calendar") return "目前有一筆 Calendar 等待確認。您可以按「確認建立」，或按「取消」重新開始。";
+  if (pending.action === "calendar_worklog_offer") return "Calendar 已建立，正在等待您決定是否同步建立工時。";
+  return "目前有一個尚未完成的動作，請先確認或取消後再繼續。";
 }
 
 function assistantEntryTitle(raw = "", entryType = "work") {
@@ -2655,6 +2738,9 @@ function suggestionPanel() {
 
 function renderAssistantCard(card = null) {
   if (!card) return "";
+  if (card.type === "quick_suggestions") {
+    return `<div class="assistant-command-card assistant-quick-card"><div class="assistant-card-title">可以從這裡開始</div><div class="assistant-quick-row"><button class="btn2" type="button" data-assistant-quick="worklog">💼 建立工時</button><button class="btn2" type="button" data-assistant-quick="calendar">📅 建立 Calendar</button><button class="btn2" type="button" data-assistant-quick="task">✅ 建立任務</button></div></div>`;
+  }
   if (card.type === "confirm_entry") {
     const p = card.payload || {};
     return `<div class="assistant-command-card"><div class="assistant-card-title">請確認這筆工時</div><div class="assistant-card-grid"><span>日期</span><b>${escapeHtml(p.date || "")}</b><span>時間</span><b>${escapeHtml(p.start || "")}–${escapeHtml(p.end || "")}</b><span>工時</span><b>${escapeHtml(String(p.hours || ""))}h</b><span>描述</span><b>${escapeHtml(p.title || "")}</b></div><div class="assistant-card-actions"><button class="btn green" type="button" data-assistant-confirm-entry="1">確認建立</button><button class="btn2" type="button" data-assistant-cancel-command="1">取消</button></div></div>`;
@@ -2706,6 +2792,12 @@ function assistantWelcomePanel(mode = "floating") {
 
 function worklogAssistantPanel(mode = "web") {
   const messages = conversationMessages();
+  const visibleMessages = messages.filter(msg => !msg.transient);
+  const starter = !visibleMessages.length ? renderAssistantMessage({
+    role: "assistant",
+    text: "您好，我是諸葛先生。\n\n今天想完成什麼？",
+    card: { type: "quick_suggestions" }
+  }) : "";
   const intro = mode === "extension"
     ? `<div class="muted">您可以直接告訴我：今天下午三點到四點開會、明天下午請特休、今天補一小時工時。</div>`
     : `<div class="muted">今天想完成什麼？</div>`;
@@ -2727,7 +2819,7 @@ function worklogAssistantPanel(mode = "web") {
   const statusNotice = conversationSync.status === "uninitialized"
     ? `<div class="assistant-sync-warning">Conversation 尚未初始化，聊天目前僅儲存在此瀏覽器。</div>`
     : (conversationSync.status === "failed" ? `<div class="assistant-sync-warning">Conversation 同步失敗：${escapeHtml(conversationSync.error || "請稍後再試")}</div>` : "");
-  return `<section class="panel assistant-panel ${modeClass}"><div class="panel-head assistant-chat-head"><div><h2>${title}</h2>${intro}</div>${headerActions}</div>${statusNotice}<div class="assistant-thread" id="assistantThread">${messages.map(renderAssistantMessage).join("")}</div><div class="assistant-input-row chat-composer"><textarea class="input" id="assistantInput" rows="1" placeholder="例如：今天下午三點到四點開會"></textarea><button class="assistant-send" id="assistantSend" type="button" disabled title="送出" aria-label="送出">➤</button></div></section>`;
+  return `<section class="panel assistant-panel ${modeClass}"><div class="panel-head assistant-chat-head"><div><h2>${title}</h2>${intro}</div>${headerActions}</div>${statusNotice}<div class="assistant-thread" id="assistantThread">${starter}${messages.map(renderAssistantMessage).join("")}</div><div class="assistant-input-row chat-composer"><textarea class="input" id="assistantInput" rows="1" placeholder="例如：今天下午三點到四點開會"></textarea><button class="assistant-send" id="assistantSend" type="button" disabled title="送出" aria-label="送出">➤</button></div></section>`;
 }
 
 function extensionAssistantScreen() {
@@ -3031,6 +3123,22 @@ function bindWorklogAssistant() {
         render();
         return;
       }
+      const conversationIntent = parseConversationIntent(text);
+      if (pending && conversationIntent) {
+        removeConversationMessage(thinkingId);
+        addAssistantResult(pendingConversationGuidance(pending));
+        render();
+        return;
+      }
+      if (!pending && conversationIntent) {
+        const conversationResponse = executeConversationIntent(conversationIntent);
+        if (conversationResponse) {
+          removeConversationMessage(thinkingId);
+          addAssistantResult(conversationResponse);
+          render();
+          return;
+        }
+      }
       parsedIntent = await parseWorklogIntent(text);
       const response = await executeWorklogCommand(parsedIntent);
       removeConversationMessage(thinkingId);
@@ -3062,6 +3170,28 @@ function bindWorklogAssistant() {
   document.querySelectorAll("[data-assistant-custom-duration]").forEach(button => button.onclick = () => {
     input.placeholder = "請輸入工時，例如：一個半小時、1.5h、半天";
     input.focus();
+  });
+  document.querySelectorAll("[data-assistant-quick]").forEach(button => button.onclick = () => {
+    const kind = button.dataset.assistantQuick || "";
+    const map = {
+      worklog: {
+        user: "建立工時",
+        assistant: "可以。請直接告訴我日期、時間與工作內容，例如：今天下午兩點到四點開會。"
+      },
+      calendar: {
+        user: "建立 Calendar",
+        assistant: "可以。請告訴我日期、時間與事件內容，例如：明天下午三點面試。"
+      },
+      task: {
+        user: "建立任務",
+        assistant: "可以。請告訴我要提醒或整理的任務，例如：提醒我寄採購資料。"
+      }
+    };
+    const item = map[kind];
+    if (!item) return;
+    addConversationMessage("user", item.user);
+    addConversationMessage("assistant", item.assistant);
+    render();
   });
   document.querySelectorAll("[data-assistant-cancel-command]").forEach(button => button.onclick = () => {
     clearAssistantPendingCommand();
