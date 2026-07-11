@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260711-0830";
+const BUILD_TIME = "20260711-1304";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const IS_EXTENSION_ENTRY = document.body?.classList.contains("extension");
@@ -11,6 +11,8 @@ const AI_OS_SESSION_KEY = "zhuge_ai_os_session_v1";
 const WORKLOG_WELCOME_KEY = "zhuge_worklog_welcome_seen_v1";
 const WORKLOG_CHAT_KEY = "zhuge_worklog_chat_v1";
 const WORKLOG_CHAT_PENDING_KEY = "zhuge_worklog_chat_pending_v1";
+const ZHUGE_ASSISTANT_WELCOME_KEY = "zhuge_assistant_welcome_seen_v1";
+const ZHUGE_ASSISTANT_OPEN_KEY = "zhuge_assistant_open_v1";
 const ACTIVE_MODULE_KEY = "zhuge_active_module_v1";
 const OS_OPEN_TABS_KEY = "zhuge_os_open_tabs_v1";
 const OS_ACTIVE_WORKSPACE_KEY = "zhuge_os_active_workspace_v1";
@@ -1579,6 +1581,22 @@ function conversationPendingKey() {
   return scopedLocalKey(WORKLOG_CHAT_PENDING_KEY);
 }
 
+function assistantWelcomeKey() {
+  return scopedLocalKey(ZHUGE_ASSISTANT_WELCOME_KEY);
+}
+
+function assistantOpenKey() {
+  return scopedLocalKey(ZHUGE_ASSISTANT_OPEN_KEY);
+}
+
+function isAssistantOpen() {
+  return localStorage.getItem(assistantOpenKey()) === "1";
+}
+
+function hasSeenAssistantWelcome() {
+  return localStorage.getItem(assistantWelcomeKey()) === "1";
+}
+
 function conversationMessages() {
   const messages = readJson(conversationKey(), []);
   return Array.isArray(messages) && messages.length ? messages : [assistantGreeting()];
@@ -1951,7 +1969,7 @@ function workspaceContent() {
 
 function osShell() {
   normalizeWorkspaceState();
-  return `<div class="os-shell ${sidebarOpen ? "sidebar-open" : ""}"><div class="os-topbar">${header()}</div><div class="os-body">${osSidebar()}<div class="sidebar-backdrop" data-close-sidebar="1"></div><main class="os-main">${workspaceTabs()}<div class="workspace-canvas">${workspaceContent()}</div></main></div></div>`;
+  return `<div class="os-shell ${sidebarOpen ? "sidebar-open" : ""}"><div class="os-topbar">${header()}</div><div class="os-body">${osSidebar()}<div class="sidebar-backdrop" data-close-sidebar="1"></div><main class="os-main">${workspaceTabs()}<div class="workspace-canvas">${workspaceContent()}</div></main></div>${floatingAssistantWidget()}</div>`;
 }
 
 function onboardingWorkspace() {
@@ -2128,20 +2146,42 @@ function renderAssistantMessage(msg = {}) {
   return `<div class="assistant-msg ${roleClass}">${escapeHtml(msg.text)}${renderAssistantCard(msg.card)}</div>`;
 }
 
+function assistantNudgeText() {
+  const done = profile ? hours(entriesForDate(new Date())) : 0;
+  const remaining = Math.max(0, Math.round((8 - done) * 10) / 10);
+  if (!profile) return "💬 諸葛先生";
+  if (remaining <= 0) return "💬 今天工時已完成 ✅";
+  return `💬 今天還有 ${remaining}h 尚未紀錄`;
+}
+
+function assistantWelcomePanel(mode = "floating") {
+  return `<section class="panel assistant-panel ${mode === "extension" ? "extension-assistant" : "floating-assistant"}"><div class="assistant-welcome"><h2>歡迎來到 ZhuGe AI OS</h2><p>我是諸葛先生。</p><p>我會協助你管理工時，之後也會協助你閱讀公司的知識。</p><p>今天先完成工時助手。</p><button class="btn full" type="button" data-start-assistant="1">開始</button>${mode === "floating" ? `<button class="btn2 full" type="button" data-close-assistant="1">稍後</button>` : ""}</div></section>`;
+}
+
 function worklogAssistantPanel(mode = "web") {
   const messages = conversationMessages();
   const intro = mode === "extension"
     ? `<div class="muted">您可以直接告訴我：今天下午三點到四點開會、明天下午請特休、今天補一小時工時。</div>`
     : `<div class="muted">今天想完成什麼？</div>`;
-  return `<section class="panel assistant-panel ${mode === "extension" ? "extension-assistant" : "assistant-module"}"><div class="panel-head"><div><h2>👤 諸葛工時助手</h2>${intro}</div></div><div class="assistant-thread" id="assistantThread">${messages.map(renderAssistantMessage).join("")}</div><div class="assistant-input-row"><input class="input" id="assistantInput" placeholder="例如：今天下午三點到四點開會"><button class="btn" id="assistantSend" type="button">送出</button></div>${mode === "extension" ? `<a class="btn full assistant-web-link" href="${WEB_APP_URL}" target="_blank" rel="noopener">🖥 開啟 ZhuGe AI OS</a>` : ""}</section>`;
+  const title = mode === "floating" ? "👤 諸葛先生" : "👤 諸葛工時助手";
+  const modeClass = mode === "extension" ? "extension-assistant" : (mode === "floating" ? "floating-assistant" : "assistant-module");
+  const close = mode === "floating" ? `<button class="mini" type="button" data-close-assistant="1">×</button>` : "";
+  return `<section class="panel assistant-panel ${modeClass}"><div class="panel-head"><div><h2>${title}</h2>${intro}</div>${close}</div><div class="assistant-thread" id="assistantThread">${messages.map(renderAssistantMessage).join("")}</div><div class="assistant-input-row"><input class="input" id="assistantInput" placeholder="例如：今天下午三點到四點開會"><button class="btn" id="assistantSend" type="button">送出</button></div>${mode === "extension" ? `<a class="btn full assistant-web-link" href="${WEB_APP_URL}" target="_blank" rel="noopener">🖥 開啟 ZhuGe AI OS</a>` : ""}</section>`;
 }
 
 function extensionAssistantScreen() {
-  return `<div class="wrap extension-quick-entry"><div class="card">${worklogAssistantPanel("extension")}</div></div>`;
+  return `<div class="wrap extension-quick-entry"><div class="card">${hasSeenAssistantWelcome() ? worklogAssistantPanel("extension") : assistantWelcomePanel("extension")}</div></div>`;
+}
+
+function floatingAssistantWidget() {
+  if (!session) return "";
+  if (!isAssistantOpen()) return `<div class="floating-assistant-widget collapsed"><button class="floating-assistant-button" type="button" data-open-assistant="1"><span>${escapeHtml(assistantNudgeText())}</span></button></div>`;
+  const body = hasSeenAssistantWelcome() ? worklogAssistantPanel("floating") : assistantWelcomePanel("floating");
+  return `<div class="floating-assistant-widget open">${body}</div>`;
 }
 
 function center() {
-  return `<div class="workbench-grid">${worklogAssistantPanel("web")}${todaySummaryPanel()}<section class="panel module calendar-module"><div class="desktop-calendar">${calendarPanel()}</div><div class="mobile-calendar">${mobileCalendarPanel()}</div></section><section class="panel module today-module">${todayPanel()}</section><section class="panel module suggestion-module">${suggestionPanel()}</section></div>`;
+  return `<div class="workbench-grid">${todaySummaryPanel()}<section class="panel module calendar-module"><div class="desktop-calendar">${calendarPanel()}</div><div class="mobile-calendar">${mobileCalendarPanel()}</div></section><section class="panel module today-module">${todayPanel()}</section><section class="panel module suggestion-module">${suggestionPanel()}</section></div>`;
 }
 
 function workDescriptionSuggestions(query = "") {
@@ -2348,6 +2388,19 @@ function bindWorklogWelcome() {
 }
 
 function bindWorklogAssistant() {
+  document.querySelectorAll("[data-open-assistant]").forEach(button => button.onclick = () => {
+    localStorage.setItem(assistantOpenKey(), "1");
+    render();
+  });
+  document.querySelectorAll("[data-close-assistant]").forEach(button => button.onclick = () => {
+    localStorage.setItem(assistantOpenKey(), "0");
+    render();
+  });
+  document.querySelectorAll("[data-start-assistant]").forEach(button => button.onclick = () => {
+    localStorage.setItem(assistantWelcomeKey(), "1");
+    localStorage.setItem(assistantOpenKey(), "1");
+    render();
+  });
   const input = document.getElementById("assistantInput");
   const send = document.getElementById("assistantSend");
   if (!input || !send) return;
@@ -2496,7 +2549,7 @@ function bind() {
   document.querySelectorAll("[data-edit-id]").forEach(b => b.onclick = () => { editingEntryId = b.dataset.editId; captureSeed = null; activeWorkspace = "worklog"; if (!openTabs.includes("worklog")) openTabs.push("worklog"); rememberWorkspace("worklog"); view = "capture"; saveAll(); render(); });
   bindLibrary();
   if (activeWorkspace === "worklog" && view === "capture") bindCapture();
-  if (activeWorkspace === "worklog" && view !== "capture") bindWorklogAssistant();
+  bindWorklogAssistant();
   if (activeWorkspace === "worklog" && !profile) bindOnboarding();
   if (activeWorkspace === "library" && view === "libraryForm") bindLibraryForm(editingLibraryId);
   if (activeWorkspace === "settings") bindSettings();
