@@ -33,3 +33,6 @@ html:has(.standalone-chat-page),body:has(.standalone-chat-page),#app:has(.standa
 
 /* P4.3 Guided Interaction */
 .assistant-quick-card{border-color:#1d4ed8;background:linear-gradient(135deg,#0f172a,#172554)}.assistant-quick-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.assistant-quick-row .btn2{flex:1 1 150px;text-align:center}@media(max-width:767px){.assistant-quick-row{gap:7px}.assistant-quick-row .btn2{flex:1 1 100%;padding:10px}}
+
+/* P5 Knowledge Repository Foundation */
+.knowledge-card{align-items:flex-start}.knowledge-card .actions{min-width:190px;justify-content:flex-end}.knowledge-card .actions .btn2{padding:8px 10px;border-radius:12px}.knowledge-migration-preview{margin:0 0 12px;border-color:#f59e0b;background:#451a03}.knowledge-migration-preview .muted{color:#fde68a}@media(max-width:767px){.knowledge-card{display:block}.knowledge-card .actions{min-width:0;justify-content:flex-start;margin-top:12px}.knowledge-card .actions .btn2{flex:1 1 42%}}

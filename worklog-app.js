@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260712-0748";
+const BUILD_TIME = "20260712-0926";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const IS_EXTENSION_ENTRY = document.body?.classList.contains("extension");
@@ -40,7 +40,7 @@ let entries = [];
 let profile = readJson("wl_profile", null);
 let feedback = readJson("wl_feedback", {});
 let session = readJson(AI_OS_SESSION_KEY, null);
-let library = readJson("wl_library", []);
+let library = [];
 let editingLibraryId = null;
 let editingEntryId = null;
 let captureSeed = null;
@@ -75,14 +75,17 @@ const eventTypeCodeMap = {
   "工作": "WORK", "會議": "MEETING", "教育訓練": "TRAINING", "特休": "LEAVE", "事假": "LEAVE", "病假": "LEAVE", "請假": "LEAVE", "假日": "LEAVE", "出差": "BUSINESS_TRIP"
 };
 const eventTypeNameMap = { WORK: "work", MEETING: "work", TRAINING: "work", LEAVE: "leave", BUSINESS_TRIP: "work" };
-const DEFAULT_LIBRARY_READING_STATUS = "🟡 等待閱讀";
+const KNOWLEDGE_BUCKET = "knowledge-sources";
+const LEGACY_KNOWLEDGE_MIGRATION_KEY = "knowledge_repository_p5_legacy_wl_library_v1";
 const ECP_EXPORT_PROFILE_PATH = "resources/profiles/ecp-profile.json";
 const CLOUD_MIGRATION_KEY = "localstorage_rc33_to_rc34a_v1";
 const KNOWLEDGE_CATEGORIES = ["SOP", "制度", "法規", "專案", "表單", "教材", "會議", "其他"];
 const KNOWLEDGE_AGENTS = ["採購 Agent", "HR Agent", "投資 Agent", "旅遊 Agent"];
-const KNOWLEDGE_SCOPES = ["Public", "Company", "Role", "Personal"];
-const KNOWLEDGE_STATUS = ["🟡 已上傳", "🔵 AI 已閱讀", "🟢 AI 已建立知識", "⭐ 已驗證"];
-const KNOWLEDGE_AI_STATUS = ["未建立", "等待 AI 閱讀", "AI 已閱讀", "AI 已建立知識", "已驗證"];
+const KNOWLEDGE_SCOPES = ["personal", "role", "company", "public"];
+const KNOWLEDGE_SCOPE_LABELS = { personal: "👤 Personal", role: "💼 Role", company: "🏢 Company", public: "🌍 Public" };
+const KNOWLEDGE_PROCESSING_STATUS = ["uploaded", "queued", "processing", "processed", "knowledge_built", "verified", "failed", "archived"];
+const KNOWLEDGE_SOURCE_TYPES = ["file", "pdf", "word", "excel", "powerpoint", "markdown", "url", "legacy_metadata"];
+const KNOWLEDGE_ROLE_OPTIONS = ["PROCUREMENT", "HR", "IT", "ADMIN", "FINANCE", "SALES", "MARKETING", "CUSTOM"];
 const workspaceRegistry = {
   worklog: { icon: "🪶", label: "工時營帳", group: "camp", enabled: true },
   investment: { icon: "📈", label: "投資營帳", group: "camp", comingSoon: true },
@@ -358,6 +361,66 @@ const SupabaseRepository = {
   patch(table, query, payload) {
     return this.request(`${table}${query}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(payload) });
   },
+  async storageRequest(path, options = {}) {
+    await ensureFreshAuthSession(false);
+    const run = () => fetch(`${AUTH_CONFIG.supabaseUrl}/storage/v1/${path}`, {
+      ...options,
+      headers: {
+        apikey: AUTH_CONFIG.supabaseAnonKey,
+        Authorization: `Bearer ${currentAccessToken() || AUTH_CONFIG.supabaseAnonKey}`,
+        ...(options.headers || {})
+      }
+    });
+    let res = await run();
+    if (!res.ok) {
+      const firstError = await this.requestError(`storage/v1/${path}`, options, res);
+      if (this.shouldRefreshAfter(firstError)) {
+        await refreshAuthSession(true);
+        res = await run();
+        if (!res.ok) throw await this.requestError(`storage/v1/${path}`, options, res);
+      } else {
+        throw firstError;
+      }
+    }
+    if (res.status === 204) return null;
+    const text = await res.text();
+    return text ? JSON.parse(text) : null;
+  },
+  encodeStoragePath(path = "") {
+    return String(path || "").split("/").map(part => encodeURIComponent(part)).join("/");
+  },
+  async uploadKnowledgeFile(path = "", file = null) {
+    if (!file) throw new Error("請選擇要上傳的正式檔案");
+    return this.storageRequest(`object/${KNOWLEDGE_BUCKET}/${this.encodeStoragePath(path)}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": file.type || "application/octet-stream",
+        "x-upsert": "false"
+      },
+      body: file
+    });
+  },
+  async deleteKnowledgeFile(path = "") {
+    if (!path) return null;
+    return this.storageRequest(`object/${KNOWLEDGE_BUCKET}/${this.encodeStoragePath(path)}`, { method: "DELETE" });
+  },
+  async signedKnowledgeFileUrl(path = "", expiresIn = 300) {
+    if (!path) throw new Error("此知識來源尚無正式檔案");
+    const data = await this.storageRequest(`object/sign/${KNOWLEDGE_BUCKET}/${this.encodeStoragePath(path)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expiresIn })
+    });
+    const url = data?.signedURL || data?.signedUrl || data?.signed_url || "";
+    if (!url) throw new Error("Storage 未回傳預覽連結");
+    return url.startsWith("http") ? url : `${AUTH_CONFIG.supabaseUrl}/storage/v1${url}`;
+  },
+  async allocateKnowledgeId() {
+    const rows = await this.request("rpc/next_knowledge_id", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify({}) });
+    if (typeof rows === "string") return rows;
+    if (Array.isArray(rows)) return rows?.[0]?.next_knowledge_id || rows?.[0] || "";
+    return rows?.next_knowledge_id || rows || "";
+  },
   async upsertUserProfile(profileValue) {
     const work = parseWorkTimeRange(profileValue?.workHours);
     const lunch = parseWorkTimeRange(profileValue?.lunch || "12:00~13:00");
@@ -528,31 +591,62 @@ const SupabaseRepository = {
   loadKnowledgeSources() {
     return this.select("knowledge_sources", "?select=*&deleted_at=is.null&order=created_at.desc");
   },
-  async saveKnowledgeSource(item) {
+  async saveKnowledgeSource(item, file = null) {
     if (!currentUserUuid() || !currentAccessToken()) throw new Error("Cloud Sync 尚未就緒");
+    const isNew = !item.cloudId;
+    const knowledgeId = item.knowledgeId || (isNew ? await this.allocateKnowledgeId() : "");
+    if (!knowledgeId) throw new Error("無法產生 Knowledge ID");
+    const version = item.version || "v1.0";
+    let storagePath = item.storagePath || "";
+    let uploadedPath = "";
+    if (file) {
+      const safeName = sanitizeStorageFileName(file.name || item.filename || "knowledge-source");
+      storagePath = `${currentUserUuid()}/${knowledgeId}/${version}/${Date.now()}-${safeName}`;
+      await this.uploadKnowledgeFile(storagePath, file);
+      uploadedPath = storagePath;
+    }
     const payload = {
       user_uuid: currentUserUuid(),
-      knowledge_id: item.knowledgeId,
+      organization_id: item.organizationId || null,
+      tenant_id: item.tenantId || null,
+      knowledge_id: knowledgeId,
       title: item.title,
       description: item.description || "",
       category: item.category || "其他",
-      scope: item.scope || "Personal",
+      scope: normalizeKnowledgeScope(item.scope),
+      source_type: item.sourceType || inferKnowledgeSourceType(file?.name || item.filename || storagePath),
+      source_name: item.sourceName || file?.name || item.filename || "",
+      source_url: item.sourceUrl || "",
+      storage_path: storagePath,
+      mime_type: file?.type || item.mimeType || "",
+      file_size: file?.size || item.fileSize || null,
       applicable_agents: item.applicableAgents || [],
+      related_roles: item.relatedRoles || [],
+      related_work_models: item.relatedWorkModels || [],
       tags: item.tags || [],
-      status: item.status || "🟡 已上傳",
-      ai_status: item.aiStatus || "未建立",
-      version: item.version || "v1.0",
-      filename: item.filename || "",
-      storage_path: item.storagePath || "",
+      triggers: item.triggers || [],
+      processing_status: item.processingStatus || "uploaded",
+      version,
+      source_version: item.sourceVersion || version,
+      filename: file?.name || item.filename || "",
       legacy_id: item.id || null,
+      created_by: currentUserUuid(),
+      updated_by: currentUserUuid(),
       updated_at: new Date().toISOString()
     };
     const existing = item.cloudId ? [{ id: item.cloudId }] : await this.select("knowledge_sources", `?select=id&legacy_id=eq.${encodeURIComponent(item.id)}&limit=1`);
-    const saved = existing?.[0]?.id
-      ? await this.patch("knowledge_sources", `?id=eq.${encodeURIComponent(existing[0].id)}`, payload)
-      : await this.insert("knowledge_sources", payload);
-    if (!saved?.[0]?.id) throw new Error("Supabase knowledge_sources 未回傳儲存結果");
-    return saved[0];
+    try {
+      const saved = existing?.[0]?.id
+        ? await this.patch("knowledge_sources", `?id=eq.${encodeURIComponent(existing[0].id)}`, payload)
+        : await this.insert("knowledge_sources", payload);
+      if (!saved?.[0]?.id) throw new Error("Supabase knowledge_sources 未回傳儲存結果");
+      return saved[0];
+    } catch (error) {
+      if (uploadedPath) {
+        await this.deleteKnowledgeFile(uploadedPath).catch(cleanupError => console.warn("Knowledge orphan upload cleanup failed", { uploadedPath, cleanupError }));
+      }
+      throw error;
+    }
   },
   async deleteKnowledgeSource(item) {
     if (!currentUserUuid() || !currentAccessToken()) throw new Error("Cloud Sync 尚未就緒");
@@ -571,6 +665,21 @@ const ConversationRepository = {
   },
   saveState(command = null, channel = assistantChannel()) {
     return SupabaseRepository.saveAssistantState(command, channel);
+  }
+};
+
+const KnowledgeRepository = {
+  loadSources() {
+    return SupabaseRepository.loadKnowledgeSources();
+  },
+  saveSource(item = {}, file = null) {
+    return SupabaseRepository.saveKnowledgeSource(item, file);
+  },
+  deleteSource(item = {}) {
+    return SupabaseRepository.deleteKnowledgeSource(item);
+  },
+  signedSourceUrl(path = "", expiresIn = 300) {
+    return SupabaseRepository.signedKnowledgeFileUrl(path, expiresIn);
   }
 };
 
@@ -832,7 +941,7 @@ const DataService = {
             failedLoads.add(label);
             console.warn("Knowledge Foundation not initialized", {
               table: "knowledge_sources",
-              setupSql: "docs/supabase/20260710_p3_1_knowledge_foundation_schema.sql",
+              setupSql: "docs/supabase/20260712_p5_1_knowledge_repository_schema.sql",
               error
             });
             return fallback;
@@ -848,7 +957,7 @@ const DataService = {
       const workModelsRows = await safeLoad("work_models", () => SupabaseRepository.loadWorkModels(), []);
       const ecpTaskRows = await safeLoad("ecp_tasks", () => SupabaseRepository.loadEcpTasks(), []);
       const entryRows = await safeLoad("entries", () => SupabaseRepository.loadEntries(selectedMonth), []);
-      const knowledgeRows = await safeLoad("knowledge", () => SupabaseRepository.loadKnowledgeSources(), []);
+      const knowledgeRows = await safeLoad("knowledge", () => KnowledgeRepository.loadSources(), []);
       await this.loadConversation();
       if (cloudProfile || exportSettings || !failedLoads.has("work_models") || !failedLoads.has("ecp_tasks")) {
         profile = profileFromCloud(cloudProfile, exportSettings, workModelsRows || [], ecpTaskRows || [], {
@@ -1080,32 +1189,23 @@ const DataService = {
       if (hasGoogleOAuthSession() && !dataServiceHydrating && !migrationRunning) {
         dataServiceReady = true;
         this.setStatus("syncing");
-        const saved = await SupabaseRepository.saveKnowledgeSource(normalized);
+        const saved = await KnowledgeRepository.saveSource(normalized, options.file || null);
         const cloudItem = knowledgeFromCloud(saved);
         setLibrary([cloudItem, ...library.filter(x => x.id !== normalized.id && x.cloudId !== cloudItem.cloudId)]);
         LocalCache.saveAll();
         this.setStatus("synced");
         return cloudItem;
       }
-      const next = [normalized, ...library.filter(x => x.id !== normalized.id)];
-      setLibrary(next);
-      LocalCache.saveAll();
-      if (options.requireCloud) throw new Error("Cloud Sync 尚未就緒");
-      return normalized;
+      throw new Error("Cloud Sync 尚未就緒，Knowledge Source 不可只儲存在本機");
     } catch (error) {
       console.error("Save knowledge source failed", { error, supabase: error.supabase || null, item: normalized });
       if (isKnowledgeNotInitializedError(error)) {
         knowledgeFoundationNotInitialized = true;
         this.setStatus("knowledge_uninitialized", "Knowledge Library 尚未初始化");
-        if (options.requireCloud) throw new Error("Knowledge Library 尚未初始化，請先執行 knowledge foundation schema SQL");
-        return normalized;
+        throw new Error("Knowledge Library 尚未初始化，請先執行 P5 Knowledge Repository schema SQL");
       }
       this.setStatus("failed", error.message || "Knowledge sync failed");
-      if (options.requireCloud) throw error;
-      const next = [normalized, ...library.filter(x => x.id !== normalized.id)];
-      setLibrary(next);
-      LocalCache.saveAll();
-      return normalized;
+      throw error;
     }
   },
   async deleteKnowledgeSource(item, options = {}) {
@@ -1114,7 +1214,7 @@ const DataService = {
       if (hasGoogleOAuthSession() && !dataServiceHydrating && !migrationRunning) {
         dataServiceReady = true;
         this.setStatus("syncing");
-        await SupabaseRepository.deleteKnowledgeSource(normalized);
+        await KnowledgeRepository.deleteSource(normalized);
       } else if (options.requireCloud) {
         throw new Error("Cloud Sync 尚未就緒");
       }
@@ -1426,7 +1526,7 @@ function saveLocalSnapshot() {
   localStorage.setItem("wl_feedback", JSON.stringify(feedback));
   localStorage.setItem(AI_OS_SESSION_KEY, JSON.stringify(session));
   localStorage.removeItem("wl_session");
-  localStorage.setItem("wl_library", JSON.stringify(library));
+  // P5: wl_library remains legacy backup only. Official Knowledge cache is user-scoped LocalCache.
   localStorage.setItem(ACTIVE_MODULE_KEY, activeModule);
   localStorage.setItem(OS_OPEN_TABS_KEY, JSON.stringify(openTabs));
   localStorage.setItem(OS_ACTIVE_WORKSPACE_KEY, activeWorkspace);
@@ -1626,7 +1726,7 @@ function cloudSyncDetail() {
   if (cloudSync.status === "failed") return cloudSync.error || "請稍後再試";
   if (cloudSync.status === "pending") return "等待自動同步";
   if (cloudSync.status === "syncing") return "同步中...";
-  if (cloudSync.status === "knowledge_uninitialized") return "請先建立 knowledge_sources";
+  if (cloudSync.status === "knowledge_uninitialized") return "請先建立 Knowledge Database 與 Storage Bucket";
   if (cloudSync.status === "migration_required") return "請先確認 Migration Preview";
   if (cloudSync.status === "migrating") return "正在搬移 RC3.3 本機資料";
   if (!cloudSync.lastSyncedAt) return "等待 Cloud Sync";
@@ -1659,7 +1759,7 @@ function refreshCloudSyncStatusDisplay() {
 
 function isKnowledgeNotInitializedError(error) {
   const text = `${error?.supabase?.status || ""} ${error?.supabase?.message || ""} ${error?.supabase?.body || ""} ${error?.message || ""}`;
-  return /404/.test(text) && /knowledge_sources/i.test(text);
+  return (/404/.test(text) && /knowledge_sources|knowledge_units/i.test(text)) || /Bucket not found|knowledge-sources/i.test(text);
 }
 
 function isConversationNotInitializedError(error) {
@@ -2914,6 +3014,67 @@ function arrayFromInput(value) {
   return String(value || "").split(/[,\n，]/).map(x => x.trim()).filter(Boolean);
 }
 
+function normalizeKnowledgeScope(value = "personal") {
+  const raw = String(value || "personal").trim();
+  const map = { Personal: "personal", Role: "role", Company: "company", Public: "public" };
+  const normalized = map[raw] || raw.toLowerCase();
+  return KNOWLEDGE_SCOPES.includes(normalized) ? normalized : "personal";
+}
+
+function normalizeKnowledgeProcessingStatus(value = "uploaded") {
+  const raw = String(value || "uploaded").trim();
+  const legacyMap = {
+    "🟡 已上傳": "uploaded",
+    "🔵 AI 已閱讀": "processed",
+    "🟢 AI 已建立知識": "knowledge_built",
+    "⭐ 已驗證": "verified",
+    "未建立": "uploaded",
+    "等待 AI 閱讀": "uploaded"
+  };
+  const normalized = legacyMap[raw] || raw;
+  return KNOWLEDGE_PROCESSING_STATUS.includes(normalized) ? normalized : "uploaded";
+}
+
+function sanitizeStorageFileName(name = "") {
+  const cleaned = String(name || "knowledge-source")
+    .replace(/[\\/:*?"<>|#%{}^~\\[\\]`]/g, "-")
+    .replace(/\s+/g, "_")
+    .slice(0, 140);
+  return cleaned || "knowledge-source";
+}
+
+function inferKnowledgeSourceType(name = "") {
+  const lower = String(name || "").toLowerCase();
+  if (/\.pdf$/.test(lower)) return "pdf";
+  if (/\.(doc|docx)$/.test(lower)) return "word";
+  if (/\.(xls|xlsx|csv)$/.test(lower)) return "excel";
+  if (/\.(ppt|pptx)$/.test(lower)) return "powerpoint";
+  if (/\.(md|markdown|txt)$/.test(lower)) return "markdown";
+  if (/^https?:\/\//.test(lower)) return "url";
+  return "file";
+}
+
+function normalizeKnowledgeSourceType(value = "", fallbackName = "") {
+  const raw = String(value || "").trim();
+  const map = { "上傳文件": "file", "PDF": "pdf", "網址": "url", legacy: "legacy_metadata" };
+  const normalized = map[raw] || raw.toLowerCase();
+  return KNOWLEDGE_SOURCE_TYPES.includes(normalized) ? normalized : inferKnowledgeSourceType(fallbackName);
+}
+
+function processingStatusLabel(status = "uploaded") {
+  const labels = {
+    uploaded: "🟡 uploaded",
+    queued: "⚪ queued",
+    processing: "🔄 processing",
+    processed: "🔵 processed",
+    knowledge_built: "🟢 knowledge_built",
+    verified: "⭐ verified",
+    failed: "🔴 failed",
+    archived: "⚫ archived"
+  };
+  return labels[status] || status;
+}
+
 function normalizedLibraryItem(item = {}) {
   const now = new Date().toISOString();
   const filename = item.filename || item.storagePath || item.location || "";
@@ -2922,24 +3083,35 @@ function normalizedLibraryItem(item = {}) {
   return {
     id: item.id || uid("kb"),
     cloudId: item.cloudId || item.cloud_id || undefined,
-    knowledgeId: item.knowledgeId || item.knowledge_id || nextKnowledgeId(),
+    organizationId: item.organizationId || item.organization_id || null,
+    tenantId: item.tenantId || item.tenant_id || null,
+    knowledgeId: item.knowledgeId || item.knowledge_id || "",
     title,
     name: title,
     description: item.description || "",
     category: KNOWLEDGE_CATEGORIES.includes(item.category) ? item.category : "其他",
-    scope: KNOWLEDGE_SCOPES.includes(item.scope) ? item.scope : "Personal",
+    scope: normalizeKnowledgeScope(item.scope),
+    sourceType: normalizeKnowledgeSourceType(item.sourceType || item.source_type || item.type, filename),
+    sourceName: item.sourceName || item.source_name || filename,
+    sourceUrl: item.sourceUrl || item.source_url || "",
+    mimeType: item.mimeType || item.mime_type || "",
+    fileSize: Number(item.fileSize || item.file_size || 0) || 0,
     applicableAgents: arrayFromInput(item.applicableAgents || item.applicable_agents || ["採購 Agent"]),
+    relatedRoles: arrayFromInput(item.relatedRoles || item.related_roles),
+    relatedWorkModels: arrayFromInput(item.relatedWorkModels || item.related_work_models),
     tags: arrayFromInput(item.tags),
-    status: KNOWLEDGE_STATUS.includes(item.status) ? item.status : knowledgeStatusFromLegacy(item),
-    aiStatus: KNOWLEDGE_AI_STATUS.includes(item.aiStatus || item.ai_status) ? (item.aiStatus || item.ai_status) : aiStatusFromLegacy(item),
+    triggers: arrayFromInput(item.triggers),
+    processingStatus: normalizeKnowledgeProcessingStatus(item.processingStatus || item.processing_status || item.status || item.aiStatus || item.ai_status),
+    status: normalizeKnowledgeProcessingStatus(item.processingStatus || item.processing_status || item.status || item.aiStatus || item.ai_status),
+    aiStatus: normalizeKnowledgeProcessingStatus(item.processingStatus || item.processing_status || item.status || item.aiStatus || item.ai_status),
     version: item.version || "v1.0",
+    sourceVersion: item.sourceVersion || item.source_version || item.version || "v1.0",
     createdAt,
     updatedAt: item.updatedAt || item.updated_at || createdAt,
     filename,
     storagePath: item.storagePath || item.storage_path || filename,
-    sourceType: item.sourceType || item.type || "上傳文件",
-    type: item.type || item.sourceType || "上傳文件",
-    readingStatus: item.readingStatus || item.aiStatus || aiStatusFromLegacy(item),
+    type: normalizeKnowledgeSourceType(item.type || item.sourceType || item.source_type, filename),
+    readingStatus: normalizeKnowledgeProcessingStatus(item.processingStatus || item.processing_status || item.status || item.aiStatus || item.ai_status),
     location: filename,
     purpose: item.purpose || ""
   };
@@ -2954,11 +3126,23 @@ function knowledgeFromCloud(row = {}) {
     description: row.description,
     category: row.category,
     scope: row.scope,
+    organizationId: row.organization_id,
+    tenantId: row.tenant_id,
+    sourceType: row.source_type,
+    sourceName: row.source_name,
+    sourceUrl: row.source_url,
+    mimeType: row.mime_type,
+    fileSize: row.file_size,
     applicableAgents: row.applicable_agents || [],
+    relatedRoles: row.related_roles || [],
+    relatedWorkModels: row.related_work_models || [],
     tags: row.tags || [],
-    status: row.status,
-    aiStatus: row.ai_status,
+    triggers: row.triggers || [],
+    processingStatus: row.processing_status,
+    status: row.processing_status,
+    aiStatus: row.processing_status,
     version: row.version,
+    sourceVersion: row.source_version,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     filename: row.filename,
@@ -2980,21 +3164,44 @@ function formatKnowledgeTime(value = "") {
   return fmt(value);
 }
 
+function formatFileSize(bytes = 0) {
+  const n = Number(bytes || 0);
+  if (!n) return "";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${Math.round(n / 102.4) / 10} KB`;
+  return `${Math.round(n / 1024 / 102.4) / 10} MB`;
+}
+
+function legacyKnowledgeItems() {
+  return readJson("wl_library", []).filter(item => item && !item.p5Migrated);
+}
+
+function hasLegacyKnowledgeMigrationDone() {
+  return localStorage.getItem(scopedLocalKey(LEGACY_KNOWLEDGE_MIGRATION_KEY)) === "1";
+}
+
 function knowledgeInitializationNotice() {
-  return `<div class="empty"><b>📚 Knowledge Library 尚未初始化</b><div class="muted">尚未建立 <code>knowledge_sources</code>。這代表 Knowledge Foundation 尚未完成第一次資料庫初始化，WorkLog / Calendar / Login / Cloud Sync 可繼續正常使用。</div><div class="source-path">請先執行：docs/supabase/20260710_p3_1_knowledge_foundation_schema.sql</div><div class="muted">完成 SQL 建立後，重新整理頁面即可啟用藏書閣同步。</div></div>`;
+  return `<div class="empty"><b>📚 藏書閣尚未初始化</b><div class="muted">Knowledge Database 或 Storage Bucket 尚未建立。這不影響 WorkLog / Conversation / Calendar / OAuth。</div><div class="source-path">請先執行：docs/supabase/20260712_p5_1_knowledge_repository_schema.sql</div><div class="muted">完成 SQL 與 Storage Policy 建立後，重新整理頁面即可啟用 Knowledge Repository。</div></div>`;
 }
 
 function libraryView() {
   const addButton = knowledgeFoundationNotInitialized ? "" : `<button class="btn" data-add-library="1">新增知識</button>`;
+  const legacyItems = legacyKnowledgeItems();
+  const legacyBlock = !knowledgeFoundationNotInitialized && legacyItems.length && !hasLegacyKnowledgeMigrationDone()
+    ? `<div class="empty knowledge-migration-preview"><b>偵測到舊版 wl_library：${legacyItems.length} 筆</b><div class="muted">Legacy Migration 需使用者確認。若舊資料沒有原始 File 物件，將先搬 Metadata，原始檔請後續編輯補上傳。</div><button class="btn2" data-preview-legacy-knowledge="1">預覽 / 搬移 Legacy 藏書</button></div>`
+    : "";
   const body = knowledgeFoundationNotInitialized
     ? knowledgeInitializationNotice()
-    : (library.length ? library.map(raw => { const item = normalizedLibraryItem(raw); return `<div class="entry"><div class="entry-main"><b>${escapeHtml(item.title)}</b><div class="muted">${escapeHtml(item.knowledgeId)}｜${escapeHtml(item.category)}｜${escapeHtml(item.scope)}｜${escapeHtml(item.version)}</div><div class="muted">適用 Agent：${escapeHtml(item.applicableAgents.join("、") || "未指定")}</div><div class="library-tag-line">${item.tags.map(tag => `<span>${escapeHtml(tag)}</span>`).join("")}</div><small>${escapeHtml(item.description || "")}</small><div class="source-path">AI Status：${escapeHtml(item.aiStatus)}｜Status：${escapeHtml(item.status)}</div><div class="source-path">Uploaded：${escapeHtml(formatKnowledgeTime(item.createdAt))}｜File：${escapeHtml(item.filename || "尚未選擇檔案")}</div></div><div class="actions compact"><button class="btn2" data-edit-library="${item.id}">編輯</button><button class="btn2 danger" data-del-library="${item.id}">刪除</button></div></div>`; }).join("") : `<div class="empty"><b>尚無知識來源</b><div class="muted">請新增 SOP、制度、法規、表單或教材，建立 AI OS 知識層基礎。</div></div>`);
-  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>📚 藏書閣</h2><div class="muted">AI OS Knowledge Library：管理可供諸葛先生閱讀、理解、引用與推理的正式知識。</div></div>${addButton}</div><div class="library-list">${body}</div></section>`;
+    : (library.length ? library.map(raw => {
+      const item = normalizedLibraryItem(raw);
+      return `<div class="entry knowledge-card"><div class="entry-main"><b>${escapeHtml(item.title)}</b><div class="muted">${escapeHtml(item.knowledgeId || "待 Cloud 產生")}｜${escapeHtml(item.category)}｜${escapeHtml(KNOWLEDGE_SCOPE_LABELS[item.scope] || item.scope)}｜${escapeHtml(item.version)}</div><small>${escapeHtml(item.description || "")}</small><div class="library-tag-line">${item.tags.map(tag => `<span>${escapeHtml(tag)}</span>`).join("")}</div><div class="library-tag-line">${item.triggers.map(tag => `<span>Trigger：${escapeHtml(tag)}</span>`).join("")}</div><div class="source-path">Agents：${escapeHtml(item.applicableAgents.join("、") || "未指定")}｜Roles：${escapeHtml(item.relatedRoles.join("、") || "未指定")}｜Work Models：${escapeHtml(item.relatedWorkModels.join("、") || "未指定")}</div><div class="source-path">Processing：${escapeHtml(processingStatusLabel(item.processingStatus))}｜Source：${escapeHtml(item.sourceType)}｜File：${escapeHtml(item.filename || item.sourceName || "尚未上傳正式檔案")} ${escapeHtml(formatFileSize(item.fileSize))}</div><div class="source-path">Uploaded：${escapeHtml(formatKnowledgeTime(item.createdAt))}｜Updated：${escapeHtml(formatKnowledgeTime(item.updatedAt))}</div></div><div class="actions compact"><button class="btn2" data-preview-library="${item.id}">預覽</button><button class="btn2" data-download-library="${item.id}">下載原始檔</button><button class="btn2" data-edit-library="${item.id}">編輯 Metadata</button><button class="btn2" data-archive-library="${item.id}">封存</button><button class="btn2 danger" data-del-library="${item.id}">刪除</button></div></div>`;
+    }).join("") : `<div class="empty"><b>尚無 Knowledge Source</b><div class="muted">請新增 SOP、制度、法規、表單或教材，建立諸葛先生的 Knowledge Brain 地基。</div></div>`);
+  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>📚 藏書閣</h2><div class="muted">Knowledge Repository Foundation：將正式文件上傳至 Cloud Storage，並建立可供未來 AI 判斷的 Knowledge Source。</div></div>${addButton}</div>${legacyBlock}<div class="library-list">${body}</div></section>`;
 }
 
 function libraryForm(id = null) {
   const item = normalizedLibraryItem(id ? library.find(x => x.id === id) : {});
-  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>${id ? "編輯知識" : "新增知識"}</h2><div class="muted">建立 AI OS Knowledge Object。本階段只管理 Metadata，不做 AI/RAG/Embedding。</div></div><button class="btn2" data-library-back="1">返回</button></div><label>Knowledge ID</label><input id="libKnowledgeId" class="input" value="${escapeHtml(item.knowledgeId)}" readonly><label>Title</label><input id="libTitle" class="input" value="${escapeHtml(item.title || "")}" placeholder="例如：採購請購 SOP"><label>Description</label><textarea id="libDesc" placeholder="這份知識想讓諸葛先生知道什麼？">${escapeHtml(item.description || "")}</textarea><label>Category</label><select id="libCategory" class="input">${selectOptions(KNOWLEDGE_CATEGORIES, item.category)}</select><label>Knowledge Scope</label><select id="libScope" class="input">${selectOptions(KNOWLEDGE_SCOPES, item.scope)}</select><label>Applicable Agents</label>${checkboxGroup(KNOWLEDGE_AGENTS, item.applicableAgents, "libAgents")}<label>Tags</label><input id="libTags" class="input" value="${escapeHtml(item.tags.join("、"))}" placeholder="採購、請購、供應商、SOP"><label>Status</label><select id="libStatus" class="input">${selectOptions(KNOWLEDGE_STATUS, item.status)}</select><label>AI Status</label><select id="libAiStatus" class="input">${selectOptions(KNOWLEDGE_AI_STATUS, item.aiStatus)}</select><label>Version</label><input id="libVersion" class="input" value="${escapeHtml(item.version || "v1.0")}" placeholder="v1.0"><label>上傳文件</label><div class="upload-drop"><input id="libFile" type="file"><span>${escapeHtml(item.filename || "拖曳文件至此，或瀏覽上傳")}</span></div><div class="library-ai-preview"><b>本階段不執行 AI 閱讀</b><div class="muted">Metadata 將作為後續 AI Citation、AI Search、RAG 與 Agent 知識引用的基礎。</div></div><div class="form-actions"><button class="btn2" data-library-cancel="1">取消</button><button class="btn" id="saveLibrary">儲存</button></div></section>`;
+  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>${id ? "編輯 Knowledge Metadata" : "新增 Knowledge Source"}</h2><div class="muted">P5 Phase 1 只建立 Knowledge Repository，不做 AI/RAG/Embedding。</div></div><button class="btn2" data-library-back="1">返回</button></div><label>Knowledge ID</label><input id="libKnowledgeId" class="input" value="${escapeHtml(item.knowledgeId || "儲存後由 Cloud 產生")}" readonly><label>Title</label><input id="libTitle" class="input" value="${escapeHtml(item.title || "")}" placeholder="例如：採購請購 SOP"><label>Description</label><textarea id="libDesc" placeholder="這份知識想讓諸葛先生知道什麼？">${escapeHtml(item.description || "")}</textarea><label>Category</label><select id="libCategory" class="input">${selectOptions(KNOWLEDGE_CATEGORIES, item.category)}</select><label>Knowledge Scope</label><select id="libScope" class="input">${KNOWLEDGE_SCOPES.map(scope => `<option value="${escapeHtml(scope)}" ${scope === item.scope ? "selected" : ""}>${escapeHtml(KNOWLEDGE_SCOPE_LABELS[scope])}</option>`).join("")}</select><div class="muted">Company / Role scope 目前為架構預留；正式多人共享權限待 Organization Identity 完成。</div><label>Applicable Agents</label>${checkboxGroup(KNOWLEDGE_AGENTS, item.applicableAgents, "libAgents")}<label>Related Roles</label>${checkboxGroup(KNOWLEDGE_ROLE_OPTIONS, item.relatedRoles, "libRoles")}<label>Related Work Models</label>${checkboxGroup(workModels(), item.relatedWorkModels, "libWorkModels")}<label>Tags</label><input id="libTags" class="input" value="${escapeHtml(item.tags.join("、"))}" placeholder="採購、請購、供應商、SOP"><label>Triggers</label><input id="libTriggers" class="input" value="${escapeHtml(item.triggers.join("、"))}" placeholder="供應商會議、新供應商、年度評鑑"><label>Version</label><input id="libVersion" class="input" value="${escapeHtml(item.version || "v1.0")}" placeholder="v1.0"><label>Source Version</label><input id="libSourceVersion" class="input" value="${escapeHtml(item.sourceVersion || item.version || "v1.0")}" placeholder="v1.0"><label>Processing Status</label><div class="readonly-status">${escapeHtml(processingStatusLabel(item.processingStatus || "uploaded"))}</div><label>正式檔案</label><div class="upload-drop"><input id="libFile" type="file"><span>${escapeHtml(item.filename || "請選擇要上傳至 Supabase Storage 的檔案")}</span></div><div class="library-ai-preview"><b>本階段不執行 AI 閱讀</b><div class="muted">檔案會成為正式 Knowledge Source；未來才由 Knowledge Intelligence 建立 Units、Citation 與 Recommendation。</div></div><div class="form-actions"><button class="btn2" data-library-cancel="1">取消</button><button class="btn" id="saveLibrary">儲存 Knowledge Source</button></div></section>`;
 }
 
 function settings() {
@@ -3528,46 +3735,108 @@ function bindCapture(editId = null) {
   };
 }
 
+async function runLegacyKnowledgeMigrationPreview() {
+  const legacy = legacyKnowledgeItems().map(normalizedLibraryItem);
+  if (!legacy.length) return toast("沒有可搬移的舊版藏書資料");
+  const message = `即將搬移舊版 wl_library：${legacy.length} 筆。\n\n注意：舊版 LocalStorage 通常只保留 metadata / 檔名，不一定有原始檔案。此次會先建立 Cloud Knowledge Metadata；原始檔可後續編輯補上傳。\n\nLegacy backup 不會刪除。是否繼續？`;
+  if (!confirm(message)) return;
+  try {
+    for (const item of legacy) {
+      await DataService.saveKnowledgeSource({
+        ...item,
+        knowledgeId: "",
+        sourceType: item.storagePath ? inferKnowledgeSourceType(item.storagePath) : "legacy_metadata",
+        sourceName: item.filename || item.sourceName || item.title,
+        processingStatus: "uploaded"
+      }, { requireCloud: true });
+    }
+    localStorage.setItem(scopedLocalKey(LEGACY_KNOWLEDGE_MIGRATION_KEY), "1");
+    toast("Legacy 藏書 Metadata Migration 完成");
+    await DataService.loadAll();
+    render();
+  } catch (error) {
+    console.error("Legacy knowledge migration failed", { error, supabase: error.supabase || null });
+    toast(error.message || "Legacy Migration 失敗，舊資料已保留");
+  }
+}
+
 function bindLibrary() {
   const add = document.querySelector("[data-add-library]"); if (add) add.onclick = () => { editingLibraryId = null; activeWorkspace = "library"; view = "libraryForm"; saveAll(); render(); };
   document.querySelectorAll("[data-edit-library]").forEach(b => b.onclick = () => { editingLibraryId = b.dataset.editLibrary; activeWorkspace = "library"; view = "libraryForm"; saveAll(); render(); });
+  document.querySelectorAll("[data-preview-library],[data-download-library]").forEach(b => b.onclick = async () => {
+    const id = b.dataset.previewLibrary || b.dataset.downloadLibrary;
+    const item = normalizedLibraryItem(library.find(x => x.id === id));
+    if (!item.storagePath) return toast("此 Knowledge Source 尚無正式檔案");
+    try {
+      const url = await KnowledgeRepository.signedSourceUrl(item.storagePath, 300);
+      window.open(url, "_blank", "noopener");
+    } catch (error) {
+      console.error("Knowledge file preview failed", { error, supabase: error.supabase || null, item });
+      toast("原始檔預覽失敗，請確認 Storage 已初始化");
+    }
+  });
+  document.querySelectorAll("[data-archive-library]").forEach(b => b.onclick = async () => {
+    const item = library.find(x => x.id === b.dataset.archiveLibrary);
+    if (!item) return;
+    const archived = await DataService.saveKnowledgeSource({ ...normalizedLibraryItem(item), processingStatus: "archived" });
+    if (!archived) return toast("封存同步失敗");
+    toast("已封存 Knowledge Source");
+    render();
+  });
   document.querySelectorAll("[data-del-library]").forEach(b => b.onclick = async () => {
     const item = library.find(x => x.id === b.dataset.delLibrary);
     if (!item) return;
+    if (!confirm("確認刪除此 Knowledge Source？本階段採 soft delete，Storage 原始檔會先保留作稽核。")) return;
     const deleted = await DataService.deleteKnowledgeSource(item);
     if (!deleted) return toast("知識刪除同步失敗，請稍後再試");
     saveAll();
     toast("已刪除知識");
     render();
   });
+  const legacy = document.querySelector("[data-preview-legacy-knowledge]");
+  if (legacy) legacy.onclick = () => runLegacyKnowledgeMigrationPreview();
 }
 
 function bindLibraryForm(id = null) {
   document.querySelectorAll("[data-library-back],[data-library-cancel]").forEach(b => b.onclick = () => { editingLibraryId = null; view = "library"; saveAll(); render(); });
   document.getElementById("saveLibrary").onclick = async () => {
     const existing = id ? normalizedLibraryItem(library.find(x => x.id === id)) : {};
-    const fileName = document.getElementById("libFile")?.files?.[0]?.name || existing.filename || "";
+    const file = document.getElementById("libFile")?.files?.[0] || null;
+    const fileName = file?.name || existing.filename || "";
     const item = normalizedLibraryItem({
       ...existing,
       id: id || existing.id || uid("kb"),
-      knowledgeId: document.getElementById("libKnowledgeId").value.trim() || existing.knowledgeId || nextKnowledgeId(),
+      knowledgeId: existing.knowledgeId || "",
       title: document.getElementById("libTitle").value.trim(),
       description: document.getElementById("libDesc").value.trim(),
       category: document.getElementById("libCategory").value,
       scope: document.getElementById("libScope").value,
       applicableAgents: [...document.querySelectorAll("input[name=libAgents]:checked")].map(x => x.value),
+      relatedRoles: [...document.querySelectorAll("input[name=libRoles]:checked")].map(x => x.value),
+      relatedWorkModels: [...document.querySelectorAll("input[name=libWorkModels]:checked")].map(x => x.value),
       tags: arrayFromInput(document.getElementById("libTags").value),
-      status: document.getElementById("libStatus").value,
-      aiStatus: document.getElementById("libAiStatus").value,
+      triggers: arrayFromInput(document.getElementById("libTriggers").value),
+      processingStatus: existing.processingStatus || "uploaded",
       version: document.getElementById("libVersion").value.trim() || "v1.0",
+      sourceVersion: document.getElementById("libSourceVersion").value.trim() || document.getElementById("libVersion").value.trim() || "v1.0",
       filename: fileName,
-      storagePath: fileName,
+      storagePath: existing.storagePath || "",
+      sourceType: inferKnowledgeSourceType(fileName || existing.sourceName || existing.sourceUrl),
+      sourceName: fileName || existing.sourceName || "",
+      mimeType: file?.type || existing.mimeType || "",
+      fileSize: file?.size || existing.fileSize || 0,
       createdAt: existing.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()
     });
     if (!item.title) return toast("請輸入 Knowledge Title");
-    await DataService.saveKnowledgeSource(item);
-    editingLibraryId = null; view = "library"; saveAll(); toast("知識已儲存"); render();
+    if (!id && !file) return toast("新增 Knowledge Source 必須選擇正式檔案");
+    try {
+      await DataService.saveKnowledgeSource(item, { file, requireCloud: true });
+      editingLibraryId = null; view = "library"; saveAll(); toast("Knowledge Source 已儲存"); render();
+    } catch (error) {
+      console.error("Knowledge Source save failed", { error, supabase: error.supabase || null });
+      toast(error.message || "Knowledge Source 儲存失敗");
+    }
   };
 }
 
