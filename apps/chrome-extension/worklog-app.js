@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260712-0926";
+const BUILD_TIME = "20260712-2158";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const IS_EXTENSION_ENTRY = document.body?.classList.contains("extension");
@@ -10,6 +10,7 @@ const AUTH_SESSION_KEY = "zhuge_ai_os_google_auth_session_v1";
 const AUTH_CODE_VERIFIER_KEY = "zhuge_ai_os_pkce_code_verifier_v1";
 const AI_OS_SESSION_KEY = "zhuge_ai_os_session_v1";
 const WORKLOG_WELCOME_KEY = "zhuge_worklog_welcome_seen_v1";
+const WORK_PROFILE_PROMPT_KEY = "zhuge_work_profile_prompt_date_v1";
 const WORKLOG_CHAT_KEY = "zhuge_worklog_chat_v1";
 const WORKLOG_CHAT_PENDING_KEY = "zhuge_worklog_chat_pending_v1";
 const ZHUGE_ASSISTANT_WELCOME_KEY = "zhuge_assistant_welcome_seen_v1";
@@ -38,6 +39,7 @@ if (Number.isNaN(selected.getTime())) selected = new Date();
 let selectedMonth = localStorage.getItem("wl_selected_month") || monthKey(selected);
 let entries = [];
 let profile = readJson("wl_profile", null);
+let workProfile = readJson("wl_work_profile", null);
 let feedback = readJson("wl_feedback", {});
 let session = readJson(AI_OS_SESSION_KEY, null);
 let library = [];
@@ -86,6 +88,7 @@ const KNOWLEDGE_SCOPE_LABELS = { personal: "👤 Personal", role: "💼 Role", c
 const KNOWLEDGE_PROCESSING_STATUS = ["uploaded", "queued", "processing", "processed", "knowledge_built", "verified", "failed", "archived"];
 const KNOWLEDGE_SOURCE_TYPES = ["file", "pdf", "word", "excel", "powerpoint", "markdown", "url", "legacy_metadata"];
 const KNOWLEDGE_ROLE_OPTIONS = ["PROCUREMENT", "HR", "IT", "ADMIN", "FINANCE", "SALES", "MARKETING", "CUSTOM"];
+const WORK_PROFILE_SCHEMA_SQL = "docs/supabase/20260712_p4_5_user_work_profile_schema.sql";
 const workspaceRegistry = {
   worklog: { icon: "🪶", label: "工時營帳", group: "camp", enabled: true },
   investment: { icon: "📈", label: "投資營帳", group: "camp", comingSoon: true },
@@ -278,6 +281,7 @@ const LocalCache = {
   saveAll() {
     if (!hasGoogleOAuthSession()) return;
     this.save("profile", profile);
+    this.save("work_profile", workProfile);
     this.save("entries", entries);
     this.save("work_models", Array.isArray(DataService.workModelsState) ? DataService.workModelsState : profile?.tags || []);
     this.save("ecp_settings", { ecpOwner: profile?.ecpOwner || "", ecpDepartment: profile?.ecpDepartment || "" });
@@ -287,16 +291,18 @@ const LocalCache = {
   hydrate() {
     if (!hasGoogleOAuthSession()) return false;
     const cachedProfile = this.load("profile", null);
+    const cachedWorkProfile = this.load("work_profile", null);
     const cachedEntries = this.load("entries", []);
     const cachedLibrary = this.load("library", []);
     if (cachedProfile) profile = cachedProfile;
+    if (cachedWorkProfile) workProfile = cachedWorkProfile;
     if (Array.isArray(cachedEntries) && cachedEntries.length) entries = cachedEntries;
     if (Array.isArray(cachedLibrary) && cachedLibrary.length) library = cachedLibrary;
     const cachedWorkModels = this.load("work_models", null);
     const cachedEcpTasks = this.load("ecp_tasks", null);
     if (Array.isArray(cachedWorkModels)) DataService.workModelsState = cachedWorkModels;
     if (Array.isArray(cachedEcpTasks)) DataService.ecpTasksState = cachedEcpTasks;
-    return !!cachedProfile || cachedEntries.length > 0;
+    return !!cachedProfile || !!cachedWorkProfile || cachedEntries.length > 0;
   }
 };
 
@@ -447,6 +453,28 @@ const SupabaseRepository = {
   },
   async loadExportSettings() {
     const rows = await this.select("user_export_settings", "?select=*&export_profile=eq.ecp&limit=1");
+    return rows?.[0] || null;
+  },
+  async upsertWorkProfile(value = {}) {
+    const p = normalizeWorkProfile(value);
+    const payload = {
+      user_uuid: currentUserUuid(),
+      ecp_responsible_person: p.ecpResponsiblePerson,
+      ecp_department: p.ecpDepartment,
+      default_task: p.defaultTask,
+      default_work_model: p.defaultWorkModel,
+      profile_completed: !!p.profileCompleted,
+      profile_completed_at: p.profileCompletedAt || null,
+      last_profile_check_date: p.lastProfileCheckDate || null,
+      last_profile_prompt_date: p.lastProfilePromptDate || null,
+      task_effective_month: p.taskEffectiveMonth || null,
+      task_verified_at: p.taskVerifiedAt || null,
+      expires_at: p.expiresAt || null
+    };
+    return this.request("user_work_profiles?on_conflict=user_uuid", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=representation" }, body: JSON.stringify(payload) });
+  },
+  async loadWorkProfile() {
+    const rows = await this.select("user_work_profiles", "?select=*&limit=1");
     return rows?.[0] || null;
   },
   async syncNameList(table, names, extra = {}) {
@@ -689,6 +717,101 @@ function nextMonthKey(month = monthKey()) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
+function defaultWorkProfileSeed(baseProfile = profile) {
+  const firstTask = (Array.isArray(baseProfile?.ecpTasks) ? baseProfile.ecpTasks : []).find(Boolean) || baseProfile?.ecpTask || "";
+  const completed = !!(baseProfile?.ecpOwner && baseProfile?.ecpDepartment && firstTask);
+  return {
+    userUuid: currentUserUuid(),
+    ecpResponsiblePerson: baseProfile?.ecpOwner || "",
+    ecpDepartment: baseProfile?.ecpDepartment || "",
+    defaultTask: firstTask,
+    defaultWorkModel: (Array.isArray(baseProfile?.tags) ? baseProfile.tags : []).find(Boolean) || "",
+    profileCompleted: completed,
+    profileCompletedAt: completed ? new Date().toISOString() : "",
+    lastProfileCheckDate: "",
+    lastProfilePromptDate: "",
+    taskEffectiveMonth: firstTask ? monthKey() : "",
+    taskVerifiedAt: firstTask ? new Date().toISOString() : "",
+    expiresAt: ""
+  };
+}
+
+function normalizeWorkProfile(value = {}, baseProfile = profile) {
+  const seed = defaultWorkProfileSeed(baseProfile);
+  const pick = (camel, snake, fallback = "") => {
+    if (Object.prototype.hasOwnProperty.call(value, camel)) return value[camel] ?? "";
+    if (Object.prototype.hasOwnProperty.call(value, snake)) return value[snake] ?? "";
+    return fallback;
+  };
+  const result = {
+    userUuid: pick("userUuid", "user_uuid", seed.userUuid),
+    ecpResponsiblePerson: pick("ecpResponsiblePerson", "ecp_responsible_person", seed.ecpResponsiblePerson),
+    ecpDepartment: pick("ecpDepartment", "ecp_department", seed.ecpDepartment),
+    defaultTask: pick("defaultTask", "default_task", seed.defaultTask),
+    defaultWorkModel: pick("defaultWorkModel", "default_work_model", seed.defaultWorkModel),
+    profileCompleted: Boolean(value.profileCompleted ?? value.profile_completed ?? seed.profileCompleted),
+    profileCompletedAt: pick("profileCompletedAt", "profile_completed_at", seed.profileCompletedAt),
+    lastProfileCheckDate: pick("lastProfileCheckDate", "last_profile_check_date", seed.lastProfileCheckDate),
+    lastProfilePromptDate: pick("lastProfilePromptDate", "last_profile_prompt_date", seed.lastProfilePromptDate),
+    taskEffectiveMonth: pick("taskEffectiveMonth", "task_effective_month", seed.taskEffectiveMonth),
+    taskVerifiedAt: pick("taskVerifiedAt", "task_verified_at", seed.taskVerifiedAt),
+    expiresAt: pick("expiresAt", "expires_at", seed.expiresAt)
+  };
+  result.profileCompleted = !!(result.ecpResponsiblePerson && result.ecpDepartment && result.defaultTask);
+  if (!result.profileCompleted) result.profileCompletedAt = "";
+  if (result.profileCompleted && !result.profileCompletedAt) result.profileCompletedAt = new Date().toISOString();
+  if (result.defaultTask && !result.taskEffectiveMonth) result.taskEffectiveMonth = monthKey();
+  if (result.defaultTask && !result.taskVerifiedAt) result.taskVerifiedAt = new Date().toISOString();
+  return result;
+}
+
+function applyWorkProfileToProfile(nextWorkProfile = workProfile) {
+  const p = normalizeWorkProfile(nextWorkProfile);
+  if (!profile) profile = { role: "採購", tags: [], sources: ["Google Drive", "Gmail", "Calendar", "手動紀錄"], workHours: "09:00~18:00", lunch: "12:00~13:00", sop: "" };
+  profile.ecpOwner = p.ecpResponsiblePerson || "";
+  profile.ecpDepartment = p.ecpDepartment || "";
+  if (p.defaultTask) {
+    const tasks = [...new Set([p.defaultTask, ...ecpTasks()].map(x => String(x || "").trim()).filter(Boolean))];
+    setEcpTasks(tasks);
+  }
+  if (p.defaultWorkModel) {
+    const models = [...new Set([p.defaultWorkModel, ...workModels()].map(x => String(x || "").trim()).filter(Boolean))];
+    setWorkModels(models);
+  }
+  workProfile = p;
+  LocalCache.save("work_profile", workProfile);
+  return workProfile;
+}
+
+function workProfileFromCloud(row = null, exportSettings = null, ecpTaskRows = [], baseProfile = profile) {
+  const firstTask = Array.isArray(ecpTaskRows) ? ecpTaskRows.map(row => row.name).find(Boolean) : "";
+  return normalizeWorkProfile({
+    ...(row || {}),
+    ecp_responsible_person: row?.ecp_responsible_person || exportSettings?.ecp_owner || baseProfile?.ecpOwner || "",
+    ecp_department: row?.ecp_department || exportSettings?.ecp_department || baseProfile?.ecpDepartment || "",
+    default_task: row?.default_task || firstTask || baseProfile?.ecpTask || "",
+    default_work_model: row?.default_work_model || (Array.isArray(baseProfile?.tags) ? baseProfile.tags[0] : "")
+  }, baseProfile);
+}
+
+function workProfileMissingFields(p = workProfile) {
+  const next = normalizeWorkProfile(p);
+  const missing = [];
+  if (!next.ecpResponsiblePerson) missing.push("ECP 負責人");
+  if (!next.ecpDepartment) missing.push("ECP 負責部門");
+  if (!next.defaultTask) missing.push("本期 ECP 任務");
+  return missing;
+}
+
+function isWorkProfileReady(p = workProfile) {
+  return workProfileMissingFields(p).length === 0;
+}
+
+function syncWorkProfileFromProfile() {
+  workProfile = normalizeWorkProfile(workProfile || {}, profile);
+  return applyWorkProfileToProfile(workProfile);
+}
+
 function profileFromCloud(cloudProfile, exportSettings, workModels, ecpTaskRows, options = {}) {
   const workHours = `${String(cloudProfile?.work_start_time || "09:00").slice(0, 5)}~${String(cloudProfile?.work_end_time || "18:00").slice(0, 5)}`;
   const lunch = `${String(cloudProfile?.lunch_start_time || "12:00").slice(0, 5)}~${String(cloudProfile?.lunch_end_time || "13:00").slice(0, 5)}`;
@@ -790,8 +913,10 @@ const DataService = {
     this.setStatus("syncing");
     try {
       if (scopes.has("profile") && profile) {
+        syncWorkProfileFromProfile();
         await SupabaseRepository.upsertUserProfile(profile);
         await SupabaseRepository.upsertExportSettings(profile);
+        await SupabaseRepository.upsertWorkProfile(workProfile);
       }
       if (scopes.has("workModels")) {
         const rows = await SupabaseRepository.saveWorkModels(workModels(), profile);
@@ -946,6 +1071,15 @@ const DataService = {
             });
             return fallback;
           }
+          if (label === "work_profile" && isWorkProfileNotInitializedError(error)) {
+            failedLoads.add(label);
+            console.warn("Work Profile Foundation not initialized", {
+              table: "user_work_profiles",
+              setupSql: WORK_PROFILE_SCHEMA_SQL,
+              error
+            });
+            return fallback;
+          }
           errors.push(`${label}: ${error.message || error}`);
           failedLoads.add(label);
           console.error(`Cloud Sync ${label} load failed`, error);
@@ -954,6 +1088,7 @@ const DataService = {
       };
       const cloudProfile = await safeLoad("profile", () => SupabaseRepository.loadUserProfile(), null);
       const exportSettings = await safeLoad("export_settings", () => SupabaseRepository.loadExportSettings(), null);
+      const cloudWorkProfile = await safeLoad("work_profile", () => SupabaseRepository.loadWorkProfile(), null);
       const workModelsRows = await safeLoad("work_models", () => SupabaseRepository.loadWorkModels(), []);
       const ecpTaskRows = await safeLoad("ecp_tasks", () => SupabaseRepository.loadEcpTasks(), []);
       const entryRows = await safeLoad("entries", () => SupabaseRepository.loadEntries(selectedMonth), []);
@@ -967,6 +1102,8 @@ const DataService = {
         this.workModelsState = Array.isArray(profile?.tags) ? [...profile.tags] : [];
         this.ecpTasksState = Array.isArray(profile?.ecpTasks) ? [...profile.ecpTasks] : [];
       }
+      workProfile = workProfileFromCloud(cloudWorkProfile, exportSettings, ecpTaskRows || [], profile);
+      applyWorkProfileToProfile(workProfile);
       if (!failedLoads.has("entries")) setEntries(Array.isArray(entryRows) ? entryRows.map(entryFromCloud) : []);
       if (!failedLoads.has("knowledge")) {
         knowledgeFoundationNotInitialized = false;
@@ -1018,8 +1155,10 @@ const DataService = {
       profile = readJson("wl_profile", profile);
       normalizeEntries();
       if (profile) {
+        syncWorkProfileFromProfile();
         await SupabaseRepository.upsertUserProfile(profile);
         await SupabaseRepository.upsertExportSettings(profile);
+        await SupabaseRepository.upsertWorkProfile(workProfile);
         await SupabaseRepository.saveWorkModels(workModels(), profile);
         await SupabaseRepository.saveEcpTasks(ecpTasks());
       }
@@ -1055,8 +1194,10 @@ const DataService = {
     this.setStatus("syncing");
     try {
       if (profile) {
+        syncWorkProfileFromProfile();
         await SupabaseRepository.upsertUserProfile(profile);
         await SupabaseRepository.upsertExportSettings(profile);
+        await SupabaseRepository.upsertWorkProfile(workProfile);
         await SupabaseRepository.saveWorkModels(workModels(), profile);
         await SupabaseRepository.saveEcpTasks(ecpTasks());
       }
@@ -1168,8 +1309,10 @@ const DataService = {
       if (hasGoogleOAuthSession() && !dataServiceHydrating && !migrationRunning && profile) {
         dataServiceReady = true;
         this.setStatus("syncing");
+        syncWorkProfileFromProfile();
         await SupabaseRepository.upsertUserProfile(profile);
         await SupabaseRepository.upsertExportSettings(profile);
+        await SupabaseRepository.upsertWorkProfile(workProfile);
         LocalCache.saveAll();
         this.setStatus("synced");
       } else {
@@ -1523,6 +1666,7 @@ function saveAll(options = {}) {
 
 function saveLocalSnapshot() {
   localStorage.setItem("wl_profile", JSON.stringify(profile));
+  localStorage.setItem("wl_work_profile", JSON.stringify(workProfile));
   localStorage.setItem("wl_feedback", JSON.stringify(feedback));
   localStorage.setItem(AI_OS_SESSION_KEY, JSON.stringify(session));
   localStorage.removeItem("wl_session");
@@ -1765,6 +1909,11 @@ function isKnowledgeNotInitializedError(error) {
 function isConversationNotInitializedError(error) {
   const text = `${error?.supabase?.status || ""} ${error?.supabase?.message || ""} ${error?.supabase?.body || ""} ${error?.message || ""}`;
   return /404/.test(text) && /assistant_(conversations|messages|conversation_states)/i.test(text);
+}
+
+function isWorkProfileNotInitializedError(error) {
+  const text = `${error?.supabase?.status || ""} ${error?.supabase?.message || ""} ${error?.supabase?.body || ""} ${error?.message || ""}`;
+  return /404/.test(text) && /user_work_profiles/i.test(text);
 }
 
 function minutesFromTime(value = "09:00") {
@@ -2328,6 +2477,59 @@ function assistantDurationQuestion(intent = "worklog", command = {}) {
   return "請問大約花了多久？";
 }
 
+function shouldPromptWorkProfileToday() {
+  if (isWorkProfileReady(workProfile)) return false;
+  const today = key(new Date());
+  const prompted = normalizeWorkProfile(workProfile || {}, profile).lastProfilePromptDate || localStorage.getItem(scopedLocalKey(WORK_PROFILE_PROMPT_KEY));
+  return prompted !== today;
+}
+
+function startWorkProfileConversation() {
+  const next = normalizeWorkProfile({ ...(workProfile || {}), lastProfileCheckDate: key(new Date()), lastProfilePromptDate: key(new Date()) }, profile);
+  workProfile = next;
+  localStorage.setItem(scopedLocalKey(WORK_PROFILE_PROMPT_KEY), key(new Date()));
+  saveAll();
+  setAssistantPendingCommand({ action: "collect_work_profile", step: "ecp_owner", profileDraft: next });
+  return assistantResult("您好，開始之前，我發現您的工作設定還缺少一些資料。\n\n這樣之後建立工時時，才能順利匯入 ECP。我們花不到一分鐘完成即可。\n\n請問您的 ECP 負責人？");
+}
+
+function handleWorkProfileConversationReply(text = "", pending = {}) {
+  const draft = normalizeWorkProfile(pending.profileDraft || workProfile || {}, profile);
+  const value = String(text || "").trim();
+  if (/稍後|下次|先不要/.test(value)) {
+    setAssistantPendingCommand(null);
+    return assistantResult("好的，先不打擾。您仍可建立工時；匯出 ECP 前我會再提醒完成工作設定。");
+  }
+  if (pending.step === "ecp_owner") {
+    draft.ecpResponsiblePerson = value;
+    setAssistantPendingCommand({ action: "collect_work_profile", step: "ecp_department", profileDraft: draft });
+    return assistantResult("收到。請問您的 ECP 部門？");
+  }
+  if (pending.step === "ecp_department") {
+    draft.ecpDepartment = value;
+    setAssistantPendingCommand({ action: "collect_work_profile", step: "default_task", profileDraft: draft });
+    return assistantResult("收到。請問您目前主要使用的本期 ECP 任務？");
+  }
+  if (pending.step === "default_task") {
+    draft.defaultTask = value;
+    draft.taskEffectiveMonth = monthKey();
+    draft.taskVerifiedAt = new Date().toISOString();
+    const normalized = normalizeWorkProfile(draft, profile);
+    setAssistantPendingCommand({ action: "confirm_work_profile", profileDraft: normalized });
+    return assistantResult("以下資訊是否正確？", { type: "work_profile_confirm", payload: normalized });
+  }
+  return null;
+}
+
+async function confirmWorkProfileFromConversation(draft = {}) {
+  applyWorkProfileToProfile(normalizeWorkProfile(draft, profile));
+  saveAll();
+  await DataService.saveProfileSettingsOnly({ requireCloud: true });
+  await DataService.saveEcpTasksOnly({ requireCloud: true });
+  await clearAssistantPendingCommand();
+  localStorage.setItem(scopedLocalKey(WORKLOG_WELCOME_KEY), "1");
+}
+
 function assistantResult(text = "", card = null) {
   return card ? { text, card } : { text };
 }
@@ -2478,7 +2680,6 @@ async function parseWorklogIntent(text = "") {
 
 async function saveAssistantEntry(command = {}) {
   if (!session || !hasGoogleOAuthSession()) throw new Error("尚未完成 Google Login");
-  if (!profile) throw new Error("尚未完成基本設定");
   const item = buildAssistantEntry(command);
   const error = validateEntry(item);
   if (error) throw new Error(error);
@@ -2576,11 +2777,13 @@ function worklogWelcomeSeen() {
 }
 
 function needsWorklogWelcome() {
-  return !!session && !profile && !worklogWelcomeSeen();
+  return !!session && !isWorkProfileReady(workProfile);
 }
 
 function worklogWelcomeScreen() {
-  return `<div class="wrap"><div class="card"><section class="panel welcome-panel" style="margin-top:18px"><h1>👤 歡迎來到 ZhuGe AI OS</h1><p>您好，我是諸葛先生。</p><p>很高興成為您的 AI 工作夥伴。</p><p>接下來，我會陪伴您一起管理工時，並逐步學習您的工作模式，讓每天的工作變得更輕鬆、更有效率。</p><p>現在，就讓我們先完成基本設定吧！</p><div class="form-actions"><button class="btn" data-start-worklog-setup="1">開始</button></div></section></div></div>`;
+  const p = normalizeWorkProfile(workProfile || {}, profile);
+  const defaultTask = p.defaultTask || "";
+  return `<div class="wrap"><div class="card"><section class="panel welcome-panel work-profile-setup" style="margin-top:18px"><h1>👤 歡迎使用 ZhuGe AI OS</h1><p>為了讓工時可以正確匯入 ECP，請先完成工作身分設定。</p><label>ECP 負責人</label><input class="input" id="setupEcpOwner" value="${escapeHtml(p.ecpResponsiblePerson)}" placeholder="例如：陳彥達-UU"><label>ECP 負責部門</label><input class="input" id="setupEcpDepartment" value="${escapeHtml(p.ecpDepartment)}" placeholder="例如：UU管理部"><label>本期 ECP 任務</label><input class="input" id="setupEcpTask" value="${escapeHtml(defaultTask)}" placeholder="例如：202607管理部月工作-採購及管理(含臨時交辦)"><div class="work-profile-confirm"><b>請確認您的工作設定</b><div>負責人：<span id="setupPreviewOwner">${escapeHtml(p.ecpResponsiblePerson || "尚未填寫")}</span></div><div>部門：<span id="setupPreviewDept">${escapeHtml(p.ecpDepartment || "尚未填寫")}</span></div><div>本期任務：<span id="setupPreviewTask">${escapeHtml(defaultTask || "尚未填寫")}</span></div></div><div class="form-actions"><button class="btn" data-confirm-work-profile-setup="1">確認</button></div><div class="muted">未來可在「設定 → ECP 設定」調整。Work Profile 會同步到 Cloud，跨裝置共用。</div></section></div></div>`;
 }
 
 function migrationScreen() {
@@ -2869,12 +3072,45 @@ function renderAssistantCard(card = null) {
     const p = card.payload || {};
     return `<div class="assistant-command-card assistant-created-card"><div class="assistant-card-title">✅ Calendar 已建立</div><div class="assistant-card-grid"><span>內容</span><b>${escapeHtml(p.title || "")}</b><span>日期</span><b>${escapeHtml(p.date || "")}</b><span>時間</span><b>${escapeHtml(p.start || "")}–${escapeHtml(p.end || "")}</b><span>Duration</span><b>${escapeHtml(String(p.hours || ""))}h</b></div>${card.offerWorklog ? `<div class="assistant-card-actions"><button class="btn green" type="button" data-assistant-calendar-to-worklog="1">建立工時</button><button class="btn2" type="button" data-assistant-calendar-no-worklog="1">不用</button></div>` : ""}</div>`;
   }
+  if (card.type === "work_profile_confirm") {
+    const p = normalizeWorkProfile(card.payload || {}, profile);
+    return `<div class="assistant-command-card"><div class="assistant-card-title">請確認您的工作設定</div><div class="assistant-card-grid"><span>負責人</span><b>${escapeHtml(p.ecpResponsiblePerson || "")}</b><span>部門</span><b>${escapeHtml(p.ecpDepartment || "")}</b><span>本期任務</span><b>${escapeHtml(p.defaultTask || "")}</b></div><div class="assistant-card-actions"><button class="btn green" type="button" data-assistant-confirm-work-profile="1">確認</button><button class="btn2" type="button" data-assistant-edit-work-profile="1">修改</button><button class="btn2" type="button" data-assistant-later-work-profile="1">稍後</button></div></div>`;
+  }
   return "";
 }
 
 function renderAssistantMessage(msg = {}) {
   const roleClass = msg.role === "user" ? "user" : "bot";
-  return `<div class="assistant-msg ${roleClass} ${msg.transient ? "thinking" : ""}">${escapeHtml(msg.text)}${renderAssistantCard(msg.card)}</div>`;
+  const time = chatMessageTime(msg.at);
+  return `<div class="assistant-msg ${roleClass} ${msg.transient ? "thinking" : ""}"><div class="assistant-msg-time">${escapeHtml(time)}</div>${escapeHtml(msg.text)}${renderAssistantCard(msg.card)}</div>`;
+}
+
+function chatMessageTime(value = "") {
+  if (!value) return "";
+  const p = taipeiDateTimeParts(value);
+  return `${p.hour}:${p.minute}`;
+}
+
+function chatDividerLabel(value = "") {
+  const p = taipeiDateTimeParts(value || new Date().toISOString());
+  const today = taipeiDateTimeParts(new Date().toISOString());
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const y = taipeiDateTimeParts(yesterday.toISOString());
+  const date = `${p.year}-${p.month}-${p.day}`;
+  if (date === `${today.year}-${today.month}-${today.day}`) return "今天";
+  if (date === `${y.year}-${y.month}-${y.day}`) return "昨天";
+  return `${p.year}/${p.month}/${p.day}`;
+}
+
+function renderAssistantThread(messages = []) {
+  let last = "";
+  return messages.map(msg => {
+    const label = chatDividerLabel(msg.at);
+    const divider = label !== last ? `<div class="assistant-date-divider"><span>${escapeHtml(label)}</span></div>` : "";
+    last = label;
+    return divider + renderAssistantMessage(msg);
+  }).join("");
 }
 
 function assistantNudgeText() {
@@ -2919,7 +3155,7 @@ function worklogAssistantPanel(mode = "web") {
   const statusNotice = conversationSync.status === "uninitialized"
     ? `<div class="assistant-sync-warning">Conversation 尚未初始化，聊天目前僅儲存在此瀏覽器。</div>`
     : (conversationSync.status === "failed" ? `<div class="assistant-sync-warning">Conversation 同步失敗：${escapeHtml(conversationSync.error || "請稍後再試")}</div>` : "");
-  return `<section class="panel assistant-panel ${modeClass}"><div class="panel-head assistant-chat-head"><div><h2>${title}</h2>${intro}</div>${headerActions}</div>${statusNotice}<div class="assistant-thread" id="assistantThread">${starter}${messages.map(renderAssistantMessage).join("")}</div><div class="assistant-input-row chat-composer"><textarea class="input" id="assistantInput" rows="1" placeholder="例如：今天下午三點到四點開會"></textarea><button class="assistant-send" id="assistantSend" type="button" disabled title="送出" aria-label="送出">➤</button></div></section>`;
+  return `<section class="panel assistant-panel ${modeClass}"><div class="panel-head assistant-chat-head"><div><h2>${title}</h2>${intro}</div>${headerActions}</div>${statusNotice}<div class="assistant-thread" id="assistantThread">${starter}${renderAssistantThread(messages)}</div><div class="assistant-input-row chat-composer"><textarea class="input" id="assistantInput" rows="1" placeholder="例如：今天下午三點到四點開會"></textarea><button class="assistant-send" id="assistantSend" type="button" disabled title="送出" aria-label="送出">➤</button></div></section>`;
 }
 
 function extensionAssistantScreen() {
@@ -2939,7 +3175,14 @@ function floatingAssistantWidget() {
 }
 
 function center() {
-  return `<div class="workbench-grid">${todaySummaryPanel()}<section class="panel module calendar-module"><div class="desktop-calendar">${calendarPanel()}</div><div class="mobile-calendar">${mobileCalendarPanel()}</div></section><section class="panel module today-module">${todayPanel()}</section><section class="panel module suggestion-module">${suggestionPanel()}</section></div>`;
+  return `<div class="workbench-grid">${workProfileStatusCard()}${todaySummaryPanel()}<section class="panel module calendar-module"><div class="desktop-calendar">${calendarPanel()}</div><div class="mobile-calendar">${mobileCalendarPanel()}</div></section><section class="panel module today-module">${todayPanel()}</section><section class="panel module suggestion-module">${suggestionPanel()}</section></div>`;
+}
+
+function workProfileStatusCard() {
+  const missing = workProfileMissingFields(workProfile);
+  const ready = !missing.length;
+  const task = normalizeWorkProfile(workProfile).defaultTask || "尚未設定";
+  return `<section class="panel work-profile-status"><div><b>工作身分</b><div class="muted">${ready ? "✓ 已完成" : `⚠ 尚未完成：${missing.join("、")}`}</div><div class="source-path">本期 ECP 任務：${escapeHtml(task)}</div></div><button class="btn2" data-open-workspace="settings">設定</button></section>`;
 }
 
 function workDescriptionSuggestions(query = "") {
@@ -3207,7 +3450,9 @@ function libraryForm(id = null) {
 function settings() {
   const models = workModels();
   const tasks = ecpTasks();
-  return `<section class="panel" style="margin-top:18px"><h2>⚙️ 設定</h2><div class="entry"><b>目前使用者</b><div class="muted">${escapeHtml(session.name)}｜${escapeHtml(session.status || session.email || "")}</div></div><div class="entry"><b>Smart Auto Save</b><div class="muted">設定一修改即更新本機狀態，約 2 秒後自動同步 Cloud。</div></div><label>角色</label><select id="roleSet" class="input">${roles.map(r => `<option ${profile && profile.role === r ? "selected" : ""}>${r}</option>`).join("")}</select><div class="work-model-section"><label>工作模型</label><div class="work-model-list" id="workModelList">${workModelChecks(models, models)}</div><div class="work-model-add"><input class="input" id="newWorkModel" placeholder="新增工作模型，例如：ISO 稽核"><button class="btn2" id="addWorkModel" type="button">＋ 新增工作模型</button></div><div class="muted">工作模型給 AI 學習、推理與推薦使用，不直接等於 ECP 匯入欄位。</div></div><div class="work-model-section"><label>ECP 設定</label><label>ECP 負責人</label><input class="input" id="ecpOwner" value="${escapeHtml(profile?.ecpOwner || "")}" placeholder="例如：陳彥達-UU"><label>ECP 負責部門</label><input class="input" id="ecpDepartment" value="${escapeHtml(profile?.ecpDepartment || "")}" placeholder="例如：UU管理部"><label>ECP 任務</label>${ecpTaskList(tasks)}<div class="work-model-add"><input class="input" id="newEcpTask" placeholder="新增 ECP 任務，例如：採購案件處理"><button class="btn2" id="addEcpTask" type="button">＋ 新增 ECP 任務</button></div><div class="muted">ECP 任務專供匯出使用，可設定常用 ECP 任務；快速紀錄可選「不指定 ECP 任務」。</div></div><button class="btn gray full" id="resetProfile">重新初次認識</button><button class="btn red full" id="logoutBtn">登出</button><div class="entry"><b>版本</b><div class="muted">${VERSION}</div></div></section>`;
+  const wp = normalizeWorkProfile(workProfile || {}, profile);
+  const profileStatus = isWorkProfileReady(wp) ? "✓ 已完成" : `⚠ 尚未完成：${workProfileMissingFields(wp).join("、")}`;
+  return `<section class="panel" style="margin-top:18px"><h2>⚙️ 設定</h2><div class="entry"><b>目前使用者</b><div class="muted">${escapeHtml(session.name)}｜${escapeHtml(session.status || session.email || "")}</div></div><div class="entry"><b>工作身分</b><div class="muted">${escapeHtml(profileStatus)}</div><div class="source-path">本期任務：${escapeHtml(wp.defaultTask || "尚未設定")}｜有效月份：${escapeHtml(wp.taskEffectiveMonth || "尚未設定")}</div></div><div class="entry"><b>Smart Auto Save</b><div class="muted">設定一修改即更新本機狀態，約 2 秒後自動同步 Cloud。</div></div><label>角色</label><select id="roleSet" class="input">${roles.map(r => `<option ${profile && profile.role === r ? "selected" : ""}>${r}</option>`).join("")}</select><div class="work-model-section"><label>工作模型</label><div class="work-model-list" id="workModelList">${workModelChecks(models, models)}</div><div class="work-model-add"><input class="input" id="newWorkModel" placeholder="新增工作模型，例如：ISO 稽核"><button class="btn2" id="addWorkModel" type="button">＋ 新增工作模型</button></div><div class="muted">工作模型給 AI 學習、推理與推薦使用，不直接等於 ECP 匯入欄位。</div></div><div class="work-model-section"><label>ECP 設定</label><label>ECP 負責人</label><input class="input" id="ecpOwner" value="${escapeHtml(profile?.ecpOwner || "")}" placeholder="例如：陳彥達-UU"><label>ECP 負責部門</label><input class="input" id="ecpDepartment" value="${escapeHtml(profile?.ecpDepartment || "")}" placeholder="例如：UU管理部"><label>ECP 任務</label>${ecpTaskList(tasks)}<div class="work-model-add"><input class="input" id="newEcpTask" placeholder="新增 ECP 任務，例如：採購案件處理"><button class="btn2" id="addEcpTask" type="button">＋ 新增 ECP 任務</button></div><div class="muted">ECP 任務專供匯出使用，可設定常用 ECP 任務；快速紀錄可選「不指定 ECP 任務」。</div></div><button class="btn gray full" id="resetProfile">重新初次認識</button><button class="btn red full" id="logoutBtn">登出</button><div class="entry"><b>版本</b><div class="muted">${VERSION}</div></div></section>`;
 }
 
 function currentViewHtml() {
@@ -3242,13 +3487,42 @@ function bindMigration() {
 function bindDashboard() {}
 
 function bindWorklogWelcome() {
-  document.querySelectorAll("[data-start-worklog-setup]").forEach(b => b.onclick = () => {
+  const owner = document.getElementById("setupEcpOwner");
+  const dept = document.getElementById("setupEcpDepartment");
+  const task = document.getElementById("setupEcpTask");
+  const syncPreview = () => {
+    const set = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value || "尚未填寫"; };
+    set("setupPreviewOwner", owner?.value.trim() || "");
+    set("setupPreviewDept", dept?.value.trim() || "");
+    set("setupPreviewTask", task?.value.trim() || "");
+  };
+  [owner, dept, task].filter(Boolean).forEach(input => input.oninput = syncPreview);
+  document.querySelectorAll("[data-confirm-work-profile-setup]").forEach(b => b.onclick = async () => {
+    const next = normalizeWorkProfile({
+      ecpResponsiblePerson: owner?.value.trim() || "",
+      ecpDepartment: dept?.value.trim() || "",
+      defaultTask: task?.value.trim() || "",
+      taskEffectiveMonth: monthKey(),
+      taskVerifiedAt: new Date().toISOString(),
+      lastProfileCheckDate: key(new Date())
+    }, profile);
+    if (!isWorkProfileReady(next)) return toast(`尚未完成工作設定：${workProfileMissingFields(next).join("、")}`);
+    applyWorkProfileToProfile(next);
     localStorage.setItem(scopedLocalKey(WORKLOG_WELCOME_KEY), "1");
     activeWorkspace = "worklog";
     openTabs = ["worklog"];
     recentWorkspaces = ["worklog"];
     hasOsShellState = true;
     saveAll();
+    try {
+      await DataService.saveProfileSettingsOnly({ requireCloud: true });
+      await DataService.saveEcpTasksOnly({ requireCloud: true });
+      toast("工作身分已完成");
+    } catch (error) {
+      console.error("Work Profile setup sync failed", { error, supabase: error.supabase || null });
+      toast("工作身分同步失敗，請稍後再試");
+      return;
+    }
     render();
   });
 }
@@ -3327,6 +3601,19 @@ function bindWorklogAssistant() {
           await setAssistantPendingCommand({ action: "confirm_add_entry", command: parsedCommand });
           addAssistantResult({ text: "請確認這筆工時：", card: { type: "confirm_entry", payload: entryPayload } });
         }
+        render();
+        return;
+      }
+      if (pending?.action === "collect_work_profile") {
+        const response = handleWorkProfileConversationReply(text, pending);
+        removeConversationMessage(thinkingId);
+        addAssistantResult(response);
+        render();
+        return;
+      }
+      if (shouldPromptWorkProfileToday()) {
+        removeConversationMessage(thinkingId);
+        addAssistantResult(startWorkProfileConversation());
         render();
         return;
       }
@@ -3488,6 +3775,39 @@ function bindWorklogAssistant() {
     clearAssistantPendingCommand();
     addConversationMessage("user", "不用");
     addConversationMessage("assistant", "好的，已保留 Calendar，不建立工時。");
+    render();
+  });
+  document.querySelectorAll("[data-assistant-confirm-work-profile]").forEach(button => button.onclick = async () => {
+    const pending = getAssistantPendingCommand();
+    const draft = pending?.profileDraft || workProfile || {};
+    addConversationMessage("user", "確認");
+    const thinkingId = addAssistantThinkingMessage();
+    render();
+    try {
+      await confirmWorkProfileFromConversation(draft);
+      removeConversationMessage(thinkingId);
+      addConversationMessage("assistant", "工作身分已完成。之後建立工時與匯出 ECP 會使用這份設定。");
+    } catch (error) {
+      removeConversationMessage(thinkingId);
+      console.error("Work Profile conversation sync failed", { error, supabase: error.supabase || null, draft });
+      addConversationMessage("assistant", `工作身分同步失敗：${error?.message || "請稍後再試"}`);
+    }
+    render();
+  });
+  document.querySelectorAll("[data-assistant-edit-work-profile]").forEach(button => button.onclick = () => {
+    const pending = getAssistantPendingCommand();
+    setAssistantPendingCommand({ action: "collect_work_profile", step: "ecp_owner", profileDraft: pending?.profileDraft || workProfile || {} });
+    addConversationMessage("user", "修改");
+    addConversationMessage("assistant", "好的，我們重新確認一次。請問您的 ECP 負責人？");
+    render();
+  });
+  document.querySelectorAll("[data-assistant-later-work-profile]").forEach(button => button.onclick = () => {
+    clearAssistantPendingCommand();
+    const next = normalizeWorkProfile({ ...(workProfile || {}), lastProfilePromptDate: key(new Date()) }, profile);
+    workProfile = next;
+    saveAll();
+    addConversationMessage("user", "稍後");
+    addConversationMessage("assistant", "好的，您仍可先建立工時。匯出 ECP 前，我會提醒補齊工作設定。");
     render();
   });
 }
@@ -3868,7 +4188,8 @@ function bindSettings() {
       const next = currentEcpTasks().filter(task => task !== b.dataset.removeEcpTask);
       renderEcpTasks(next);
       setEcpTasks(next);
-      queueSettingsAutoSave("ecpTasks");
+      workProfile = normalizeWorkProfile({ ...(workProfile || {}), defaultTask: next[0] || "" }, profile);
+      queueSettingsAutoSave(["profile", "ecpTasks"]);
     });
   };
   bindEcpTaskRemove();
@@ -3903,7 +4224,8 @@ function bindSettings() {
     const nextTasks = tasks.includes(name) ? tasks : [...tasks, name];
     renderEcpTasks(nextTasks);
     setEcpTasks(nextTasks);
-    queueSettingsAutoSave("ecpTasks");
+    workProfile = normalizeWorkProfile({ ...(workProfile || {}), defaultTask: name, taskEffectiveMonth: monthKey(), taskVerifiedAt: new Date().toISOString() }, profile);
+    queueSettingsAutoSave(["profile", "ecpTasks"]);
     input.value = "";
     toast("已新增 ECP 任務，將自動同步");
   };
@@ -3912,6 +4234,7 @@ function bindSettings() {
   [ecpOwner, ecpDepartment].filter(Boolean).forEach(input => input.oninput = () => {
     profile.ecpOwner = ecpOwner?.value.trim() || "";
     profile.ecpDepartment = ecpDepartment?.value.trim() || "";
+    workProfile = normalizeWorkProfile({ ...(workProfile || {}), ecpResponsiblePerson: profile.ecpOwner, ecpDepartment: profile.ecpDepartment }, profile);
     queueSettingsAutoSave("profile");
   });
   document.getElementById("resetProfile").onclick = () => { profile = null; saveAll(); render(); };
@@ -4221,7 +4544,8 @@ async function exportByProfile(rows, profileConfig, month = selectedMonth) {
 
 async function exportEcpImportFile() {
   try {
-    if (!profile?.ecpOwner || !profile?.ecpDepartment) return toast("請先完成 ECP 設定。");
+    const missing = workProfileMissingFields(workProfile);
+    if (missing.length) return toast(`尚未完成工作設定。還缺少：${missing.join("、")}。完成後即可匯出 ECP。`);
     const rows = workLogRowsForEcp();
     if (!rows.length) return toast("本月份尚無工時資料可匯出。");
     const profileConfig = await loadExportProfile(ECP_EXPORT_PROFILE_PATH);
