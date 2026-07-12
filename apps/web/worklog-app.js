@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260712-2158";
+const BUILD_TIME = "20260712-2234";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const IS_EXTENSION_ENTRY = document.body?.classList.contains("extension");
@@ -11,6 +11,9 @@ const AUTH_CODE_VERIFIER_KEY = "zhuge_ai_os_pkce_code_verifier_v1";
 const AI_OS_SESSION_KEY = "zhuge_ai_os_session_v1";
 const WORKLOG_WELCOME_KEY = "zhuge_worklog_welcome_seen_v1";
 const WORK_PROFILE_PROMPT_KEY = "zhuge_work_profile_prompt_date_v1";
+const WORK_IDENTITY_SETUP_STEP_KEY = "zhuge_work_identity_setup_step_v1";
+const WORK_IDENTITY_SETUP_DRAFT_KEY = "zhuge_work_identity_setup_draft_v1";
+const WORK_IDENTITY_COMPLETION_KEY = "zhuge_work_identity_completion_pending_v1";
 const WORKLOG_CHAT_KEY = "zhuge_worklog_chat_v1";
 const WORKLOG_CHAT_PENDING_KEY = "zhuge_worklog_chat_pending_v1";
 const ZHUGE_ASSISTANT_WELCOME_KEY = "zhuge_assistant_welcome_seen_v1";
@@ -799,7 +802,7 @@ function workProfileMissingFields(p = workProfile) {
   const missing = [];
   if (!next.ecpResponsiblePerson) missing.push("ECP 負責人");
   if (!next.ecpDepartment) missing.push("ECP 負責部門");
-  if (!next.defaultTask) missing.push("本期 ECP 任務");
+  if (!next.defaultTask) missing.push("目前工作任務");
   return missing;
 }
 
@@ -2490,7 +2493,7 @@ function startWorkProfileConversation() {
   localStorage.setItem(scopedLocalKey(WORK_PROFILE_PROMPT_KEY), key(new Date()));
   saveAll();
   setAssistantPendingCommand({ action: "collect_work_profile", step: "ecp_owner", profileDraft: next });
-  return assistantResult("您好，開始之前，我發現您的工作設定還缺少一些資料。\n\n這樣之後建立工時時，才能順利匯入 ECP。我們花不到一分鐘完成即可。\n\n請問您的 ECP 負責人？");
+  return assistantResult("您好，為了讓之後建立工時可以直接匯入 ECP，我們先完成您的工作身分。\n\n我會一步一步協助您，花不到一分鐘即可。\n\n請問您的 ECP 負責人？");
 }
 
 function handleWorkProfileConversationReply(text = "", pending = {}) {
@@ -2498,7 +2501,7 @@ function handleWorkProfileConversationReply(text = "", pending = {}) {
   const value = String(text || "").trim();
   if (/稍後|下次|先不要/.test(value)) {
     setAssistantPendingCommand(null);
-    return assistantResult("好的，先不打擾。您仍可建立工時；匯出 ECP 前我會再提醒完成工作設定。");
+    return assistantResult("好的，先不打擾。您仍可建立工時；匯出 ECP 前我會再提醒完成工作身分。");
   }
   if (pending.step === "ecp_owner") {
     draft.ecpResponsiblePerson = value;
@@ -2508,7 +2511,7 @@ function handleWorkProfileConversationReply(text = "", pending = {}) {
   if (pending.step === "ecp_department") {
     draft.ecpDepartment = value;
     setAssistantPendingCommand({ action: "collect_work_profile", step: "default_task", profileDraft: draft });
-    return assistantResult("收到。請問您目前主要使用的本期 ECP 任務？");
+    return assistantResult("收到。請問您目前主要使用的工作任務？");
   }
   if (pending.step === "default_task") {
     draft.defaultTask = value;
@@ -2516,7 +2519,7 @@ function handleWorkProfileConversationReply(text = "", pending = {}) {
     draft.taskVerifiedAt = new Date().toISOString();
     const normalized = normalizeWorkProfile(draft, profile);
     setAssistantPendingCommand({ action: "confirm_work_profile", profileDraft: normalized });
-    return assistantResult("以下資訊是否正確？", { type: "work_profile_confirm", payload: normalized });
+    return assistantResult("請確認您的工作身分：", { type: "work_profile_confirm", payload: normalized });
   }
   return null;
 }
@@ -2777,13 +2780,31 @@ function worklogWelcomeSeen() {
 }
 
 function needsWorklogWelcome() {
-  return !!session && !isWorkProfileReady(workProfile);
+  return !!session && (!isWorkProfileReady(workProfile) || localStorage.getItem(scopedLocalKey(WORK_IDENTITY_COMPLETION_KEY)) === "1");
 }
 
 function worklogWelcomeScreen() {
-  const p = normalizeWorkProfile(workProfile || {}, profile);
-  const defaultTask = p.defaultTask || "";
-  return `<div class="wrap"><div class="card"><section class="panel welcome-panel work-profile-setup" style="margin-top:18px"><h1>👤 歡迎使用 ZhuGe AI OS</h1><p>為了讓工時可以正確匯入 ECP，請先完成工作身分設定。</p><label>ECP 負責人</label><input class="input" id="setupEcpOwner" value="${escapeHtml(p.ecpResponsiblePerson)}" placeholder="例如：陳彥達-UU"><label>ECP 負責部門</label><input class="input" id="setupEcpDepartment" value="${escapeHtml(p.ecpDepartment)}" placeholder="例如：UU管理部"><label>本期 ECP 任務</label><input class="input" id="setupEcpTask" value="${escapeHtml(defaultTask)}" placeholder="例如：202607管理部月工作-採購及管理(含臨時交辦)"><div class="work-profile-confirm"><b>請確認您的工作設定</b><div>負責人：<span id="setupPreviewOwner">${escapeHtml(p.ecpResponsiblePerson || "尚未填寫")}</span></div><div>部門：<span id="setupPreviewDept">${escapeHtml(p.ecpDepartment || "尚未填寫")}</span></div><div>本期任務：<span id="setupPreviewTask">${escapeHtml(defaultTask || "尚未填寫")}</span></div></div><div class="form-actions"><button class="btn" data-confirm-work-profile-setup="1">確認</button></div><div class="muted">未來可在「設定 → ECP 設定」調整。Work Profile 會同步到 Cloud，跨裝置共用。</div></section></div></div>`;
+  const completionPending = localStorage.getItem(scopedLocalKey(WORK_IDENTITY_COMPLETION_KEY)) === "1";
+  if (completionPending && isWorkProfileReady(workProfile)) {
+    return `<div class="wrap"><div class="card"><section class="panel welcome-panel work-identity-complete" style="margin-top:18px"><h1>🎉 工作身分建立完成！</h1><p>之後您只需要用自然語言，例如：</p><div class="work-identity-example">今天下午開會兩小時</div><p>我就可以協助您：</p><ul class="work-identity-list"><li>✅ 建立工時</li><li>✅ 建立 Calendar</li><li>✅ 建立任務</li></ul><div class="form-actions"><button class="btn" data-enter-ai-os="1">開始使用</button></div></section></div></div>`;
+  }
+  const step = localStorage.getItem(scopedLocalKey(WORK_IDENTITY_SETUP_STEP_KEY)) || "welcome";
+  const draft = normalizeWorkProfile(readJson(scopedLocalKey(WORK_IDENTITY_SETUP_DRAFT_KEY), workProfile || {}), profile);
+  const progress = {
+    owner: ["Step 1 / 4", "■□□□", "ECP 負責人", "setupEcpOwner", draft.ecpResponsiblePerson, "例如：陳彥達-UU"],
+    department: ["Step 2 / 4", "■■□□", "ECP 負責部門", "setupEcpDepartment", draft.ecpDepartment, "例如：UU管理部"],
+    task: ["Step 3 / 4", "■■■□", "目前工作任務（Current Active Task）", "setupEcpTask", draft.defaultTask, "例如：202607管理部月工作-採購及管理(含臨時交辦)"],
+    confirm: ["Step 4 / 4", "■■■■"]
+  };
+  if (step === "welcome") {
+    return `<div class="wrap"><div class="card"><section class="panel welcome-panel work-identity-welcome" style="margin-top:18px"><h1>👋 歡迎來到 ZhuGe AI OS</h1><p class="work-identity-tagline">一句話記錄工作，一步步建立專屬於你的 AI 工作助理。</p><p>我是諸葛先生。</p><p>未來我會逐漸學習您的工作方式，成為最了解您的 AI 助理。</p><p>開始之前，我們先花不到一分鐘，建立您的工作身分。</p><div class="muted">工作身分是 ZhuGe AI OS 對您工作角色的理解基礎，未來 Knowledge Brain、Recommendation Engine 與 Suggestion Engine 都會以此作為 Context。</div><div class="form-actions"><button class="btn" data-work-identity-start="1">開始設定</button></div></section></div></div>`;
+  }
+  if (step === "confirm") {
+    const [label, bars] = progress.confirm;
+    return `<div class="wrap"><div class="card"><section class="panel welcome-panel work-profile-setup" style="margin-top:18px"><div class="setup-progress"><span>建立工作身分</span><b>${label}</b><em>${bars}</em></div><h1>請確認您的工作身分</h1><div class="work-profile-confirm"><div>負責人：<b>${escapeHtml(draft.ecpResponsiblePerson || "尚未填寫")}</b></div><div>部門：<b>${escapeHtml(draft.ecpDepartment || "尚未填寫")}</b></div><div>目前工作任務：<b>${escapeHtml(draft.defaultTask || "尚未填寫")}</b></div></div><div class="form-actions"><button class="btn2" data-work-identity-back="task">修改</button><button class="btn" data-confirm-work-profile-setup="1">確認</button></div></section></div></div>`;
+  }
+  const cfg = progress[step] || progress.owner;
+  return `<div class="wrap"><div class="card"><section class="panel welcome-panel work-profile-setup" style="margin-top:18px"><div class="setup-progress"><span>建立工作身分</span><b>${escapeHtml(cfg[0])}</b><em>${escapeHtml(cfg[1])}</em></div><h1>${escapeHtml(cfg[2])}</h1><p class="muted">我會一步一步協助您完成。這些資訊會讓未來工時與 ECP 匯出更順。</p><label>${escapeHtml(cfg[2])}</label><input class="input" id="${escapeHtml(cfg[3])}" value="${escapeHtml(cfg[4])}" placeholder="${escapeHtml(cfg[5])}"><div class="form-actions"><button class="btn2" data-work-identity-prev="1">返回</button><button class="btn" data-work-identity-next="${escapeHtml(step)}">下一步</button></div></section></div></div>`;
 }
 
 function migrationScreen() {
@@ -3074,7 +3095,7 @@ function renderAssistantCard(card = null) {
   }
   if (card.type === "work_profile_confirm") {
     const p = normalizeWorkProfile(card.payload || {}, profile);
-    return `<div class="assistant-command-card"><div class="assistant-card-title">請確認您的工作設定</div><div class="assistant-card-grid"><span>負責人</span><b>${escapeHtml(p.ecpResponsiblePerson || "")}</b><span>部門</span><b>${escapeHtml(p.ecpDepartment || "")}</b><span>本期任務</span><b>${escapeHtml(p.defaultTask || "")}</b></div><div class="assistant-card-actions"><button class="btn green" type="button" data-assistant-confirm-work-profile="1">確認</button><button class="btn2" type="button" data-assistant-edit-work-profile="1">修改</button><button class="btn2" type="button" data-assistant-later-work-profile="1">稍後</button></div></div>`;
+    return `<div class="assistant-command-card"><div class="assistant-card-title">請確認您的工作身分</div><div class="assistant-card-grid"><span>負責人</span><b>${escapeHtml(p.ecpResponsiblePerson || "")}</b><span>部門</span><b>${escapeHtml(p.ecpDepartment || "")}</b><span>目前工作任務</span><b>${escapeHtml(p.defaultTask || "")}</b></div><div class="assistant-card-actions"><button class="btn green" type="button" data-assistant-confirm-work-profile="1">確認</button><button class="btn2" type="button" data-assistant-edit-work-profile="1">修改</button><button class="btn2" type="button" data-assistant-later-work-profile="1">稍後</button></div></div>`;
   }
   return "";
 }
@@ -3182,7 +3203,7 @@ function workProfileStatusCard() {
   const missing = workProfileMissingFields(workProfile);
   const ready = !missing.length;
   const task = normalizeWorkProfile(workProfile).defaultTask || "尚未設定";
-  return `<section class="panel work-profile-status"><div><b>工作身分</b><div class="muted">${ready ? "✓ 已完成" : `⚠ 尚未完成：${missing.join("、")}`}</div><div class="source-path">本期 ECP 任務：${escapeHtml(task)}</div></div><button class="btn2" data-open-workspace="settings">設定</button></section>`;
+  return `<section class="panel work-profile-status"><div><b>工作身分</b><div class="muted">${ready ? "✓ 已完成" : `⚠ 尚未完成：${missing.join("、")}`}</div><div class="source-path">目前工作任務：${escapeHtml(task)}</div></div><button class="btn2" data-open-workspace="settings">設定</button></section>`;
 }
 
 function workDescriptionSuggestions(query = "") {
@@ -3452,7 +3473,7 @@ function settings() {
   const tasks = ecpTasks();
   const wp = normalizeWorkProfile(workProfile || {}, profile);
   const profileStatus = isWorkProfileReady(wp) ? "✓ 已完成" : `⚠ 尚未完成：${workProfileMissingFields(wp).join("、")}`;
-  return `<section class="panel" style="margin-top:18px"><h2>⚙️ 設定</h2><div class="entry"><b>目前使用者</b><div class="muted">${escapeHtml(session.name)}｜${escapeHtml(session.status || session.email || "")}</div></div><div class="entry"><b>工作身分</b><div class="muted">${escapeHtml(profileStatus)}</div><div class="source-path">本期任務：${escapeHtml(wp.defaultTask || "尚未設定")}｜有效月份：${escapeHtml(wp.taskEffectiveMonth || "尚未設定")}</div></div><div class="entry"><b>Smart Auto Save</b><div class="muted">設定一修改即更新本機狀態，約 2 秒後自動同步 Cloud。</div></div><label>角色</label><select id="roleSet" class="input">${roles.map(r => `<option ${profile && profile.role === r ? "selected" : ""}>${r}</option>`).join("")}</select><div class="work-model-section"><label>工作模型</label><div class="work-model-list" id="workModelList">${workModelChecks(models, models)}</div><div class="work-model-add"><input class="input" id="newWorkModel" placeholder="新增工作模型，例如：ISO 稽核"><button class="btn2" id="addWorkModel" type="button">＋ 新增工作模型</button></div><div class="muted">工作模型給 AI 學習、推理與推薦使用，不直接等於 ECP 匯入欄位。</div></div><div class="work-model-section"><label>ECP 設定</label><label>ECP 負責人</label><input class="input" id="ecpOwner" value="${escapeHtml(profile?.ecpOwner || "")}" placeholder="例如：陳彥達-UU"><label>ECP 負責部門</label><input class="input" id="ecpDepartment" value="${escapeHtml(profile?.ecpDepartment || "")}" placeholder="例如：UU管理部"><label>ECP 任務</label>${ecpTaskList(tasks)}<div class="work-model-add"><input class="input" id="newEcpTask" placeholder="新增 ECP 任務，例如：採購案件處理"><button class="btn2" id="addEcpTask" type="button">＋ 新增 ECP 任務</button></div><div class="muted">ECP 任務專供匯出使用，可設定常用 ECP 任務；快速紀錄可選「不指定 ECP 任務」。</div></div><button class="btn gray full" id="resetProfile">重新初次認識</button><button class="btn red full" id="logoutBtn">登出</button><div class="entry"><b>版本</b><div class="muted">${VERSION}</div></div></section>`;
+  return `<section class="panel" style="margin-top:18px"><h2>⚙️ 設定</h2><div class="entry"><b>目前使用者</b><div class="muted">${escapeHtml(session.name)}｜${escapeHtml(session.status || session.email || "")}</div></div><div class="entry"><b>工作身分</b><div class="muted">${escapeHtml(profileStatus)}</div><div class="source-path">目前工作任務：${escapeHtml(wp.defaultTask || "尚未設定")}｜有效月份：${escapeHtml(wp.taskEffectiveMonth || "尚未設定")}</div></div><div class="entry"><b>Smart Auto Save</b><div class="muted">設定一修改即更新本機狀態，約 2 秒後自動同步 Cloud。</div></div><label>角色</label><select id="roleSet" class="input">${roles.map(r => `<option ${profile && profile.role === r ? "selected" : ""}>${r}</option>`).join("")}</select><div class="work-model-section"><label>工作模型</label><div class="work-model-list" id="workModelList">${workModelChecks(models, models)}</div><div class="work-model-add"><input class="input" id="newWorkModel" placeholder="新增工作模型，例如：ISO 稽核"><button class="btn2" id="addWorkModel" type="button">＋ 新增工作模型</button></div><div class="muted">工作模型給 AI 學習、推理與推薦使用，不直接等於 ECP 匯入欄位。</div></div><div class="work-model-section"><label>ECP 設定</label><label>ECP 負責人</label><input class="input" id="ecpOwner" value="${escapeHtml(profile?.ecpOwner || "")}" placeholder="例如：陳彥達-UU"><label>ECP 負責部門</label><input class="input" id="ecpDepartment" value="${escapeHtml(profile?.ecpDepartment || "")}" placeholder="例如：UU管理部"><label>目前工作任務（Current Active Task）</label>${ecpTaskList(tasks)}<div class="work-model-add"><input class="input" id="newEcpTask" placeholder="新增 ECP 任務，例如：採購案件處理"><button class="btn2" id="addEcpTask" type="button">＋ 新增 ECP 任務</button></div><div class="muted">目前工作任務會作為 ECP 匯出的任務欄位來源；快速紀錄仍可選「不指定 ECP 任務」。</div></div><button class="btn gray full" id="resetProfile">重新初次認識</button><button class="btn red full" id="logoutBtn">登出</button><div class="entry"><b>版本</b><div class="muted">${VERSION}</div></div></section>`;
 }
 
 function currentViewHtml() {
@@ -3487,26 +3508,48 @@ function bindMigration() {
 function bindDashboard() {}
 
 function bindWorklogWelcome() {
-  const owner = document.getElementById("setupEcpOwner");
-  const dept = document.getElementById("setupEcpDepartment");
-  const task = document.getElementById("setupEcpTask");
-  const syncPreview = () => {
-    const set = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value || "尚未填寫"; };
-    set("setupPreviewOwner", owner?.value.trim() || "");
-    set("setupPreviewDept", dept?.value.trim() || "");
-    set("setupPreviewTask", task?.value.trim() || "");
-  };
-  [owner, dept, task].filter(Boolean).forEach(input => input.oninput = syncPreview);
+  const draftKey = scopedLocalKey(WORK_IDENTITY_SETUP_DRAFT_KEY);
+  const stepKey = scopedLocalKey(WORK_IDENTITY_SETUP_STEP_KEY);
+  const readDraft = () => normalizeWorkProfile(readJson(draftKey, workProfile || {}), profile);
+  const writeDraft = draft => writeJson(draftKey, normalizeWorkProfile(draft, profile));
+  const setStep = step => { localStorage.setItem(stepKey, step); render(); };
+  document.querySelectorAll("[data-work-identity-start]").forEach(b => b.onclick = () => setStep("owner"));
+  document.querySelectorAll("[data-work-identity-back]").forEach(b => b.onclick = () => setStep(b.dataset.workIdentityBack || "owner"));
+  document.querySelectorAll("[data-work-identity-prev]").forEach(b => b.onclick = () => {
+    const step = localStorage.getItem(stepKey) || "owner";
+    setStep(step === "department" ? "owner" : (step === "task" ? "department" : "welcome"));
+  });
+  document.querySelectorAll("[data-work-identity-next]").forEach(b => b.onclick = () => {
+    const step = b.dataset.workIdentityNext || "owner";
+    const draft = readDraft();
+    if (step === "owner") {
+      const value = document.getElementById("setupEcpOwner")?.value.trim() || "";
+      if (!value) return toast("請輸入 ECP 負責人");
+      writeDraft({ ...draft, ecpResponsiblePerson: value });
+      return setStep("department");
+    }
+    if (step === "department") {
+      const value = document.getElementById("setupEcpDepartment")?.value.trim() || "";
+      if (!value) return toast("請輸入 ECP 負責部門");
+      writeDraft({ ...draft, ecpDepartment: value });
+      return setStep("task");
+    }
+    if (step === "task") {
+      const value = document.getElementById("setupEcpTask")?.value.trim() || "";
+      if (!value) return toast("請輸入目前工作任務");
+      writeDraft({ ...draft, defaultTask: value, taskEffectiveMonth: monthKey(), taskVerifiedAt: new Date().toISOString() });
+      return setStep("confirm");
+    }
+  });
   document.querySelectorAll("[data-confirm-work-profile-setup]").forEach(b => b.onclick = async () => {
+    const draft = readDraft();
     const next = normalizeWorkProfile({
-      ecpResponsiblePerson: owner?.value.trim() || "",
-      ecpDepartment: dept?.value.trim() || "",
-      defaultTask: task?.value.trim() || "",
+      ...draft,
       taskEffectiveMonth: monthKey(),
       taskVerifiedAt: new Date().toISOString(),
       lastProfileCheckDate: key(new Date())
     }, profile);
-    if (!isWorkProfileReady(next)) return toast(`尚未完成工作設定：${workProfileMissingFields(next).join("、")}`);
+    if (!isWorkProfileReady(next)) return toast(`尚未完成工作身分：${workProfileMissingFields(next).join("、")}`);
     applyWorkProfileToProfile(next);
     localStorage.setItem(scopedLocalKey(WORKLOG_WELCOME_KEY), "1");
     activeWorkspace = "worklog";
@@ -3517,12 +3560,24 @@ function bindWorklogWelcome() {
     try {
       await DataService.saveProfileSettingsOnly({ requireCloud: true });
       await DataService.saveEcpTasksOnly({ requireCloud: true });
+      localStorage.setItem(scopedLocalKey(WORK_IDENTITY_COMPLETION_KEY), "1");
+      localStorage.removeItem(stepKey);
+      localStorage.removeItem(draftKey);
       toast("工作身分已完成");
     } catch (error) {
       console.error("Work Profile setup sync failed", { error, supabase: error.supabase || null });
       toast("工作身分同步失敗，請稍後再試");
       return;
     }
+    render();
+  });
+  document.querySelectorAll("[data-enter-ai-os]").forEach(b => b.onclick = () => {
+    localStorage.removeItem(scopedLocalKey(WORK_IDENTITY_COMPLETION_KEY));
+    activeWorkspace = "worklog";
+    openTabs = ["worklog"];
+    recentWorkspaces = ["worklog"];
+    hasOsShellState = true;
+    saveAll();
     render();
   });
 }
@@ -3807,7 +3862,7 @@ function bindWorklogAssistant() {
     workProfile = next;
     saveAll();
     addConversationMessage("user", "稍後");
-    addConversationMessage("assistant", "好的，您仍可先建立工時。匯出 ECP 前，我會提醒補齊工作設定。");
+    addConversationMessage("assistant", "好的，您仍可先建立工時。匯出 ECP 前，我會提醒補齊工作身分。");
     render();
   });
 }
@@ -4545,7 +4600,7 @@ async function exportByProfile(rows, profileConfig, month = selectedMonth) {
 async function exportEcpImportFile() {
   try {
     const missing = workProfileMissingFields(workProfile);
-    if (missing.length) return toast(`尚未完成工作設定。還缺少：${missing.join("、")}。完成後即可匯出 ECP。`);
+    if (missing.length) return toast(`尚未完成工作身分。還缺少：${missing.join("、")}。完成後即可匯出 ECP。`);
     const rows = workLogRowsForEcp();
     if (!rows.length) return toast("本月份尚無工時資料可匯出。");
     const profileConfig = await loadExportProfile(ECP_EXPORT_PROFILE_PATH);
