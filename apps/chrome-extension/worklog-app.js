@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260712-2234";
+const BUILD_TIME = "20260713-0847";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const IS_EXTENSION_ENTRY = document.body?.classList.contains("extension");
@@ -14,6 +14,8 @@ const WORK_PROFILE_PROMPT_KEY = "zhuge_work_profile_prompt_date_v1";
 const WORK_IDENTITY_SETUP_STEP_KEY = "zhuge_work_identity_setup_step_v1";
 const WORK_IDENTITY_SETUP_DRAFT_KEY = "zhuge_work_identity_setup_draft_v1";
 const WORK_IDENTITY_COMPLETION_KEY = "zhuge_work_identity_completion_pending_v1";
+const MOBILE_SUMMARY_OPEN_KEY = "zhuge_mobile_summary_open_v1";
+const MOBILE_CALENDAR_OPEN_KEY = "zhuge_mobile_calendar_open_v1";
 const WORKLOG_CHAT_KEY = "zhuge_worklog_chat_v1";
 const WORKLOG_CHAT_PENDING_KEY = "zhuge_worklog_chat_pending_v1";
 const ZHUGE_ASSISTANT_WELCOME_KEY = "zhuge_assistant_welcome_seen_v1";
@@ -230,6 +232,16 @@ function cacheKey(name) {
 
 function scopedLocalKey(name) {
   return `${name}:${currentUserUuid() || "anonymous"}`;
+}
+
+function readScopedUiFlag(name, fallback = false) {
+  const value = localStorage.getItem(scopedLocalKey(name));
+  if (value === null) return fallback;
+  return value === "1";
+}
+
+function writeScopedUiFlag(name, value) {
+  localStorage.setItem(scopedLocalKey(name), value ? "1" : "0");
 }
 
 function legacyInventory() {
@@ -3000,10 +3012,13 @@ function todaySummaryPanel() {
   const weekDone = hours(weekEntries(today));
   const weekProgress = Math.min(100, Math.round(weekDone / 40 * 100));
   const todayProgress = Math.min(100, Math.round(todayDone / 8 * 100));
-  return `<section class="panel mobile-summary-module summary-dashboard"><div class="summary-dashboard-head"><h2>☀️ 今日摘要</h2><div class="summary-dashboard-label">📊 工時儀表板</div></div><div class="summary-grid"><div class="summary-tile"><span>本月進度</span><b>${monthlyDone} / ${monthlyTarget}h</b><em>${monthProgress}%</em></div><div class="summary-tile"><span>本週進度</span><b>${weekDone} / 40h</b><em>${weekProgress}%</em></div><div class="summary-tile"><span>今日進度</span><b>${todayDone} / 8h</b><em>${todayProgress}%</em></div><div class="summary-tile summary-forecast ${health.className}"><span>達標預測</span><b>${health.label}</b></div></div></section>`;
+  const remainingToday = Math.max(0, Math.round((8 - todayDone) * 10) / 10);
+  const mobileOpen = readScopedUiFlag(MOBILE_SUMMARY_OPEN_KEY, false);
+  return `<section class="panel mobile-summary-module summary-dashboard ${mobileOpen ? "mobile-open" : "mobile-collapsed"}"><div class="summary-dashboard-head"><h2>☀️ 今日摘要</h2><div class="summary-dashboard-label">📊 工時儀表板</div><button class="btn2 mobile-collapse-toggle" type="button" data-toggle-mobile-summary="1">${mobileOpen ? "▲" : "▼"}</button></div><div class="mobile-summary-compact"><div><span>今天</span><b>${todayDone} / 8h</b></div><div><span>還差</span><b>${remainingToday}h</b></div><div><span>達標</span><b>${health.label}</b></div></div><div class="summary-grid"><div class="summary-tile"><span>本月進度</span><b>${monthlyDone} / ${monthlyTarget}h</b><em>${monthProgress}%</em></div><div class="summary-tile"><span>本週進度</span><b>${weekDone} / 40h</b><em>${weekProgress}%</em></div><div class="summary-tile"><span>今日進度</span><b>${todayDone} / 8h</b><em>${todayProgress}%</em></div><div class="summary-tile summary-forecast ${health.className}"><span>達標預測</span><b>${health.label}</b></div></div></section>`;
 }
 
 function mobileCalendarPanel() {
+  const isOpen = readScopedUiFlag(MOBILE_CALENDAR_OPEN_KEY, false);
   const today = new Date();
   const base = selectedMonthDate(1);
   const y = base.getFullYear(), m = base.getMonth();
@@ -3014,14 +3029,21 @@ function mobileCalendarPanel() {
   const days = [];
   for (let d = new Date(start); d <= end; d = addDays(d, 1)) days.push(d);
   const summaryHours = hours(entriesForDate(today));
-  if (!mobileCalendarOpen) return `<div class="mobile-calendar-head"><button class="btn2" data-toggle-mobile-calendar="1">▼ 月曆</button><span class="muted">今日 ${String(today.getMonth() + 1).padStart(2, "0")}/${String(today.getDate()).padStart(2, "0")}｜${summaryHours} / 8h</span></div>`;
+  if (!isOpen) return `<div class="mobile-calendar-head"><button class="btn2" data-toggle-mobile-calendar="1">▼ 月曆</button><span class="muted">今日 ${String(today.getMonth() + 1).padStart(2, "0")}/${String(today.getDate()).padStart(2, "0")}｜${summaryHours} / 8h</span></div>`;
   return `<div class="mobile-calendar-head"><button class="btn2" data-toggle-mobile-calendar="1">▲ 月曆</button><span class="muted">${y} / ${String(m + 1).padStart(2, "0")}｜上下滑查看整月</span></div><div class="mobile-month-scroll"><div class="mobile-week-head">${["日", "一", "二", "三", "四", "五", "六"].map(x => `<span>${x}</span>`).join("")}</div><div class="mobile-two-week">${days.map(d => { const h = hours(entriesForDate(d)); const isToday = key(d) === key(today); const isSelected = key(d) === key(selected); const out = d.getMonth() !== m; return `<button class="mobile-day ${isToday ? "today" : ""} ${isSelected ? "sel" : ""} ${out ? "out" : ""}" data-mobile-date="${key(d)}"><b>${d.getDate()}</b><small>${h ? h + "h" : ""}</small></button>`; }).join("")}</div></div>`;
+}
+
+function mobileHomeActionPanel() {
+  const todayDone = hours(entriesForDate(new Date()));
+  const remaining = Math.max(0, Math.round((8 - todayDone) * 10) / 10);
+  const message = remaining > 0 ? `💬 今天還有 ${remaining}h 尚未記錄` : "💬 今天工時已完成 ✅";
+  return `<section class="panel mobile-home-action"><button class="btn full" data-action="add">＋ 新增工時</button><div class="mobile-today-mini"><span>今日工時</span><b>${todayDone} / 8h</b></div><div class="muted">${message}</div></section>`;
 }
 
 function todayPanel() {
   const list = dayEntries();
   const h = hours(list);
-  return `<div class="panel-head"><h2>我的工作</h2><div class="tag">${h} / 8h</div></div>${list.length ? list.map(e => `<div class="entry"><div class="entry-main"><b>${escapeHtml(e.title)}</b><div class="muted">${fmt(e.at)}｜${Number(e.hours || 0)}h${e.ecpTask ? `｜🏷 任務` : ""}</div></div><div class="actions compact entry-actions"><button class="btn amber" data-edit-id="${e.id}">編輯</button><button class="btn red" data-del-id="${e.id}">刪除</button></div></div>`).join("") : `<div class="empty"><b>尚無工時紀錄</b><div class="muted">可採納推理預測，或使用下方按鈕新增工作。</div></div>`}<button class="btn full" data-action="add">➕ 新增工作</button>`;
+  return `<div class="panel-head"><h2>我的工作</h2><div class="tag">${h} / 8h</div></div>${list.length ? list.map(e => `<div class="entry"><div class="entry-main"><b>${escapeHtml(e.title)}</b><div class="muted">${fmt(e.at)}｜${Number(e.hours || 0)}h${e.ecpTask ? `｜🏷 任務` : ""}</div></div><div class="actions compact entry-actions"><button class="btn amber" data-edit-id="${e.id}">編輯</button><button class="btn red" data-del-id="${e.id}">刪除</button></div></div>`).join("") : `<div class="empty"><b>尚無工時紀錄</b><div class="muted">可採納推理預測，或使用下方按鈕新增工作。</div></div>`}<button class="btn full today-add-bottom" data-action="add">➕ 新增工作</button>`;
 }
 
 function makeSuggestions() {
@@ -3196,14 +3218,14 @@ function floatingAssistantWidget() {
 }
 
 function center() {
-  return `<div class="workbench-grid">${workProfileStatusCard()}${todaySummaryPanel()}<section class="panel module calendar-module"><div class="desktop-calendar">${calendarPanel()}</div><div class="mobile-calendar">${mobileCalendarPanel()}</div></section><section class="panel module today-module">${todayPanel()}</section><section class="panel module suggestion-module">${suggestionPanel()}</section></div>`;
+  return `<div class="workbench-grid">${workProfileStatusCard()}${mobileHomeActionPanel()}${todaySummaryPanel()}<section class="panel module calendar-module"><div class="desktop-calendar">${calendarPanel()}</div><div class="mobile-calendar">${mobileCalendarPanel()}</div></section><section class="panel module today-module">${todayPanel()}</section><section class="panel module suggestion-module">${suggestionPanel()}</section></div>`;
 }
 
 function workProfileStatusCard() {
   const missing = workProfileMissingFields(workProfile);
   const ready = !missing.length;
   const task = normalizeWorkProfile(workProfile).defaultTask || "尚未設定";
-  return `<section class="panel work-profile-status"><div><b>工作身分</b><div class="muted">${ready ? "✓ 已完成" : `⚠ 尚未完成：${missing.join("、")}`}</div><div class="source-path">目前工作任務：${escapeHtml(task)}</div></div><button class="btn2" data-open-workspace="settings">設定</button></section>`;
+  return `<section class="panel work-profile-status ${ready ? "ready" : "incomplete"}"><button class="work-identity-status-button" type="button" data-open-workspace="settings"><span>${ready ? "🟢" : "🟠"} 工作身分</span><b>${ready ? "已完成" : "尚未完成"}</b></button><div class="work-identity-detail"><div class="muted">${ready ? "✓ 已完成" : `⚠ 尚未完成：${missing.join("、")}`}</div><div class="source-path">目前工作任務：${escapeHtml(task)}</div></div><button class="btn2 work-identity-settings" data-open-workspace="settings">設定</button></section>`;
 }
 
 function workDescriptionSuggestions(query = "") {
@@ -3917,7 +3939,16 @@ function bind() {
     if (nextMonth !== selectedMonth) await setSelectedMonth(nextMonth, nextDate.getDate());
     else { selectedMonth = nextMonth; saveAll(); render(); }
   });
-  document.querySelectorAll("[data-toggle-mobile-calendar]").forEach(b => b.onclick = () => { mobileCalendarOpen = !mobileCalendarOpen; render(); });
+  document.querySelectorAll("[data-toggle-mobile-summary]").forEach(b => b.onclick = () => {
+    writeScopedUiFlag(MOBILE_SUMMARY_OPEN_KEY, !readScopedUiFlag(MOBILE_SUMMARY_OPEN_KEY, false));
+    render();
+  });
+  document.querySelectorAll("[data-toggle-mobile-calendar]").forEach(b => b.onclick = () => {
+    const next = !readScopedUiFlag(MOBILE_CALENDAR_OPEN_KEY, false);
+    mobileCalendarOpen = next;
+    writeScopedUiFlag(MOBILE_CALENDAR_OPEN_KEY, next);
+    render();
+  });
   document.querySelectorAll("[data-action=add]").forEach(b => b.onclick = () => { editingEntryId = null; captureSeed = null; activeWorkspace = "worklog"; if (!openTabs.includes("worklog")) openTabs.push("worklog"); rememberWorkspace("worklog"); view = "capture"; saveAll(); render(); });
   const today = document.querySelector("[data-today]"); if (today) today.onclick = async () => { selected = new Date(); await setSelectedMonth(monthKey(selected), selected.getDate()); };
   const exportBtn = document.querySelector("[data-export-month]"); if (exportBtn) exportBtn.onclick = () => exportEcpImportFile();
