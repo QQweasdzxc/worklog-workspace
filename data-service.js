@@ -1,0 +1,578 @@
+// P5.2A-1 Foundation Split: LocalCache, DataService, migration, and cloud sync orchestration.
+let cloudSync = readJson("wl_cloud_sync_status_v1", { status: "idle", lastSyncedAt: "", error: "" });
+let conversationSync = readJson("zhuge_conversation_sync_status_v1", { status: "unknown", lastSyncedAt: "", error: "" });
+let dataServiceReady = false;
+let dataServiceHydrating = false;
+let dataServiceSyncing = false;
+let autoSaveTimer = null;
+let autoSaveInFlight = false;
+const autoSaveDirtyScopes = new Set();
+let knowledgeFoundationNotInitialized = cloudSync.status === "knowledge_uninitialized";
+let conversationFoundationNotInitialized = false;
+let migrationRequired = false;
+let migrationPreview = null;
+let migrationRunning = false;
+let migrationError = "";
+
+function setConversationSyncStatus(status, error = "") {
+  conversationSync = { status, error, lastSyncedAt: status === "synced" ? new Date().toISOString() : conversationSync.lastSyncedAt || "" };
+  writeJson("zhuge_conversation_sync_status_v1", conversationSync);
+  refreshCloudSyncStatusDisplay();
+}
+
+const LocalCache = {
+  load(name, fallback) { return readJson(cacheKey(name), fallback); },
+  save(name, value) { writeJson(cacheKey(name), value); },
+  saveAll() {
+    if (!hasGoogleOAuthSession()) return;
+    this.save("profile", profile);
+    this.save("work_profile", workProfile);
+    this.save("entries", entries);
+    this.save("work_models", Array.isArray(DataService.workModelsState) ? DataService.workModelsState : profile?.tags || []);
+    this.save("ecp_settings", { ecpOwner: profile?.ecpOwner || "", ecpDepartment: profile?.ecpDepartment || "" });
+    this.save("ecp_tasks", Array.isArray(DataService.ecpTasksState) ? DataService.ecpTasksState : profile?.ecpTasks || []);
+    this.save("library", library);
+  },
+  hydrate() {
+    if (!hasGoogleOAuthSession()) return false;
+    const cachedProfile = this.load("profile", null);
+    const cachedWorkProfile = this.load("work_profile", null);
+    const cachedEntries = this.load("entries", []);
+    const cachedLibrary = this.load("library", []);
+    if (cachedProfile) profile = cachedProfile;
+    if (cachedWorkProfile) workProfile = cachedWorkProfile;
+    if (Array.isArray(cachedEntries) && cachedEntries.length) entries = cachedEntries;
+    if (Array.isArray(cachedLibrary) && cachedLibrary.length) library = cachedLibrary;
+    const cachedWorkModels = this.load("work_models", null);
+    const cachedEcpTasks = this.load("ecp_tasks", null);
+    if (Array.isArray(cachedWorkModels)) DataService.workModelsState = cachedWorkModels;
+    if (Array.isArray(cachedEcpTasks)) DataService.ecpTasksState = cachedEcpTasks;
+    return !!cachedProfile || !!cachedWorkProfile || cachedEntries.length > 0;
+  }
+};
+
+
+const DataService = {
+  workModelsState: null,
+  ecpTasksState: null,
+  async init() {
+    if (!hasGoogleOAuthSession()) return;
+    dataServiceReady = true;
+    LocalCache.hydrate();
+    await this.prepareMigration();
+    if (migrationRequired) return;
+    await this.loadAll();
+  },
+  setStatus(status, error = "") {
+    cloudSync = { status, error, lastSyncedAt: status === "synced" ? new Date().toISOString() : cloudSync.lastSyncedAt || "" };
+    writeJson("wl_cloud_sync_status_v1", cloudSync);
+    refreshCloudSyncStatusDisplay();
+  },
+  queueAutoSave(scopes = []) {
+    const list = Array.isArray(scopes) ? scopes : [scopes];
+    list.filter(Boolean).forEach(scope => autoSaveDirtyScopes.add(scope));
+    LocalCache.saveAll();
+    if (!hasGoogleOAuthSession()) {
+      this.setStatus("failed", "尚未登入 Google，無法同步設定");
+      return;
+    }
+    if (dataServiceHydrating || migrationRequired || migrationRunning) {
+      this.setStatus("pending");
+      return;
+    }
+    this.setStatus("pending");
+    if (autoSaveTimer) clearTimeout(autoSaveTimer);
+    autoSaveTimer = setTimeout(() => this.flushAutoSaveQueue(), 2000);
+  },
+  async flushAutoSaveQueue() {
+    if (autoSaveInFlight) return;
+    if (!autoSaveDirtyScopes.size) return;
+    if (!hasGoogleOAuthSession()) {
+      this.setStatus("failed", "尚未登入 Google，無法同步設定");
+      return;
+    }
+    if (dataServiceHydrating || migrationRequired || migrationRunning) {
+      if (autoSaveTimer) clearTimeout(autoSaveTimer);
+      autoSaveTimer = setTimeout(() => this.flushAutoSaveQueue(), 2000);
+      return;
+    }
+    autoSaveInFlight = true;
+    dataServiceReady = true;
+    const scopes = new Set(autoSaveDirtyScopes);
+    autoSaveDirtyScopes.clear();
+    this.setStatus("syncing");
+    try {
+      if (scopes.has("profile") && profile) {
+        syncWorkProfileFromProfile();
+        await SupabaseRepository.upsertUserProfile(profile);
+        await SupabaseRepository.upsertExportSettings(profile);
+        await SupabaseRepository.upsertWorkProfile(workProfile);
+      }
+      if (scopes.has("workModels")) {
+        const rows = await SupabaseRepository.saveWorkModels(workModels(), profile);
+        setWorkModels(Array.isArray(rows) ? rows.map(row => row.name).filter(Boolean) : workModels());
+      }
+      if (scopes.has("ecpTasks")) {
+        const rows = await SupabaseRepository.saveEcpTasks(ecpTasks());
+        setEcpTasks(Array.isArray(rows) ? rows.map(row => row.name).filter(Boolean) : ecpTasks());
+      }
+      LocalCache.saveAll();
+      this.setStatus(autoSaveDirtyScopes.size ? "pending" : "synced");
+      if (autoSaveDirtyScopes.size) {
+        if (autoSaveTimer) clearTimeout(autoSaveTimer);
+        autoSaveTimer = setTimeout(() => this.flushAutoSaveQueue(), 2000);
+      }
+    } catch (error) {
+      scopes.forEach(scope => autoSaveDirtyScopes.add(scope));
+      console.error("Smart Auto Save failed", { error, supabase: error.supabase || null, scopes: [...scopes] });
+      this.setStatus("failed", error.message || "Smart Auto Save failed");
+    } finally {
+      autoSaveInFlight = false;
+    }
+  },
+  retryAutoSave() {
+    if (!autoSaveDirtyScopes.size) {
+      autoSaveDirtyScopes.add("profile");
+      autoSaveDirtyScopes.add("workModels");
+      autoSaveDirtyScopes.add("ecpTasks");
+    }
+    if (autoSaveTimer) clearTimeout(autoSaveTimer);
+    autoSaveTimer = setTimeout(() => this.flushAutoSaveQueue(), 0);
+  },
+  async loadConversation() {
+    if (!hasGoogleOAuthSession() || migrationRequired || migrationRunning) return null;
+    setConversationSyncStatus("syncing");
+    try {
+      const bundle = await ConversationRepository.load();
+      conversationFoundationNotInitialized = false;
+      applyCloudConversation(bundle);
+      setConversationSyncStatus("synced");
+      return bundle;
+    } catch (error) {
+      if (isConversationNotInitializedError(error)) {
+        conversationFoundationNotInitialized = true;
+        setConversationSyncStatus("uninitialized", "Conversation 尚未初始化，聊天目前僅儲存在此瀏覽器。");
+        console.warn("Conversation Foundation not initialized", {
+          tables: ["assistant_conversations", "assistant_messages", "assistant_conversation_states"],
+          setupSql: "docs/supabase/20260711_p4_1_conversation_foundation_schema.sql",
+          error
+        });
+        return null;
+      }
+      setConversationSyncStatus("failed", error?.supabase?.message || error?.message || "Conversation load failed");
+      console.error("Conversation load failed", { error, supabase: error.supabase || null });
+      return null;
+    }
+  },
+  async saveConversationMessage(message = {}) {
+    if (!hasGoogleOAuthSession() || dataServiceHydrating || migrationRequired || migrationRunning) return null;
+    setConversationSyncStatus("pending");
+    try {
+      const saved = await ConversationRepository.saveMessage(message, assistantChannel());
+      conversationFoundationNotInitialized = false;
+      setConversationSyncStatus("synced");
+      console.info("Conversation message synced", {
+        user_uuid: currentUserUuid(),
+        conversation_id: saved?.conversation_id || "",
+        client_message_id: message.id || "",
+        channel: assistantChannel(),
+        role: message.role || ""
+      });
+      return saved;
+    } catch (error) {
+      if (isConversationNotInitializedError(error)) {
+        conversationFoundationNotInitialized = true;
+        setConversationSyncStatus("uninitialized", "Conversation 尚未初始化，聊天目前僅儲存在此瀏覽器。");
+        console.warn("Conversation message saved locally; Conversation Foundation not initialized", {
+          setupSql: "docs/supabase/20260711_p4_1_conversation_foundation_schema.sql",
+          error
+        });
+        return null;
+      }
+      setConversationSyncStatus("failed", error?.supabase?.message || error?.message || "Conversation message sync failed");
+      console.error("Conversation message sync failed", {
+        user_uuid: currentUserUuid(),
+        conversation_id: "",
+        client_message_id: message.id || "",
+        channel: assistantChannel(),
+        role: message.role || "",
+        status: error?.supabase?.status || "",
+        code: error?.supabase?.code || error?.code || "",
+        message: error?.supabase?.message || error?.message || "",
+        details: error?.supabase?.details || error?.details || "",
+        hint: error?.supabase?.hint || error?.hint || "",
+        error,
+        supabase: error.supabase || null
+      });
+      return null;
+    }
+  },
+  async saveConversationState(command = null) {
+    if (!hasGoogleOAuthSession() || dataServiceHydrating || migrationRequired || migrationRunning) return null;
+    setConversationSyncStatus("pending");
+    try {
+      const saved = await ConversationRepository.saveState(command, assistantChannel());
+      conversationFoundationNotInitialized = false;
+      setConversationSyncStatus("synced");
+      return saved;
+    } catch (error) {
+      if (isConversationNotInitializedError(error)) {
+        conversationFoundationNotInitialized = true;
+        setConversationSyncStatus("uninitialized", "Conversation 尚未初始化，聊天目前僅儲存在此瀏覽器。");
+        console.warn("Conversation state saved locally; Conversation Foundation not initialized", {
+          setupSql: "docs/supabase/20260711_p4_1_conversation_foundation_schema.sql",
+          error
+        });
+        return null;
+      }
+      setConversationSyncStatus("failed", error?.supabase?.message || error?.message || "Conversation state sync failed");
+      console.error("Conversation state sync failed", {
+        user_uuid: currentUserUuid(),
+        channel: assistantChannel(),
+        status: error?.supabase?.status || "",
+        code: error?.supabase?.code || error?.code || "",
+        message: error?.supabase?.message || error?.message || "",
+        details: error?.supabase?.details || error?.details || "",
+        hint: error?.supabase?.hint || error?.hint || "",
+        error,
+        supabase: error.supabase || null,
+        command
+      });
+      return null;
+    }
+  },
+  async loadAll() {
+    if (!dataServiceReady || dataServiceHydrating) return;
+    dataServiceHydrating = true;
+    this.setStatus("syncing");
+    const errors = [];
+    const failedLoads = new Set();
+    try {
+      const safeLoad = async (label, loader, fallback) => {
+        try { return await loader(); }
+        catch (error) {
+          if (label === "knowledge" && isKnowledgeNotInitializedError(error)) {
+            knowledgeFoundationNotInitialized = true;
+            failedLoads.add(label);
+            console.warn("Knowledge Foundation not initialized", {
+              table: "knowledge_sources",
+              setupSql: "docs/supabase/20260712_p5_1_knowledge_repository_schema.sql",
+              error
+            });
+            return fallback;
+          }
+          if (label === "work_profile" && isWorkProfileNotInitializedError(error)) {
+            failedLoads.add(label);
+            console.warn("Work Profile Foundation not initialized", {
+              table: "user_work_profiles",
+              setupSql: WORK_PROFILE_SCHEMA_SQL,
+              error
+            });
+            return fallback;
+          }
+          errors.push(`${label}: ${error.message || error}`);
+          failedLoads.add(label);
+          console.error(`Cloud Sync ${label} load failed`, error);
+          return fallback;
+        }
+      };
+      const cloudProfile = await safeLoad("profile", () => SupabaseRepository.loadUserProfile(), null);
+      const exportSettings = await safeLoad("export_settings", () => SupabaseRepository.loadExportSettings(), null);
+      const cloudWorkProfile = await safeLoad("work_profile", () => SupabaseRepository.loadWorkProfile(), null);
+      const workModelsRows = await safeLoad("work_models", () => SupabaseRepository.loadWorkModels(), []);
+      const ecpTaskRows = await safeLoad("ecp_tasks", () => SupabaseRepository.loadEcpTasks(), []);
+      const entryRows = await safeLoad("entries", () => SupabaseRepository.loadEntries(selectedMonth), []);
+      const knowledgeRows = await safeLoad("knowledge", () => KnowledgeRepository.loadSources(), []);
+      await this.loadConversation();
+      if (cloudProfile || exportSettings || !failedLoads.has("work_models") || !failedLoads.has("ecp_tasks")) {
+        profile = profileFromCloud(cloudProfile, exportSettings, workModelsRows || [], ecpTaskRows || [], {
+          workModelsLoaded: !failedLoads.has("work_models"),
+          ecpTasksLoaded: !failedLoads.has("ecp_tasks")
+        });
+        this.workModelsState = Array.isArray(profile?.tags) ? [...profile.tags] : [];
+        this.ecpTasksState = Array.isArray(profile?.ecpTasks) ? [...profile.ecpTasks] : [];
+      }
+      workProfile = workProfileFromCloud(cloudWorkProfile, exportSettings, ecpTaskRows || [], profile);
+      applyWorkProfileToProfile(workProfile);
+      if (!failedLoads.has("entries")) setEntries(Array.isArray(entryRows) ? entryRows.map(entryFromCloud) : []);
+      if (!failedLoads.has("knowledge")) {
+        knowledgeFoundationNotInitialized = false;
+        setLibrary(Array.isArray(knowledgeRows) ? knowledgeRows.map(knowledgeFromCloud) : []);
+      }
+      LocalCache.saveAll();
+      if (errors.length) this.setStatus("failed", errors.join(" | "));
+      else if (knowledgeFoundationNotInitialized) this.setStatus("knowledge_uninitialized", "Knowledge Library 尚未初始化");
+      else this.setStatus("synced");
+    } catch (error) {
+      console.error("Cloud Sync load failed", error);
+      this.setStatus("failed", error.message || "Cloud Sync failed");
+    } finally {
+      dataServiceHydrating = false;
+    }
+  },
+  async prepareMigration() {
+    const inventory = legacyInventory();
+    migrationRequired = false;
+    migrationPreview = null;
+    if (!inventory.hasCoreData) return false;
+    try {
+      const existing = await SupabaseRepository.loadMigration();
+      if (existing?.completed_at) return false;
+      const hasCloudData = await SupabaseRepository.hasCloudCoreData();
+      if (hasCloudData) {
+        console.info("Cloud Sync: cloud data exists; skip legacy migration prompt and use Supabase as source of truth");
+        return false;
+      }
+      migrationPreview = inventory;
+      migrationRequired = true;
+      migrationError = "";
+      this.setStatus("migration_required");
+      return true;
+    } catch (error) {
+      console.error("Cloud Sync migration check failed", error);
+      migrationError = error.message || "Migration check failed";
+      this.setStatus("failed", migrationError);
+      return false;
+    }
+  },
+  async runMigration() {
+    if (!migrationPreview || migrationRunning) return;
+    migrationRunning = true;
+    migrationError = "";
+    this.setStatus("migrating");
+    try {
+      entries = readJson("wl_entries", []);
+      profile = readJson("wl_profile", profile);
+      normalizeEntries();
+      if (profile) {
+        syncWorkProfileFromProfile();
+        await SupabaseRepository.upsertUserProfile(profile);
+        await SupabaseRepository.upsertExportSettings(profile);
+        await SupabaseRepository.upsertWorkProfile(workProfile);
+        await SupabaseRepository.saveWorkModels(workModels(), profile);
+        await SupabaseRepository.saveEcpTasks(ecpTasks());
+      }
+      for (const entry of entries.filter(e => e.status !== "deleted")) {
+        const saved = await SupabaseRepository.saveEntry(entry);
+        if (saved?.id) entry.cloudId = saved.id;
+      }
+      const sourceHash = await sha256Text(JSON.stringify({
+        entries: readJson("wl_entries", []),
+        profile: readJson("wl_profile", null),
+        key: CLOUD_MIGRATION_KEY
+      }));
+      await SupabaseRepository.completeMigration(sourceHash);
+      migrationRequired = false;
+      migrationPreview = null;
+      await this.loadAll();
+      LocalCache.saveAll();
+      this.setStatus("synced");
+      toast("Cloud Sync Migration 完成");
+    } catch (error) {
+      console.error("Cloud Sync migration failed", error);
+      migrationError = error.message || "Migration failed";
+      this.setStatus("failed", migrationError);
+      toast("Migration 失敗，legacy data 已保留");
+    } finally {
+      migrationRunning = false;
+      render();
+    }
+  },
+  async syncAll() {
+    if (!dataServiceReady || dataServiceHydrating || dataServiceSyncing || !hasGoogleOAuthSession()) return;
+    dataServiceSyncing = true;
+    this.setStatus("syncing");
+    try {
+      if (profile) {
+        syncWorkProfileFromProfile();
+        await SupabaseRepository.upsertUserProfile(profile);
+        await SupabaseRepository.upsertExportSettings(profile);
+        await SupabaseRepository.upsertWorkProfile(workProfile);
+        await SupabaseRepository.saveWorkModels(workModels(), profile);
+        await SupabaseRepository.saveEcpTasks(ecpTasks());
+      }
+      for (const entry of entries.filter(e => e.status !== "deleted")) {
+        const saved = await SupabaseRepository.saveEntry(entry);
+        if (saved?.id) entry.cloudId = saved.id;
+      }
+      LocalCache.saveAll();
+      this.setStatus("synced");
+    } catch (error) {
+      console.error("Cloud Sync save failed", error);
+      this.setStatus("failed", error.message || "Cloud Sync failed");
+    } finally {
+      dataServiceSyncing = false;
+    }
+  },
+  async deleteEntry(entry) {
+    if (!dataServiceReady || !hasGoogleOAuthSession()) throw new Error("Cloud Sync 尚未就緒");
+    if (dataServiceHydrating || migrationRequired || migrationRunning) throw new Error("Cloud Sync 正在初始化");
+    this.setStatus("syncing");
+    try {
+      await SupabaseRepository.deleteEntry(entry);
+      setEntries(entries.filter(e => e.id !== entry.id));
+      this.setStatus("synced");
+    } catch (error) {
+      console.error("Cloud Sync delete failed", { error, supabase: error.supabase || null, entry });
+      this.setStatus("failed", error.message || "Cloud Sync delete failed");
+      throw error;
+    }
+  },
+  async saveEntry(item) {
+    if (!dataServiceReady || !hasGoogleOAuthSession()) throw new Error("Cloud Sync 尚未就緒");
+    if (dataServiceHydrating || migrationRequired || migrationRunning) throw new Error("Cloud Sync 正在初始化");
+    this.setStatus("syncing");
+    try {
+      const saved = await SupabaseRepository.saveEntry(item);
+      const cloudEntry = saved ? entryFromCloud(saved) : item;
+      const nextEntries = entries.filter(e => e.id !== item.id && e.cloudId !== cloudEntry.cloudId);
+      nextEntries.push({ ...item, ...cloudEntry, id: item.id || cloudEntry.id, cloudId: cloudEntry.cloudId || saved?.id });
+      setEntries(nextEntries);
+      selected = safeDate(item.at);
+      selectedMonth = monthKey(selected);
+      this.setStatus("synced");
+      return nextEntries.find(e => e.id === (item.id || cloudEntry.id));
+    } catch (error) {
+      console.error("Cloud Sync save entry failed", { error, supabase: error.supabase || null, item });
+      this.setStatus("failed", error.message || "Entry sync failed");
+      throw error;
+    }
+  },
+  async loadMonthEntries(month = selectedMonth) {
+    if (!hasGoogleOAuthSession() || dataServiceHydrating || migrationRequired || migrationRunning) return;
+    this.setStatus("syncing");
+    try {
+      const entryRows = await SupabaseRepository.loadEntries(month);
+      setEntries(Array.isArray(entryRows) ? entryRows.map(entryFromCloud) : []);
+      LocalCache.saveAll();
+      this.setStatus("synced");
+    } catch (error) {
+      console.error("Cloud Sync month entries load failed", { error, month });
+      this.setStatus("failed", error.message || "Month entries sync failed");
+    }
+  },
+  async saveWorkModelsOnly(options = {}) {
+    try {
+      LocalCache.saveAll();
+      if (hasGoogleOAuthSession() && !dataServiceHydrating && !migrationRunning) {
+        dataServiceReady = true;
+        this.setStatus("syncing");
+        const rows = await SupabaseRepository.saveWorkModels(workModels(), profile);
+        setWorkModels(Array.isArray(rows) ? rows.map(row => row.name).filter(Boolean) : workModels());
+        LocalCache.saveAll();
+        this.setStatus("synced");
+      } else {
+        const reason = !hasGoogleOAuthSession() ? "尚未登入 Google" : "Cloud Sync 正在初始化";
+        console.warn("Work model saved to cache; cloud sync deferred", { reason, models: workModels() });
+        if (options.requireCloud) throw new Error(reason);
+      }
+    } catch (error) {
+      console.error("Save work models failed", { error, supabase: error.supabase || null, models: workModels() });
+      this.setStatus("failed", error.message || "Work model sync failed");
+      if (options.requireCloud) throw error;
+    }
+  },
+  async saveEcpTasksOnly(options = {}) {
+    try {
+      LocalCache.saveAll();
+      if (hasGoogleOAuthSession() && !dataServiceHydrating && !migrationRunning) {
+        dataServiceReady = true;
+        this.setStatus("syncing");
+        const rows = await SupabaseRepository.saveEcpTasks(ecpTasks());
+        setEcpTasks(Array.isArray(rows) ? rows.map(row => row.name).filter(Boolean) : ecpTasks());
+        LocalCache.saveAll();
+        this.setStatus("synced");
+      } else {
+        const reason = !hasGoogleOAuthSession() ? "尚未登入 Google" : "Cloud Sync 正在初始化";
+        console.warn("ECP tasks saved to cache; cloud sync deferred", { reason, tasks: ecpTasks() });
+        if (options.requireCloud) throw new Error(reason);
+      }
+    } catch (error) {
+      console.error("Save ECP tasks failed", { error, supabase: error.supabase || null, tasks: ecpTasks() });
+      this.setStatus("failed", error.message || "ECP task sync failed");
+      if (options.requireCloud) throw error;
+    }
+  },
+  async saveProfileSettingsOnly(options = {}) {
+    try {
+      LocalCache.saveAll();
+      if (hasGoogleOAuthSession() && !dataServiceHydrating && !migrationRunning && profile) {
+        dataServiceReady = true;
+        this.setStatus("syncing");
+        syncWorkProfileFromProfile();
+        await SupabaseRepository.upsertUserProfile(profile);
+        await SupabaseRepository.upsertExportSettings(profile);
+        await SupabaseRepository.upsertWorkProfile(workProfile);
+        LocalCache.saveAll();
+        this.setStatus("synced");
+      } else {
+        const reason = !hasGoogleOAuthSession() ? "尚未登入 Google" : "Cloud Sync 正在初始化";
+        console.warn("Profile settings saved to cache; cloud sync deferred", { reason });
+        if (options.requireCloud) throw new Error(reason);
+      }
+    } catch (error) {
+      console.error("Save profile settings failed", { error, supabase: error.supabase || null });
+      this.setStatus("failed", error.message || "Profile sync failed");
+      if (options.requireCloud) throw error;
+    }
+  },
+  async saveKnowledgeSource(item, options = {}) {
+    const normalized = normalizedLibraryItem(item);
+    try {
+      if (hasGoogleOAuthSession() && !dataServiceHydrating && !migrationRunning) {
+        dataServiceReady = true;
+        this.setStatus("syncing");
+        const saved = await KnowledgeRepository.saveSource(normalized, options.file || null);
+        const cloudItem = knowledgeFromCloud(saved);
+        setLibrary([cloudItem, ...library.filter(x => x.id !== normalized.id && x.cloudId !== cloudItem.cloudId)]);
+        LocalCache.saveAll();
+        this.setStatus("synced");
+        return cloudItem;
+      }
+      throw new Error("Cloud Sync 尚未就緒，Knowledge Source 不可只儲存在本機");
+    } catch (error) {
+      console.error("Save knowledge source failed", { error, supabase: error.supabase || null, item: normalized });
+      if (isKnowledgeNotInitializedError(error)) {
+        knowledgeFoundationNotInitialized = true;
+        this.setStatus("knowledge_uninitialized", "Knowledge Library 尚未初始化");
+        throw new Error("Knowledge Library 尚未初始化，請先執行 P5 Knowledge Repository schema SQL");
+      }
+      this.setStatus("failed", error.message || "Knowledge sync failed");
+      throw error;
+    }
+  },
+  async deleteKnowledgeSource(item, options = {}) {
+    const normalized = normalizedLibraryItem(item);
+    try {
+      if (hasGoogleOAuthSession() && !dataServiceHydrating && !migrationRunning) {
+        dataServiceReady = true;
+        this.setStatus("syncing");
+        await KnowledgeRepository.deleteSource(normalized);
+      } else if (options.requireCloud) {
+        throw new Error("Cloud Sync 尚未就緒");
+      }
+      setLibrary(library.filter(x => x.id !== normalized.id));
+      LocalCache.saveAll();
+      this.setStatus("synced");
+      return true;
+    } catch (error) {
+      console.error("Delete knowledge source failed", { error, supabase: error.supabase || null, item: normalized });
+      if (isKnowledgeNotInitializedError(error)) {
+        knowledgeFoundationNotInitialized = true;
+        this.setStatus("knowledge_uninitialized", "Knowledge Library 尚未初始化");
+        if (options.requireCloud) throw new Error("Knowledge Library 尚未初始化，請先執行 knowledge foundation schema SQL");
+        return false;
+      }
+      this.setStatus("failed", error.message || "Knowledge delete failed");
+      if (options.requireCloud) throw error;
+      return false;
+    }
+  }
+};
+
+function mergeEntries(localEntries, cloudEntries) {
+  const map = new Map();
+  localEntries.forEach(entry => map.set(entry.id, entry));
+  cloudEntries.forEach(entry => map.set(entry.id, { ...(map.get(entry.id) || {}), ...entry }));
+  return [...map.values()].sort((a, b) => new Date(a.at) - new Date(b.at));
+}

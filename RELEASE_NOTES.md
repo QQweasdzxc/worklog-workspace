@@ -1,5 +1,20 @@
 # WorkLog RC3 Release Patch1
 
+## Build 20260713-1547 - P5.2A-1 Architecture Foundation Split
+
+- 進行 Zero Functional Change 的 Foundation Split，將 RC3.4 已驗收底層程式抽離為多個模組。
+- 新增：
+  - `app-config.js`
+  - `shared-utils.js`
+  - `app-state.js`
+  - `auth-service.js`
+  - `repositories.js`
+  - `data-service.js`
+- `worklog-app.js` 保留 App startup、routing、rendering 與 module coordination。
+- 維持既有 build flow：root / apps/web / apps/chrome-extension 三端同步，不導入 bundler 或 ES module build。
+- 不修改 UI / UX、Supabase Schema、WorkLog、Conversation、Knowledge Repository、ECP Export、Mobile 三頁籤或自然語言邏輯。
+- 拆分前 `worklog-app.js`：4786 行；拆分後 `worklog-app.js`：3299 行。
+
 ## Build 20260713-1054 - P4.7 Experience Polish（RC3.3 Final）
 
 - 建立 Today-first 首頁體驗：啟動時 Calendar、我的工作、今日摘要與 Mr. KM 建議預設對齊今天。
