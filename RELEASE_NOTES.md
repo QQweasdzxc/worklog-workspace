@@ -10,6 +10,15 @@
 - Calendar 對話不再顯示尚未正式寫入的「已建立」狀態，避免聊天與首頁資料不同步造成信任落差。
 - 保留既有 WorkLog、Conversation Core、Cloud Sync、Export、Knowledge Repository 架構；本版不新增 AI 能力與資料表。
 
+## Build 20260713-1405 - P4.7 Final Review Fix
+
+- 將 Mr. KM 流程重新收斂為「自然語言 → 理解 → 確認 → 建立工時 → 工時月曆 / 首頁同步 → ECP 匯出」。
+- 一般自然語言工作不再導向 Calendar 草稿；確認建立後直接寫入正式 WorkLog entry。
+- 「整個上午 / 上午」預設為 09:00–12:00（3h），「整個下午 / 下午」預設為 13:00–18:00（5h），「整天」維持 8h。
+- 若只有明確開始時間但無 duration，例如「下午三點面試」，仍會先詢問工時長度。
+- 我的工作預設顯示今天；點選工時月曆或建立非今日工時後，會顯示選取日期的工時，避免建立成功但首頁看不到的落差。
+- Chat 使用者可見文案移除 Calendar Draft / Pending / Google Calendar 概念，統一為工時月曆與工時建立。
+
 ## Version
 
 1.0.0-rc3.1-sp3
