@@ -178,8 +178,25 @@ async function extractKnowledgeText(source = {}, file = null) {
   const type = inferKnowledgeSourceType(name || item.sourceType || item.storagePath);
   let blob = file;
   if (!blob) {
-    if (!item.storagePath) throw new Error("此 Knowledge Source 尚無正式檔案，無法重新處理");
-    const signedUrl = await KnowledgeRepository.signedSourceUrl(item.storagePath, 300);
+    const storageKey = item.storagePath || "";
+    const debugPayload = {
+      knowledgeId: item.knowledgeId || "",
+      filename: item.filename || item.sourceName || "",
+      storage_path: source.storage_path || source.storagePath || "",
+      storagePath: item.storagePath || "",
+      storageBucket: KNOWLEDGE_BUCKET,
+      finalStorageKey: storageKey
+    };
+    console.info("Knowledge Intelligence storage download debug", debugPayload);
+    if (!storageKey) {
+      console.error("Knowledge Intelligence missing storage_path", debugPayload);
+      throw new Error("此知識來源尚無正式檔案，請重新上傳檔案後再開始整理");
+    }
+    if (!storageKey.includes("/")) {
+      console.error("Knowledge Intelligence invalid storage_path", debugPayload);
+      throw new Error("此知識來源的 Storage 路徑不完整，請重新上傳檔案後再開始整理");
+    }
+    const signedUrl = await KnowledgeRepository.signedSourceUrl(storageKey, 300);
     const res = await fetch(signedUrl);
     if (!res.ok) throw new Error(`原始檔讀取失敗：HTTP ${res.status}`);
     blob = await res.blob();
@@ -237,7 +254,7 @@ function titleFromLine(line = "", fallback = "Knowledge Unit") {
 
 function buildKnowledgeIntelligence(source = {}, extracted = {}) {
   const text = String(extracted.text || "").replace(/\s+\n/g, "\n").trim();
-  if (!text) throw new Error("文件內容為空，無法建立 Knowledge Units");
+  if (!text) throw new Error("文件內容為空，無法建立工作知識");
   const item = normalizedLibraryItem(source);
   const roleLabel = knowledgeRoleLabel(item);
   const roleCodes = knowledgeRoleCodes(item);
@@ -322,14 +339,14 @@ const KnowledgeIntelligence = {
   async processSource(source = {}, options = {}) {
     const item = normalizedLibraryItem(source);
     try {
-      toast("Knowledge Intelligence：等待處理");
+      toast("藏書閣：等待整理");
       await DataService.updateKnowledgeProcessing(item, { processingStatus: "queued", intelligenceError: null });
-      toast("Knowledge Intelligence：讀取中");
+      toast("藏書閣：整理中");
       await DataService.updateKnowledgeProcessing(item, { processingStatus: "processing", intelligenceError: null });
       const extracted = await extractKnowledgeText(item, options.file || null);
       const result = buildKnowledgeIntelligence(item, extracted);
       const saved = await DataService.saveKnowledgeIntelligenceResult(item, result);
-      toast("Knowledge Intelligence 已整理完成");
+      toast("藏書閣已整理完成");
       return saved;
     } catch (error) {
       console.error("Knowledge Intelligence processing failed", { error, source: item });
@@ -337,7 +354,7 @@ const KnowledgeIntelligence = {
         processingStatus: "failed",
         intelligenceError: error.message || "文件處理失敗"
       }).catch(syncError => console.error("Knowledge failure status sync failed", { syncError, source: item }));
-      toast(error.message || "Knowledge Intelligence 處理失敗");
+      toast(error.message || "藏書閣整理失敗");
       throw error;
     }
   },
