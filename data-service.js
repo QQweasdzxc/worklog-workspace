@@ -32,6 +32,8 @@ const LocalCache = {
     this.save("ecp_settings", { ecpOwner: profile?.ecpOwner || "", ecpDepartment: profile?.ecpDepartment || "" });
     this.save("ecp_tasks", Array.isArray(DataService.ecpTasksState) ? DataService.ecpTasksState : profile?.ecpTasks || []);
     this.save("library", library);
+    this.save("knowledge_units", knowledgeUnits);
+    this.save("knowledge_recommendation_candidates", knowledgeRecommendationCandidates);
   },
   hydrate() {
     if (!hasGoogleOAuthSession()) return false;
@@ -39,10 +41,14 @@ const LocalCache = {
     const cachedWorkProfile = this.load("work_profile", null);
     const cachedEntries = this.load("entries", []);
     const cachedLibrary = this.load("library", []);
+    const cachedKnowledgeUnits = this.load("knowledge_units", []);
+    const cachedKnowledgeCandidates = this.load("knowledge_recommendation_candidates", []);
     if (cachedProfile) profile = cachedProfile;
     if (cachedWorkProfile) workProfile = cachedWorkProfile;
     if (Array.isArray(cachedEntries) && cachedEntries.length) entries = cachedEntries;
     if (Array.isArray(cachedLibrary) && cachedLibrary.length) library = cachedLibrary;
+    if (Array.isArray(cachedKnowledgeUnits) && cachedKnowledgeUnits.length) knowledgeUnits = cachedKnowledgeUnits;
+    if (Array.isArray(cachedKnowledgeCandidates) && cachedKnowledgeCandidates.length) knowledgeRecommendationCandidates = cachedKnowledgeCandidates;
     const cachedWorkModels = this.load("work_models", null);
     const cachedEcpTasks = this.load("ecp_tasks", null);
     if (Array.isArray(cachedWorkModels)) DataService.workModelsState = cachedWorkModels;
@@ -251,12 +257,12 @@ const DataService = {
       const safeLoad = async (label, loader, fallback) => {
         try { return await loader(); }
         catch (error) {
-          if (label === "knowledge" && isKnowledgeNotInitializedError(error)) {
+          if (["knowledge", "knowledge_units", "knowledge_candidates"].includes(label) && isKnowledgeNotInitializedError(error)) {
             knowledgeFoundationNotInitialized = true;
             failedLoads.add(label);
             console.warn("Knowledge Foundation not initialized", {
-              table: "knowledge_sources",
-              setupSql: "docs/supabase/20260712_p5_1_knowledge_repository_schema.sql",
+              table: label,
+              setupSql: label === "knowledge_candidates" ? "docs/supabase/20260713_p5_2_knowledge_intelligence_v1_schema.sql" : "docs/supabase/20260712_p5_1_knowledge_repository_schema.sql",
               error
             });
             return fallback;
@@ -283,6 +289,8 @@ const DataService = {
       const ecpTaskRows = await safeLoad("ecp_tasks", () => SupabaseRepository.loadEcpTasks(), []);
       const entryRows = await safeLoad("entries", () => SupabaseRepository.loadEntries(selectedMonth), []);
       const knowledgeRows = await safeLoad("knowledge", () => KnowledgeRepository.loadSources(), []);
+      const knowledgeUnitRows = await safeLoad("knowledge_units", () => KnowledgeRepository.loadUnits(), []);
+      const knowledgeCandidateRows = await safeLoad("knowledge_candidates", () => KnowledgeRepository.loadRecommendationCandidates(), []);
       await this.loadConversation();
       if (cloudProfile || exportSettings || !failedLoads.has("work_models") || !failedLoads.has("ecp_tasks")) {
         profile = profileFromCloud(cloudProfile, exportSettings, workModelsRows || [], ecpTaskRows || [], {
@@ -298,6 +306,12 @@ const DataService = {
       if (!failedLoads.has("knowledge")) {
         knowledgeFoundationNotInitialized = false;
         setLibrary(Array.isArray(knowledgeRows) ? knowledgeRows.map(knowledgeFromCloud) : []);
+      }
+      if (!failedLoads.has("knowledge_units")) {
+        knowledgeUnits = Array.isArray(knowledgeUnitRows) ? knowledgeUnitRows.map(knowledgeUnitFromCloud) : [];
+      }
+      if (!failedLoads.has("knowledge_candidates")) {
+        knowledgeRecommendationCandidates = Array.isArray(knowledgeCandidateRows) ? knowledgeCandidateRows.map(knowledgeRecommendationCandidateFromCloud) : [];
       }
       LocalCache.saveAll();
       if (errors.length) this.setStatus("failed", errors.join(" | "));
@@ -567,6 +581,88 @@ const DataService = {
       if (options.requireCloud) throw error;
       return false;
     }
+  },
+  async updateKnowledgeProcessing(item, patch = {}) {
+    const normalized = normalizedLibraryItem(item);
+    try {
+      if (!hasGoogleOAuthSession() || dataServiceHydrating || migrationRunning) throw new Error("Cloud Sync 尚未就緒");
+      dataServiceReady = true;
+      this.setStatus("syncing");
+      const saved = await KnowledgeRepository.updateSourceProcessing(normalized, patch);
+      const cloudItem = knowledgeFromCloud(saved);
+      setLibrary([cloudItem, ...library.filter(x => x.id !== normalized.id && x.cloudId !== cloudItem.cloudId)]);
+      LocalCache.saveAll();
+      this.setStatus("synced");
+      return cloudItem;
+    } catch (error) {
+      console.error("Knowledge processing update failed", { error, supabase: error.supabase || null, item: normalized, patch });
+      if (isKnowledgeNotInitializedError(error)) {
+        knowledgeFoundationNotInitialized = true;
+        this.setStatus("knowledge_uninitialized", "Knowledge Intelligence 尚未初始化");
+        throw new Error("Knowledge Intelligence 尚未初始化，請先執行 P5.2 SQL");
+      }
+      this.setStatus("failed", error.message || "Knowledge processing update failed");
+      throw error;
+    }
+  },
+  async saveKnowledgeIntelligenceResult(item, result = {}) {
+    const normalized = normalizedLibraryItem(item);
+    try {
+      if (!hasGoogleOAuthSession() || dataServiceHydrating || migrationRunning) throw new Error("Cloud Sync 尚未就緒");
+      dataServiceReady = true;
+      this.setStatus("syncing");
+      const processedAt = new Date().toISOString();
+      const source = await KnowledgeRepository.updateSourceProcessing(normalized, {
+        processingStatus: "processed",
+        extractedText: result.extractedText || "",
+        intelligenceSummary: result.summary || {},
+        intelligenceError: null,
+        processedAt
+      });
+      const cloudItem = knowledgeFromCloud(source);
+      const savedUnits = await KnowledgeRepository.replaceUnits(cloudItem, result.units || []);
+      const units = (savedUnits || []).map(knowledgeUnitFromCloud);
+      const savedCandidates = await KnowledgeRepository.replaceRecommendationCandidates(cloudItem, result.candidates || [], units);
+      const candidates = (savedCandidates || []).map(knowledgeRecommendationCandidateFromCloud);
+      setLibrary([cloudItem, ...library.filter(x => x.id !== normalized.id && x.cloudId !== cloudItem.cloudId)]);
+      knowledgeUnits = [...knowledgeUnits.filter(x => x.knowledgeSourceId !== cloudItem.cloudId), ...units];
+      knowledgeRecommendationCandidates = [...knowledgeRecommendationCandidates.filter(x => x.knowledgeSourceId !== cloudItem.cloudId), ...candidates];
+      LocalCache.saveAll();
+      this.setStatus("synced");
+      return { source: cloudItem, units, candidates };
+    } catch (error) {
+      console.error("Save Knowledge Intelligence result failed", { error, supabase: error.supabase || null, item: normalized, result });
+      if (isKnowledgeNotInitializedError(error)) {
+        knowledgeFoundationNotInitialized = true;
+        this.setStatus("knowledge_uninitialized", "Knowledge Intelligence 尚未初始化");
+        throw new Error("Knowledge Intelligence 尚未初始化，請先執行 P5.2 SQL");
+      }
+      this.setStatus("failed", error.message || "Knowledge Intelligence sync failed");
+      throw error;
+    }
+  },
+  async verifyKnowledgeSource(item) {
+    const verifiedAt = new Date().toISOString();
+    const saved = await this.updateKnowledgeProcessing(item, { processingStatus: "verified", verifiedAt });
+    knowledgeRecommendationCandidates = knowledgeRecommendationCandidates.map(candidate =>
+      candidate.knowledgeSourceId === saved.cloudId ? { ...candidate, status: "verified" } : candidate
+    );
+    LocalCache.saveAll();
+    return saved;
+  },
+  async removeKnowledgeUnit(id = "") {
+    if (!id) return null;
+    await KnowledgeRepository.updateUnitStatus(id, "archived");
+    knowledgeUnits = knowledgeUnits.filter(unit => unit.id !== id && unit.cloudId !== id);
+    LocalCache.saveAll();
+    return true;
+  },
+  async removeKnowledgeRecommendationCandidate(id = "") {
+    if (!id) return null;
+    await KnowledgeRepository.updateRecommendationCandidateStatus(id, "archived");
+    knowledgeRecommendationCandidates = knowledgeRecommendationCandidates.filter(candidate => candidate.id !== id && candidate.cloudId !== id);
+    LocalCache.saveAll();
+    return true;
   }
 };
 

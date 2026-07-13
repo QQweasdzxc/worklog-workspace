@@ -1,5 +1,13 @@
 # WorkLog RC3 Release Patch1
 
+## Build 20260713-2210 - P5.2 Knowledge Intelligence v1
+
+- 新增 `knowledge-intelligence.js`，將文件擷取、摘要、Knowledge Units、建議工作候選從 `worklog-app.js` 拆出。
+- 藏書閣上傳後可進入 `uploaded → queued → processing → processed`，失敗時顯示可理解錯誤。
+- 新增 Knowledge Intelligence 結果頁：文件摘要、主要主題、Knowledge Units、建議工作候選、確認內容、重新處理。
+- 新增 P5.2 Supabase SQL：`knowledge_sources` intelligence 欄位與 `knowledge_recommendation_candidates` table。
+- 本輪不做 RAG、Embedding、Knowledge Chat、跨職務推理，也不自動推送首頁建議卡。
+
 ## Build 20260713-1547 - P5.2A-1 Architecture Foundation Split
 
 - 進行 Zero Functional Change 的 Foundation Split，將 RC3.4 已驗收底層程式抽離為多個模組。

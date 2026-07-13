@@ -347,6 +347,11 @@ const SupabaseRepository = {
       tags: item.tags || [],
       triggers: item.triggers || [],
       processing_status: item.processingStatus || "uploaded",
+      extracted_text: item.extractedText || item.extracted_text || null,
+      intelligence_summary: item.intelligenceSummary || item.intelligence_summary || {},
+      intelligence_error: item.intelligenceError || item.intelligence_error || null,
+      processed_at: item.processedAt || item.processed_at || null,
+      verified_at: item.verifiedAt || item.verified_at || null,
       version,
       source_version: item.sourceVersion || version,
       filename: file?.name || item.filename || "",
@@ -374,6 +379,100 @@ const SupabaseRepository = {
     const existing = item.cloudId ? [{ id: item.cloudId }] : await this.select("knowledge_sources", `?select=id&legacy_id=eq.${encodeURIComponent(item.id)}&limit=1`);
     if (!existing?.[0]?.id) return null;
     return this.patch("knowledge_sources", `?id=eq.${encodeURIComponent(existing[0].id)}`, { deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+  },
+  async updateKnowledgeSourceProcessing(item, patch = {}) {
+    if (!currentUserUuid() || !currentAccessToken()) throw new Error("Cloud Sync 尚未就緒");
+    const sourceId = item.cloudId || item.id;
+    if (!sourceId) throw new Error("Knowledge Source 缺少 Cloud ID");
+    const payload = {
+      ...(patch.processingStatus ? { processing_status: patch.processingStatus } : {}),
+      ...(patch.extractedText !== undefined ? { extracted_text: patch.extractedText } : {}),
+      ...(patch.intelligenceSummary !== undefined ? { intelligence_summary: patch.intelligenceSummary || {} } : {}),
+      ...(patch.intelligenceError !== undefined ? { intelligence_error: patch.intelligenceError || null } : {}),
+      ...(patch.processedAt !== undefined ? { processed_at: patch.processedAt || null } : {}),
+      ...(patch.verifiedAt !== undefined ? { verified_at: patch.verifiedAt || null } : {}),
+      updated_at: new Date().toISOString(),
+      updated_by: currentUserUuid()
+    };
+    const rows = await this.patch("knowledge_sources", `?id=eq.${encodeURIComponent(sourceId)}`, payload);
+    return rows?.[0] || null;
+  },
+  loadKnowledgeUnits(sourceId = "") {
+    const filter = sourceId ? `&knowledge_source_id=eq.${encodeURIComponent(sourceId)}` : "";
+    return this.select("knowledge_units", `?select=*&status=neq.archived${filter}&order=priority.asc,created_at.asc`);
+  },
+  async replaceKnowledgeUnits(source, units = []) {
+    if (!currentUserUuid() || !currentAccessToken()) throw new Error("Cloud Sync 尚未就緒");
+    const sourceId = source.cloudId || source.id;
+    if (!sourceId) throw new Error("Knowledge Source 缺少 Cloud ID");
+    const existing = await this.loadKnowledgeUnits(sourceId).catch(() => []);
+    for (const row of existing || []) {
+      await this.patch("knowledge_units", `?id=eq.${encodeURIComponent(row.id)}`, { status: "archived" });
+    }
+    const payloads = units.map(unit => ({
+      user_uuid: currentUserUuid(),
+      knowledge_source_id: sourceId,
+      unit_type: unit.unitType || unit.unit_type || "reference",
+      title: unit.title || "Knowledge Unit",
+      content: unit.content || "",
+      summary: unit.summary || "",
+      section_reference: unit.sectionReference || unit.section_reference || "",
+      page_reference: unit.pageReference || unit.page_reference || "",
+      triggers: unit.triggers || [],
+      applicable_roles: unit.applicableRoles || unit.applicable_roles || [],
+      applicable_agents: unit.applicableAgents || unit.applicable_agents || [],
+      related_work_models: unit.relatedWorkModels || unit.related_work_models || [],
+      suggested_skills: unit.suggestedSkills || unit.suggested_skills || [],
+      priority: unit.priority || "medium",
+      confidence: unit.confidence == null ? null : Number(unit.confidence),
+      version: unit.version || source.version || "v1.0",
+      status: unit.status || "active"
+    }));
+    if (!payloads.length) return [];
+    return this.insert("knowledge_units", payloads);
+  },
+  updateKnowledgeUnitStatus(id = "", status = "archived") {
+    return this.patch("knowledge_units", `?id=eq.${encodeURIComponent(id)}`, { status });
+  },
+  loadKnowledgeRecommendationCandidates(sourceId = "") {
+    const filter = sourceId ? `&knowledge_source_id=eq.${encodeURIComponent(sourceId)}` : "";
+    return this.select("knowledge_recommendation_candidates", `?select=*&status=neq.archived${filter}&order=priority.asc,created_at.asc`);
+  },
+  async replaceKnowledgeRecommendationCandidates(source, candidates = [], units = []) {
+    if (!currentUserUuid() || !currentAccessToken()) throw new Error("Cloud Sync 尚未就緒");
+    const sourceId = source.cloudId || source.id;
+    if (!sourceId) throw new Error("Knowledge Source 缺少 Cloud ID");
+    const existing = await this.loadKnowledgeRecommendationCandidates(sourceId).catch(() => []);
+    for (const row of existing || []) {
+      await this.patch("knowledge_recommendation_candidates", `?id=eq.${encodeURIComponent(row.id)}`, { status: "archived" });
+    }
+    const unitByLocalId = new Map((units || []).map(unit => [unit.localId || unit.id || unit.title, unit]));
+    const payloads = candidates.map(candidate => {
+      const unit = unitByLocalId.get(candidate.sourceUnitLocalId || candidate.source_unit_local_id || candidate.sourceUnitId || candidate.source_unit_id || candidate.title);
+      return {
+        user_uuid: currentUserUuid(),
+        knowledge_source_id: sourceId,
+        knowledge_unit_id: candidate.knowledgeUnitId || candidate.knowledge_unit_id || unit?.cloudId || unit?.id || null,
+        type: "recommendation",
+        title: candidate.title || "建議工作",
+        content: candidate.content || candidate.summary || "",
+        source_knowledge_id: source.knowledgeId || source.knowledge_id || "",
+        source_unit_id: candidate.sourceUnitId || candidate.source_unit_id || unit?.cloudId || unit?.id || null,
+        default_duration: Number(candidate.defaultDuration || candidate.default_duration || 1),
+        applicable_role: candidate.applicableRole || candidate.applicable_role || "",
+        triggers: candidate.triggers || [],
+        related_work_models: candidate.relatedWorkModels || candidate.related_work_models || [],
+        status: candidate.status || "candidate",
+        priority: candidate.priority || "medium",
+        confidence: candidate.confidence == null ? null : Number(candidate.confidence),
+        version: candidate.version || source.version || "v1.0"
+      };
+    });
+    if (!payloads.length) return [];
+    return this.insert("knowledge_recommendation_candidates", payloads);
+  },
+  updateKnowledgeRecommendationCandidateStatus(id = "", status = "archived") {
+    return this.patch("knowledge_recommendation_candidates", `?id=eq.${encodeURIComponent(id)}`, { status });
   }
 };
 
@@ -401,5 +500,26 @@ const KnowledgeRepository = {
   },
   signedSourceUrl(path = "", expiresIn = 300) {
     return SupabaseRepository.signedKnowledgeFileUrl(path, expiresIn);
+  },
+  updateSourceProcessing(item = {}, patch = {}) {
+    return SupabaseRepository.updateKnowledgeSourceProcessing(item, patch);
+  },
+  loadUnits(sourceId = "") {
+    return SupabaseRepository.loadKnowledgeUnits(sourceId);
+  },
+  replaceUnits(source = {}, units = []) {
+    return SupabaseRepository.replaceKnowledgeUnits(source, units);
+  },
+  updateUnitStatus(id = "", status = "archived") {
+    return SupabaseRepository.updateKnowledgeUnitStatus(id, status);
+  },
+  loadRecommendationCandidates(sourceId = "") {
+    return SupabaseRepository.loadKnowledgeRecommendationCandidates(sourceId);
+  },
+  replaceRecommendationCandidates(source = {}, candidates = [], units = []) {
+    return SupabaseRepository.replaceKnowledgeRecommendationCandidates(source, candidates, units);
+  },
+  updateRecommendationCandidateStatus(id = "", status = "archived") {
+    return SupabaseRepository.updateKnowledgeRecommendationCandidateStatus(id, status);
   }
 };

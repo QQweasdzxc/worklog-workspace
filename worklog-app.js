@@ -429,7 +429,9 @@ function refreshCloudSyncStatusDisplay() {
 
 function isKnowledgeNotInitializedError(error) {
   const text = `${error?.supabase?.status || ""} ${error?.supabase?.message || ""} ${error?.supabase?.body || ""} ${error?.message || ""}`;
-  return (/404/.test(text) && /knowledge_sources|knowledge_units/i.test(text)) || /Bucket not found|knowledge-sources/i.test(text);
+  return (/404/.test(text) && /knowledge_sources|knowledge_units|knowledge_recommendation_candidates/i.test(text))
+    || /extracted_text|intelligence_summary|intelligence_error|processed_at|verified_at|knowledge_recommendation_candidates/i.test(text)
+    || /Bucket not found|knowledge-sources/i.test(text);
 }
 
 function isConversationNotInitializedError(error) {
@@ -1929,14 +1931,14 @@ function normalizeKnowledgeSourceType(value = "", fallbackName = "") {
 
 function processingStatusLabel(status = "uploaded") {
   const labels = {
-    uploaded: "🟡 uploaded",
-    queued: "⚪ queued",
-    processing: "🔄 processing",
-    processed: "🔵 processed",
-    knowledge_built: "🟢 knowledge_built",
-    verified: "⭐ verified",
-    failed: "🔴 failed",
-    archived: "⚫ archived"
+    uploaded: "🟡 已上傳",
+    queued: "⚪ 等待處理",
+    processing: "🔄 讀取中",
+    processed: "🔵 已整理",
+    knowledge_built: "🟢 已建立知識",
+    verified: "⭐ 已確認",
+    failed: "🔴 讀取失敗",
+    archived: "⚫ 已封存"
   };
   return labels[status] || status;
 }
@@ -1963,11 +1965,16 @@ function normalizedLibraryItem(item = {}) {
     mimeType: item.mimeType || item.mime_type || "",
     fileSize: Number(item.fileSize || item.file_size || 0) || 0,
     applicableAgents: arrayFromInput(item.applicableAgents || item.applicable_agents || ["採購 Agent"]),
-    relatedRoles: arrayFromInput(item.relatedRoles || item.related_roles),
+    relatedRoles: arrayFromInput(item.relatedRoles || item.related_roles || (profile?.role ? [roleCode(profile.role)] : [])),
     relatedWorkModels: arrayFromInput(item.relatedWorkModels || item.related_work_models),
     tags: arrayFromInput(item.tags),
     triggers: arrayFromInput(item.triggers),
     processingStatus: normalizeKnowledgeProcessingStatus(item.processingStatus || item.processing_status || item.status || item.aiStatus || item.ai_status),
+    extractedText: item.extractedText || item.extracted_text || "",
+    intelligenceSummary: item.intelligenceSummary || item.intelligence_summary || {},
+    intelligenceError: item.intelligenceError || item.intelligence_error || "",
+    processedAt: item.processedAt || item.processed_at || "",
+    verifiedAt: item.verifiedAt || item.verified_at || "",
     status: normalizeKnowledgeProcessingStatus(item.processingStatus || item.processing_status || item.status || item.aiStatus || item.ai_status),
     aiStatus: normalizeKnowledgeProcessingStatus(item.processingStatus || item.processing_status || item.status || item.aiStatus || item.ai_status),
     version: item.version || "v1.0",
@@ -2005,6 +2012,11 @@ function knowledgeFromCloud(row = {}) {
     tags: row.tags || [],
     triggers: row.triggers || [],
     processingStatus: row.processing_status,
+    extractedText: row.extracted_text || "",
+    intelligenceSummary: row.intelligence_summary || {},
+    intelligenceError: row.intelligence_error || "",
+    processedAt: row.processed_at || "",
+    verifiedAt: row.verified_at || "",
     status: row.processing_status,
     aiStatus: row.processing_status,
     version: row.version,
@@ -2047,7 +2059,20 @@ function hasLegacyKnowledgeMigrationDone() {
 }
 
 function knowledgeInitializationNotice() {
-  return `<div class="empty"><b>📚 藏書閣尚未初始化</b><div class="muted">Knowledge Database 或 Storage Bucket 尚未建立。這不影響 WorkLog / Conversation / Calendar / OAuth。</div><div class="source-path">請先執行：docs/supabase/20260712_p5_1_knowledge_repository_schema.sql</div><div class="muted">完成 SQL 與 Storage Policy 建立後，重新整理頁面即可啟用 Knowledge Repository。</div></div>`;
+  return `<div class="empty"><b>📚 藏書閣尚未初始化</b><div class="muted">Knowledge Database、Storage Bucket 或 Knowledge Intelligence 尚未建立。這不影響 WorkLog / Conversation / Calendar / OAuth。</div><div class="source-path">請先執行：docs/supabase/20260712_p5_1_knowledge_repository_schema.sql</div><div class="source-path">若已完成 P5.1，請再執行：docs/supabase/20260713_p5_2_knowledge_intelligence_v1_schema.sql</div><div class="muted">完成 SQL 與 Storage Policy 建立後，重新整理頁面即可啟用 Knowledge Repository / Intelligence。</div></div>`;
+}
+
+function knowledgeCardSummary(item = {}) {
+  const summary = item.intelligenceSummary || {};
+  const topics = arrayFromInput(summary.topics || []);
+  const units = knowledgeUnitsForSource(item);
+  const candidates = knowledgeCandidatesForSource(item);
+  const status = item.processingStatus;
+  const summaryLine = summary.documentName
+    ? `主要主題：${topics.slice(0, 5).join("、") || "尚未擷取"}`
+    : (status === "uploaded" ? "尚未開始文件理解。可按「重新處理」建立摘要與 Knowledge Units。" : "");
+  const errorLine = status === "failed" && item.intelligenceError ? `<div class="source-path">錯誤：${escapeHtml(item.intelligenceError)}</div>` : "";
+  return `<div class="source-path">${escapeHtml(summaryLine)}</div><div class="source-path">Knowledge Units：${units.length}｜建議工作候選：${candidates.length}</div>${errorLine}`;
 }
 
 function libraryView() {
@@ -2060,9 +2085,19 @@ function libraryView() {
     ? knowledgeInitializationNotice()
     : (library.length ? library.map(raw => {
       const item = normalizedLibraryItem(raw);
-      return `<div class="entry knowledge-card"><div class="entry-main"><b>${escapeHtml(item.title)}</b><div class="muted">${escapeHtml(item.knowledgeId || "待 Cloud 產生")}｜${escapeHtml(item.category)}｜${escapeHtml(KNOWLEDGE_SCOPE_LABELS[item.scope] || item.scope)}｜${escapeHtml(item.version)}</div><small>${escapeHtml(item.description || "")}</small><div class="library-tag-line">${item.tags.map(tag => `<span>${escapeHtml(tag)}</span>`).join("")}</div><div class="library-tag-line">${item.triggers.map(tag => `<span>Trigger：${escapeHtml(tag)}</span>`).join("")}</div><div class="source-path">Agents：${escapeHtml(item.applicableAgents.join("、") || "未指定")}｜Roles：${escapeHtml(item.relatedRoles.join("、") || "未指定")}｜Work Models：${escapeHtml(item.relatedWorkModels.join("、") || "未指定")}</div><div class="source-path">Processing：${escapeHtml(processingStatusLabel(item.processingStatus))}｜Source：${escapeHtml(item.sourceType)}｜File：${escapeHtml(item.filename || item.sourceName || "尚未上傳正式檔案")} ${escapeHtml(formatFileSize(item.fileSize))}</div><div class="source-path">Uploaded：${escapeHtml(formatKnowledgeTime(item.createdAt))}｜Updated：${escapeHtml(formatKnowledgeTime(item.updatedAt))}</div></div><div class="actions compact"><button class="btn2" data-preview-library="${item.id}">預覽</button><button class="btn2" data-download-library="${item.id}">下載原始檔</button><button class="btn2" data-edit-library="${item.id}">編輯 Metadata</button><button class="btn2" data-archive-library="${item.id}">封存</button><button class="btn2 danger" data-del-library="${item.id}">刪除</button></div></div>`;
+      return `<div class="entry knowledge-card"><div class="entry-main"><b>${escapeHtml(item.title)}</b><div class="muted">${escapeHtml(item.knowledgeId || "待 Cloud 產生")}｜${escapeHtml(item.category)}｜${escapeHtml(KNOWLEDGE_SCOPE_LABELS[item.scope] || item.scope)}｜${escapeHtml(item.version)}</div><small>${escapeHtml(item.description || "")}</small><div class="library-tag-line">${item.tags.map(tag => `<span>${escapeHtml(tag)}</span>`).join("")}</div><div class="library-tag-line">${item.triggers.map(tag => `<span>Trigger：${escapeHtml(tag)}</span>`).join("")}</div><div class="source-path">Agents：${escapeHtml(item.applicableAgents.join("、") || "未指定")}｜Roles：${escapeHtml(item.relatedRoles.join("、") || "待確認職務")}｜Work Models：${escapeHtml(item.relatedWorkModels.join("、") || "未指定")}</div><div class="source-path">Processing：${escapeHtml(processingStatusLabel(item.processingStatus))}｜Source：${escapeHtml(item.sourceType)}｜File：${escapeHtml(item.filename || item.sourceName || "尚未上傳正式檔案")} ${escapeHtml(formatFileSize(item.fileSize))}</div>${knowledgeCardSummary(item)}<div class="source-path">Uploaded：${escapeHtml(formatKnowledgeTime(item.createdAt))}｜Updated：${escapeHtml(formatKnowledgeTime(item.updatedAt))}</div></div><div class="actions compact"><button class="btn2" data-view-knowledge-result="${item.id}">查看整理結果</button><button class="btn2" data-reprocess-library="${item.id}">重新處理</button>${item.processingStatus === "processed" ? `<button class="btn green" data-verify-library="${item.id}">確認內容</button>` : ""}<button class="btn2" data-preview-library="${item.id}">預覽</button><button class="btn2" data-edit-library="${item.id}">編輯 Metadata</button><button class="btn2" data-archive-library="${item.id}">封存</button><button class="btn2 danger" data-del-library="${item.id}">刪除</button></div></div>`;
     }).join("") : `<div class="empty"><b>尚無 Knowledge Source</b><div class="muted">請新增 SOP、制度、法規、表單或教材，建立 Mr. KM 的 Personal / Department Knowledge 地基。</div></div>`);
   return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>📚 藏書閣</h2><div class="muted">Knowledge Repository Foundation：不是建立全知 AI，而是建立 Mr. KM 理解您工作的 Personal / Department Knowledge。</div></div>${addButton}</div>${legacyBlock}<div class="library-list">${body}</div></section>`;
+}
+
+function libraryIntelligenceView(id = null) {
+  const item = normalizedLibraryItem(library.find(x => x.id === id || x.cloudId === id));
+  if (!item.title) return `<section class="panel" style="margin-top:18px"><button class="btn2" data-library-back="1">返回</button><div class="empty">找不到 Knowledge Source</div></section>`;
+  const summary = item.intelligenceSummary || {};
+  const units = knowledgeUnitsForSource(item);
+  const candidates = knowledgeCandidatesForSource(item);
+  const list = value => arrayFromInput(value).map(x => `<li>${escapeHtml(x)}</li>`).join("") || "<li>尚未整理</li>";
+  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>📖 Knowledge Intelligence</h2><div class="muted">${escapeHtml(item.knowledgeId)}｜${escapeHtml(processingStatusLabel(item.processingStatus))}｜${escapeHtml(knowledgeRoleLabel(item))}</div></div><button class="btn2" data-library-back="1">返回藏書閣</button></div><div class="entry"><div class="entry-main"><b>${escapeHtml(item.title)}</b><div class="source-path">文件類型：${escapeHtml(item.sourceType)}｜處理程度：${escapeHtml(summary.supportLevel || "尚未處理")}</div>${item.intelligenceError ? `<div class="source-path">錯誤原因：${escapeHtml(item.intelligenceError)}</div>` : ""}</div><div class="actions compact"><button class="btn2" data-reprocess-library="${item.id}">重新處理</button>${item.processingStatus === "processed" ? `<button class="btn green" data-verify-library="${item.id}">確認內容</button>` : ""}</div></div><div class="profile-grid"><div class="entry"><b>文件摘要</b><ul class="knowledge-result-list">${list(summary.topics)}</ul></div><div class="entry"><b>可作為建議的工作內容</b><ul class="knowledge-result-list">${list(summary.recommendationCandidates || summary.importantWorkItems)}</ul></div></div><section class="panel" style="margin-top:12px"><h3>Knowledge Units（${units.length}）</h3>${units.length ? units.map(unit => `<div class="entry"><div class="entry-main"><b>${escapeHtml(unit.title)}</b><div class="muted">${escapeHtml(unit.unitType)}｜${escapeHtml(unit.sectionReference || "")}｜Confidence ${unit.confidence ?? "N/A"}</div><small>${escapeHtml(unit.summary || unit.content)}</small><div class="library-tag-line">${unit.triggers.map(tag => `<span>${escapeHtml(tag)}</span>`).join("")}</div></div><div class="actions compact"><button class="btn2 danger" data-remove-knowledge-unit="${unit.id}">移除</button></div></div>`).join("") : `<div class="empty">尚未建立 Knowledge Units。</div>`}</section><section class="panel" style="margin-top:12px"><h3>建議工作候選（${candidates.length}）</h3>${candidates.length ? candidates.map(candidate => `<div class="entry"><div class="entry-main"><b>${escapeHtml(candidate.title)}</b><div class="muted">狀態：${escapeHtml(candidate.status)}｜預設工時：${candidate.defaultDuration}h｜Role：${escapeHtml(candidate.applicableRole || "待確認職務")}</div><small>${escapeHtml(candidate.content || "")}</small><div class="library-tag-line">${candidate.triggers.map(tag => `<span>${escapeHtml(tag)}</span>`).join("")}</div></div><div class="actions compact"><button class="btn2 danger" data-remove-knowledge-candidate="${candidate.id}">移除</button></div></div>`).join("") : `<div class="empty">尚未建立建議工作候選。</div>`}</section></section>`;
 }
 
 function libraryForm(id = null) {
@@ -2082,6 +2117,7 @@ function currentViewHtml() {
   if (view === "center") return center();
   if (view === "capture") return capture();
   if (view === "library") return libraryView();
+  if (view === "libraryIntelligence") return libraryIntelligenceView(viewingKnowledgeId);
   if (view === "sync") return sync();
   return settings();
 }
@@ -2774,6 +2810,45 @@ async function runLegacyKnowledgeMigrationPreview() {
 function bindLibrary() {
   const add = document.querySelector("[data-add-library]"); if (add) add.onclick = () => { editingLibraryId = null; activeWorkspace = "library"; view = "libraryForm"; saveAll(); render(); };
   document.querySelectorAll("[data-edit-library]").forEach(b => b.onclick = () => { editingLibraryId = b.dataset.editLibrary; activeWorkspace = "library"; view = "libraryForm"; saveAll(); render(); });
+  document.querySelectorAll("[data-view-knowledge-result]").forEach(b => b.onclick = () => { viewingKnowledgeId = b.dataset.viewKnowledgeResult; activeWorkspace = "library"; view = "libraryIntelligence"; saveAll(); render(); });
+  document.querySelectorAll("[data-reprocess-library]").forEach(b => b.onclick = async () => {
+    const item = library.find(x => x.id === b.dataset.reprocessLibrary);
+    if (!item) return;
+    try {
+      await KnowledgeIntelligence.processSource(item);
+      viewingKnowledgeId = item.id;
+      view = "libraryIntelligence";
+      saveAll();
+      render();
+    } catch (error) {
+      console.error("Knowledge reprocess failed", { error, item });
+      render();
+    }
+  });
+  document.querySelectorAll("[data-verify-library]").forEach(b => b.onclick = async () => {
+    const item = library.find(x => x.id === b.dataset.verifyLibrary);
+    if (!item) return;
+    try {
+      await KnowledgeIntelligence.verifySource(item);
+      saveAll();
+      render();
+    } catch (error) {
+      console.error("Knowledge verify failed", { error, item });
+      toast(error.message || "確認內容失敗");
+    }
+  });
+  document.querySelectorAll("[data-remove-knowledge-unit]").forEach(b => b.onclick = async () => {
+    if (!confirm("確認移除此 Knowledge Unit？")) return;
+    await DataService.removeKnowledgeUnit(b.dataset.removeKnowledgeUnit);
+    toast("已移除 Knowledge Unit");
+    render();
+  });
+  document.querySelectorAll("[data-remove-knowledge-candidate]").forEach(b => b.onclick = async () => {
+    if (!confirm("確認移除此建議工作候選？")) return;
+    await DataService.removeKnowledgeRecommendationCandidate(b.dataset.removeKnowledgeCandidate);
+    toast("已移除建議工作候選");
+    render();
+  });
   document.querySelectorAll("[data-preview-library],[data-download-library]").forEach(b => b.onclick = async () => {
     const id = b.dataset.previewLibrary || b.dataset.downloadLibrary;
     const item = normalizedLibraryItem(library.find(x => x.id === id));
@@ -2809,7 +2884,7 @@ function bindLibrary() {
 }
 
 function bindLibraryForm(id = null) {
-  document.querySelectorAll("[data-library-back],[data-library-cancel]").forEach(b => b.onclick = () => { editingLibraryId = null; view = "library"; saveAll(); render(); });
+  document.querySelectorAll("[data-library-back],[data-library-cancel]").forEach(b => b.onclick = () => { editingLibraryId = null; viewingKnowledgeId = null; view = "library"; saveAll(); render(); });
   document.getElementById("saveLibrary").onclick = async () => {
     const existing = id ? normalizedLibraryItem(library.find(x => x.id === id)) : {};
     const file = document.getElementById("libFile")?.files?.[0] || null;
@@ -2842,8 +2917,14 @@ function bindLibraryForm(id = null) {
     if (!item.title) return toast("請輸入 Knowledge Title");
     if (!id && !file) return toast("新增 Knowledge Source 必須選擇正式檔案");
     try {
-      await DataService.saveKnowledgeSource(item, { file, requireCloud: true });
-      editingLibraryId = null; view = "library"; saveAll(); toast("Knowledge Source 已儲存"); render();
+      const saved = await DataService.saveKnowledgeSource(item, { file, requireCloud: true });
+      if (file) {
+        await KnowledgeIntelligence.processSource(saved, { file });
+        viewingKnowledgeId = saved.id;
+        editingLibraryId = null; view = "libraryIntelligence"; saveAll(); render();
+      } else {
+        editingLibraryId = null; view = "library"; saveAll(); toast("Knowledge Source 已儲存"); render();
+      }
     } catch (error) {
       console.error("Knowledge Source save failed", { error, supabase: error.supabase || null });
       toast(error.message || "Knowledge Source 儲存失敗");
