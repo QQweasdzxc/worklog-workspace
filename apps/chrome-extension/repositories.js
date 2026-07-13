@@ -99,12 +99,49 @@ const SupabaseRepository = {
       body: file
     });
   },
+  knowledgeStorageExtension(name = "") {
+    const match = String(name || "").toLowerCase().match(/\.([a-z0-9]{1,12})$/);
+    return match ? `.${match[1]}` : "";
+  },
+  knowledgeStorageObjectPath(file = null) {
+    const uuid = currentUserUuid();
+    if (!uuid) throw new Error("Cloud Sync 尚未就緒");
+    const randomId = (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`).replace(/[^a-zA-Z0-9-]/g, "");
+    return `${uuid}/${randomId}${this.knowledgeStorageExtension(file?.name || "")}`;
+  },
+  objectPathFromUploadResponse(response = {}, requestedPath = "") {
+    const candidates = [
+      response?.path,
+      response?.fullPath,
+      response?.full_path,
+      response?.Key,
+      response?.key,
+      response?.name
+    ].map(value => String(value || "").trim()).filter(Boolean);
+    for (const raw of candidates) {
+      let path = raw;
+      const storagePrefix = `/storage/v1/object/${KNOWLEDGE_BUCKET}/`;
+      const bucketPrefix = `${KNOWLEDGE_BUCKET}/`;
+      if (path.includes(storagePrefix)) path = path.split(storagePrefix).pop();
+      if (path.startsWith(bucketPrefix)) path = path.slice(bucketPrefix.length);
+      path = path.replace(/^\/+/, "");
+      if (path && path !== KNOWLEDGE_BUCKET) return path;
+    }
+    console.error("Knowledge Storage upload response missing object path", { response, requestedPath, storageBucket: KNOWLEDGE_BUCKET });
+    throw new Error("Storage Upload 未回傳正式 Object Path，請稍後再試");
+  },
   async deleteKnowledgeFile(path = "") {
     if (!path) return null;
     return this.storageRequest(`object/${KNOWLEDGE_BUCKET}/${this.encodeStoragePath(path)}`, { method: "DELETE" });
   },
   async signedKnowledgeFileUrl(path = "", expiresIn = 300) {
     if (!path) throw new Error("此知識來源尚無正式檔案");
+    console.info("Knowledge Storage Download Debug", {
+      databaseStoragePath: path,
+      downloadStoragePath: path,
+      storageBucket: KNOWLEDGE_BUCKET,
+      storageObjectKey: path
+    });
     const data = await this.storageRequest(`object/sign/${KNOWLEDGE_BUCKET}/${this.encodeStoragePath(path)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -320,11 +357,20 @@ const SupabaseRepository = {
     const version = item.version || "v1.0";
     let storagePath = item.storagePath || "";
     let uploadedPath = "";
+    let uploadResponse = null;
     if (file) {
-      const safeName = sanitizeStorageFileName(file.name || item.filename || "knowledge-source");
-      storagePath = `${currentUserUuid()}/${knowledgeId}/${version}/${Date.now()}-${safeName}`;
-      await this.uploadKnowledgeFile(storagePath, file);
+      const requestedStoragePath = this.knowledgeStorageObjectPath(file);
+      uploadResponse = await this.uploadKnowledgeFile(requestedStoragePath, file);
+      storagePath = this.objectPathFromUploadResponse(uploadResponse, requestedStoragePath);
       uploadedPath = storagePath;
+      console.info("Knowledge Storage Upload Debug", {
+        knowledgeId,
+        filename: file.name || item.filename || "",
+        requestedStoragePath,
+        storageBucket: KNOWLEDGE_BUCKET,
+        uploadResponse,
+        resolvedStoragePath: storagePath
+      });
     }
     const payload = {
       user_uuid: currentUserUuid(),
@@ -366,6 +412,14 @@ const SupabaseRepository = {
         ? await this.patch("knowledge_sources", `?id=eq.${encodeURIComponent(existing[0].id)}`, payload)
         : await this.insert("knowledge_sources", payload);
       if (!saved?.[0]?.id) throw new Error("Supabase knowledge_sources 未回傳儲存結果");
+      console.info("Knowledge Storage Database Debug", {
+        knowledgeId,
+        filename: payload.filename,
+        uploadResponse,
+        databaseStoragePath: saved[0].storage_path,
+        storageBucket: KNOWLEDGE_BUCKET,
+        storageObjectKey: saved[0].storage_path
+      });
       return saved[0];
     } catch (error) {
       if (uploadedPath) {
