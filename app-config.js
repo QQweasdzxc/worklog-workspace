@@ -1,7 +1,7 @@
 // P5.2A-1 Foundation Split: configuration and static constants.
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260713-2210";
+const BUILD_TIME = "20260713-2303";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const IS_EXTENSION_ENTRY = document.body?.classList.contains("extension");
@@ -46,7 +46,7 @@ const roleTagMap = {
   "IT": ["系統維護", "帳號權限處理", "問題排查", "需求訪談", "系統更新", "資料備份", "資安檢查", "技術文件整理"],
   "自訂": ["自訂工作", "Mail處理", "資料整理", "會議", "專案追蹤", "跨部門溝通", "文件整理", "待辦追蹤"]
 };
-const roleCodeMap = { "採購": "PROCUREMENT", "行政": "ADMIN", "人資": "HR", "業務": "SALES", "行銷": "MARKETING", "IT": "IT", "自訂": "CUSTOM" };
+const roleCodeMap = { "採購": "PROCUREMENT", "行政": "ADMIN", "人資": "HR", "財務": "FINANCE", "業務": "SALES", "行銷": "MARKETING", "IT": "IT", "自訂": "CUSTOM" };
 const roleNameMap = Object.fromEntries(Object.entries(roleCodeMap).map(([name, code]) => [code, name]));
 const entryTypeOptions = [
   { value: "work", label: "工作" },
@@ -63,9 +63,9 @@ const LEGACY_KNOWLEDGE_MIGRATION_KEY = "knowledge_repository_p5_legacy_wl_librar
 const ECP_EXPORT_PROFILE_PATH = "resources/profiles/ecp-profile.json";
 const CLOUD_MIGRATION_KEY = "localstorage_rc33_to_rc34a_v1";
 const KNOWLEDGE_CATEGORIES = ["SOP", "制度", "法規", "專案", "表單", "教材", "會議", "其他"];
-const KNOWLEDGE_AGENTS = ["採購 Agent", "HR Agent", "投資 Agent", "旅遊 Agent"];
+const KNOWLEDGE_AGENTS = ["採購 Agent", "人資 Agent", "投資 Agent", "旅遊 Agent"];
 const KNOWLEDGE_SCOPES = ["personal", "role", "company", "public"];
-const KNOWLEDGE_SCOPE_LABELS = { personal: "👤 Personal", role: "💼 Role", company: "🏢 Company", public: "🌍 Public" };
+const KNOWLEDGE_SCOPE_LABELS = { personal: "👤 個人知識", role: "💼 職務知識", company: "🏢 部門知識", public: "🌍 公開知識" };
 const KNOWLEDGE_PROCESSING_STATUS = ["uploaded", "queued", "processing", "processed", "knowledge_built", "verified", "failed", "archived"];
 const KNOWLEDGE_SOURCE_TYPES = ["file", "pdf", "word", "excel", "powerpoint", "markdown", "url", "legacy_metadata"];
 const KNOWLEDGE_ROLE_OPTIONS = ["PROCUREMENT", "HR", "IT", "ADMIN", "FINANCE", "SALES", "MARKETING", "CUSTOM"];
