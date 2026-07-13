@@ -2,6 +2,7 @@
 
 RC3.1 Final Sprint：Restore RC3 Scope。
 
+- P5 Product Constitution：[Teach Mr. KM, Not Manage Files](docs/product-principles.md)
 - Web 三欄：月曆 / 今日工作紀錄 / 今日建議卡
 - 月曆下方可下載本月工時 Excel
 - 建議卡精簡為工作名稱 / 來源 / 預設工時，操作統一為加入工時 / 調整

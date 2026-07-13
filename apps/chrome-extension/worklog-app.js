@@ -1478,7 +1478,12 @@ function worklogWorkspace() {
 function workspaceContent() {
   if (activeWorkspace === "dashboard") return zhugeDashboard();
   if (activeWorkspace === "worklog") return profile ? worklogWorkspace() : onboardingWorkspace();
-  if (activeWorkspace === "library") return view === "libraryForm" ? libraryForm(editingLibraryId) : libraryView();
+  if (activeWorkspace === "library") {
+    if (view === "libraryForm") return libraryForm(editingLibraryId);
+    if (view === "libraryLearning") return libraryLearningView();
+    if (view === "libraryIntelligence") return libraryIntelligenceView(viewingKnowledgeId);
+    return libraryView();
+  }
   if (activeWorkspace === "sync") return sync();
   if (activeWorkspace === "settings") return settings();
   return comingSoonWorkspace(activeWorkspace);
@@ -2000,6 +2005,28 @@ function knowledgeOutcomeCounts(item = {}) {
   };
 }
 
+function knowledgeCapabilityItems(item = {}, limit = 4) {
+  const summary = item.intelligenceSummary || {};
+  const units = knowledgeUnitsForSource(item);
+  const candidates = knowledgeCandidatesForSource(item);
+  const items = [
+    ...units.filter(unit => ["process", "checklist", "rule", "recommendation"].includes(unit.unitType)).map(unit => unit.title),
+    ...candidates.map(candidate => candidate.title),
+    ...arrayFromInput(summary.topics || [])
+  ].map(x => String(x || "").trim()).filter(Boolean);
+  return [...new Set(items)].slice(0, limit);
+}
+
+function knowledgeLearnedLabel(status = "uploaded") {
+  if (status === "verified" || status === "knowledge_built") return "🟢 Mr. KM 已學會";
+  if (status === "processed") return "🔵 等待確認理解";
+  if (status === "processing") return "🔄 Mr. KM 正在整理";
+  if (status === "queued") return "⚪ 等待 Mr. KM 閱讀";
+  if (status === "failed") return "🔴 整理失敗";
+  if (status === "archived") return "⚫ 已封存";
+  return "🟡 等待 Mr. KM 閱讀";
+}
+
 function roleDisplayName(code = "") {
   return roleNameMap[code] || code || "待確認職務";
 }
@@ -2140,7 +2167,7 @@ function knowledgeCardSummary(item = {}) {
 }
 
 function libraryView() {
-  const addButton = knowledgeFoundationNotInitialized ? "" : `<button class="btn" data-add-library="1">新增知識</button>`;
+  const addButton = knowledgeFoundationNotInitialized ? "" : `<button class="btn" data-add-library="1">🪶 教 Mr. KM 新知識</button>`;
   const legacyItems = legacyKnowledgeItems();
   const legacyBlock = !knowledgeFoundationNotInitialized && legacyItems.length && !hasLegacyKnowledgeMigrationDone()
     ? `<div class="empty knowledge-migration-preview"><b>偵測到舊版藏書：${legacyItems.length} 筆</b><div class="muted">舊版資料搬移需由使用者確認。若舊資料沒有原始檔，將先搬移資料摘要，原始檔可後續編輯補上傳。</div><button class="btn2" data-preview-legacy-knowledge="1">預覽 / 搬移舊版藏書</button></div>`
@@ -2150,9 +2177,21 @@ function libraryView() {
     : (library.length ? library.map(raw => {
       const item = normalizedLibraryItem(raw);
       const viewDisabled = canViewKnowledgeResult(item.processingStatus) ? "" : "disabled";
-      return `<div class="entry knowledge-card"><div class="entry-main"><b>${escapeHtml(item.title)}</b><div class="muted">${escapeHtml(item.knowledgeId || "儲存後產生")}｜${escapeHtml(item.category)}｜${escapeHtml(KNOWLEDGE_SCOPE_LABELS[item.scope] || item.scope)}｜${escapeHtml(item.version)}</div><small>${escapeHtml(item.description || "")}</small><div class="library-tag-line">${item.tags.map(tag => `<span>${escapeHtml(tag)}</span>`).join("")}</div><div class="library-tag-line">${item.triggers.map(tag => `<span>觸發：${escapeHtml(tag)}</span>`).join("")}</div><div class="source-path">適用對象：${escapeHtml(item.applicableAgents.join("、") || "未指定")}｜適用職務：${escapeHtml(item.relatedRoles.map(roleDisplayName).join("、") || "待確認職務")}｜工作模式：${escapeHtml(item.relatedWorkModels.join("、") || "未指定")}</div><div class="source-path">整理狀態：${escapeHtml(processingStatusLabel(item.processingStatus))}｜文件類型：${escapeHtml(knowledgeSourceTypeLabel(item.sourceType))}｜檔案：${escapeHtml(item.filename || item.sourceName || "尚未上傳正式檔案")} ${escapeHtml(formatFileSize(item.fileSize))}</div>${knowledgeCardSummary(item)}<div class="source-path">上傳：${escapeHtml(formatKnowledgeTime(item.createdAt))}｜更新：${escapeHtml(formatKnowledgeTime(item.updatedAt))}</div></div><div class="actions compact"><button class="btn2" ${viewDisabled} data-view-knowledge-result="${item.id}">查看整理結果</button><button class="btn2" data-reprocess-library="${item.id}">${knowledgeActionLabel(item.processingStatus)}</button>${item.processingStatus === "processed" ? `<button class="btn green" data-verify-library="${item.id}">確認內容</button>` : ""}<button class="btn2" data-preview-library="${item.id}">預覽</button><button class="btn2" data-edit-library="${item.id}">編輯資料</button><button class="btn2" data-archive-library="${item.id}">封存</button><button class="btn2 danger" data-del-library="${item.id}">刪除</button></div></div>`;
-    }).join("") : `<div class="empty"><b>尚無知識來源</b><div class="muted">請新增 SOP、制度、法規、表單或教材，建立 Mr. KM 的工作知識庫。</div></div>`);
-  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>📚 藏書閣</h2><div class="muted">藏書閣不是全知 AI，而是 Mr. KM 理解您工作的知識庫。</div></div>${addButton}</div>${legacyBlock}<div class="library-list">${body}</div></section>`;
+      const capabilities = knowledgeCapabilityItems(item, 4);
+      const capabilityList = capabilities.length
+        ? capabilities.map(capability => `<li>✓ ${escapeHtml(capability)}</li>`).join("")
+        : `<li>${item.processingStatus === "uploaded" ? "等待您開始教 Mr. KM 這份知識" : "尚未整理出工作能力"}</li>`;
+      const counts = knowledgeOutcomeCounts(item);
+      return `<div class="entry knowledge-card"><div class="entry-main"><b>🪶 ${escapeHtml(item.title)}</b><div class="muted">${escapeHtml(knowledgeLearnedLabel(item.processingStatus))}</div><small>${escapeHtml(item.description || "這份文件會成為 Mr. KM 的工作知識。")}</small><div class="source-path"><b>Mr. KM 已學會：</b></div><ul class="knowledge-result-list">${capabilityList}</ul><div class="source-path">整理成果｜摘要 ${counts.summary}｜流程 ${counts.process}｜規則 ${counts.rule}｜建議工作 ${counts.recommendation}</div>${item.processingStatus === "failed" && item.intelligenceError ? `<div class="source-path">整理失敗原因：${escapeHtml(item.intelligenceError)}</div>` : ""}</div><div class="actions compact"><button class="btn2" ${viewDisabled} data-view-knowledge-result="${item.id}">查看 Mr. KM 的理解</button><button class="btn2" data-reprocess-library="${item.id}">${knowledgeActionLabel(item.processingStatus)}</button>${item.processingStatus === "processed" ? `<button class="btn green" data-verify-library="${item.id}">✓ 確認理解正確</button>` : ""}<button class="btn2" data-preview-library="${item.id}">預覽原始檔</button><button class="btn2" data-edit-library="${item.id}">✏️ 調整內容</button><button class="btn2" data-archive-library="${item.id}">封存</button><button class="btn2 danger" data-del-library="${item.id}">刪除</button></div></div>`;
+    }).join("") : `<div class="empty"><b>還沒有教 Mr. KM 新知識</b><div class="muted">請上傳 SOP、制度、法規、表單或教材，讓 Mr. KM 學會新的工作能力。</div><button class="btn" data-add-library="1">🪶 教 Mr. KM 新知識</button></div>`);
+  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>📚 藏書閣</h2><div class="muted">這裡不是文件庫，而是 Mr. KM 學習您工作能力的地方。</div></div>${addButton}</div>${legacyBlock}<div class="library-list">${body}</div></section>`;
+}
+
+function libraryLearningView() {
+  const item = normalizedLibraryItem(learningKnowledgeDraft || library.find(x => x.id === viewingKnowledgeId || x.cloudId === viewingKnowledgeId) || {});
+  const title = item.title || "新的工作知識";
+  const fileName = item.filename || item.sourceName || "您提供的文件";
+  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>🪶 Mr. KM 正在閱讀...</h2><div class="muted">我正在把這份文件轉換成可以協助您的工作能力。</div></div></div><div class="entry"><div class="entry-main"><b>${escapeHtml(title)}</b><div class="source-path">${escapeHtml(fileName)}</div><small>${escapeHtml(item.description || "Mr. KM 會先理解內容，再請您確認是否正確。")}</small></div></div><div class="entry"><b>學習進度</b><ul class="knowledge-result-list"><li>✓ 讀取檔案</li><li>✓ 擷取文字</li><li>⏳ 理解內容</li><li>⏳ 整理工作知識</li><li>⏳ 建立建議工作</li></ul></div><div class="muted">請稍候，完成後會直接顯示 Mr. KM 的理解結果。</div></section>`;
 }
 
 function libraryIntelligenceView(id = null) {
@@ -2168,12 +2207,16 @@ function libraryIntelligenceView(id = null) {
   const processItems = units.filter(unit => ["process", "checklist"].includes(unit.unitType)).map(unit => unit.title);
   const ruleItems = units.filter(unit => ["rule", "exception"].includes(unit.unitType)).map(unit => unit.title);
   const focusItems = [...summary.topics || [], ...processItems.slice(0, 4), ...ruleItems.slice(0, 4)].slice(0, 10);
-  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>📖 整理結果</h2><div class="muted">${escapeHtml(item.knowledgeId)}｜${escapeHtml(processingStatusLabel(item.processingStatus))}｜${escapeHtml(knowledgeRoleLabel(item))}</div></div><button class="btn2" data-library-back="1">返回藏書閣</button></div><div class="entry"><div class="entry-main"><b>${escapeHtml(item.title)}</b><div class="source-path">文件類型：${escapeHtml(knowledgeSourceTypeLabel(item.sourceType))}｜整理方式：${escapeHtml(knowledgeSupportLevelLabel(summary.supportLevel))}</div>${item.intelligenceError ? `<div class="source-path">錯誤原因：${escapeHtml(item.intelligenceError)}</div>` : ""}</div><div class="actions compact"><button class="btn2" data-reprocess-library="${item.id}">${knowledgeActionLabel(item.processingStatus)}</button>${item.processingStatus === "processed" ? `<button class="btn green" data-verify-library="${item.id}">確認內容</button>` : ""}</div></div><div class="entry"><b>文件摘要</b><p class="muted">${escapeHtml(readableSummary)}</p></div><div class="profile-grid"><div class="entry"><b>重點整理</b><ul class="knowledge-result-list">${list(focusItems)}</ul></div><div class="entry"><b>可建立工作</b><ul class="knowledge-result-list">${candidates.length ? candidates.map(candidate => `<li>□ ${escapeHtml(candidate.title)}（約 ${candidate.defaultDuration}h）</li>`).join("") : "<li>尚未整理出可建立工作</li>"}</ul></div></div><section class="panel" style="margin-top:12px"><h3>整理出的工作知識（${units.length}）</h3>${units.length ? units.map(unit => `<div class="entry"><div class="entry-main"><b>${escapeHtml(unit.title)}</b><div class="muted">${escapeHtml(knowledgeUnitTypeLabel(unit.unitType))}｜${escapeHtml(unit.sectionReference || "")}</div><small>${escapeHtml(unit.summary || unit.content)}</small><div class="library-tag-line">${unit.triggers.map(tag => `<span>${escapeHtml(tag)}</span>`).join("")}</div></div><div class="actions compact"><button class="btn2 danger" data-remove-knowledge-unit="${unit.id}">移除</button></div></div>`).join("") : `<div class="empty">尚未整理出工作知識。</div>`}</section><section class="panel" style="margin-top:12px"><h3>可建立工作（${candidates.length}）</h3>${candidates.length ? candidates.map(candidate => `<div class="entry"><div class="entry-main"><b>${escapeHtml(candidate.title)}</b><div class="muted">預設工時：${candidate.defaultDuration}h｜適用職務：${escapeHtml(candidate.applicableRole || "待確認職務")}</div><small>${escapeHtml(candidate.content || "")}</small><div class="library-tag-line">${candidate.triggers.map(tag => `<span>${escapeHtml(tag)}</span>`).join("")}</div></div><div class="actions compact"><button class="btn2 danger" data-remove-knowledge-candidate="${candidate.id}">移除</button></div></div>`).join("") : `<div class="empty">尚未整理出可建立工作。</div>`}</section></section>`;
+  const autoMeta = `<div class="entry"><b>我自動判斷</b><div class="source-path">知識類型：${escapeHtml(KNOWLEDGE_SCOPE_LABELS[item.scope] || item.scope || "待確認")}</div><div class="source-path">適用對象：${escapeHtml(item.applicableAgents.join("、") || "待確認")}</div><div class="source-path">適用職務：${escapeHtml(item.relatedRoles.map(roleDisplayName).join("、") || "待確認")}</div><div class="source-path">標籤：${escapeHtml(item.tags.join("、") || "待確認")}</div><div class="source-path">工作模式：${escapeHtml(item.relatedWorkModels.join("、") || "待確認")}</div></div>`;
+  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>🪶 Mr. KM 已完成整理</h2><div class="muted">${escapeHtml(item.knowledgeId)}｜${escapeHtml(knowledgeLearnedLabel(item.processingStatus))}</div></div><button class="btn2" data-library-back="1">返回藏書閣</button></div><div class="entry"><div class="entry-main"><b>${escapeHtml(item.title)}</b><div class="source-path">整理方式：${escapeHtml(knowledgeSupportLevelLabel(summary.supportLevel))}</div>${item.intelligenceError ? `<div class="source-path">錯誤原因：${escapeHtml(item.intelligenceError)}</div>` : ""}</div><div class="actions compact"><button class="btn2" data-reprocess-library="${item.id}">${knowledgeActionLabel(item.processingStatus)}</button></div></div><div class="entry"><b>文件摘要</b><p class="muted">${escapeHtml(readableSummary)}</p></div><div class="profile-grid"><div class="entry"><b>工作流程</b><ul class="knowledge-result-list">${list(processItems)}</ul></div><div class="entry"><b>重要規則</b><ul class="knowledge-result-list">${list(ruleItems)}</ul></div></div><div class="entry"><b>我可以協助的工作</b><ul class="knowledge-result-list">${candidates.length ? candidates.map(candidate => `<li>□ ${escapeHtml(candidate.title)}（約 ${candidate.defaultDuration}h）</li>`).join("") : "<li>尚未整理出可建立工作</li>"}</ul></div><div class="entry"><b>重點整理</b><ul class="knowledge-result-list">${list(focusItems)}</ul></div>${autoMeta}<section class="panel" style="margin-top:12px"><h3>工作知識（${units.length}）</h3>${units.length ? units.map(unit => `<div class="entry"><div class="entry-main"><b>${escapeHtml(unit.title)}</b><div class="muted">${escapeHtml(knowledgeUnitTypeLabel(unit.unitType))}｜${escapeHtml(unit.sectionReference || "")}</div><small>${escapeHtml(unit.summary || unit.content)}</small><div class="library-tag-line">${unit.triggers.map(tag => `<span>${escapeHtml(tag)}</span>`).join("")}</div></div><div class="actions compact"><button class="btn2 danger" data-remove-knowledge-unit="${unit.id}">移除</button></div></div>`).join("") : `<div class="empty">尚未整理出工作知識。</div>`}</section><div class="form-actions"><button class="btn green" data-verify-library="${item.id}">✓ 確認理解正確</button><button class="btn2" data-edit-library="${item.id}">✏️ 調整內容</button></div></section>`;
 }
 
 function libraryForm(id = null) {
   const item = normalizedLibraryItem(id ? library.find(x => x.id === id) : {});
-  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>${id ? "編輯知識資料" : "新增知識來源"}</h2><div class="muted">請上傳 SOP、制度、表單或教材，讓 Mr. KM 整理成工作知識。</div></div><button class="btn2" data-library-back="1">返回</button></div><label>知識編號</label><input id="libKnowledgeId" class="input" value="${escapeHtml(item.knowledgeId || "儲存後產生")}" readonly><label>知識標題</label><input id="libTitle" class="input" value="${escapeHtml(item.title || "")}" placeholder="例如：採購請購 SOP"><label>說明</label><textarea id="libDesc" placeholder="這份知識想讓 Mr. KM 知道什麼？">${escapeHtml(item.description || "")}</textarea><label>分類</label><select id="libCategory" class="input">${selectOptions(KNOWLEDGE_CATEGORIES, item.category)}</select><label>知識類型</label><select id="libScope" class="input">${KNOWLEDGE_SCOPES.map(scope => `<option value="${escapeHtml(scope)}" ${scope === item.scope ? "selected" : ""}>${escapeHtml(KNOWLEDGE_SCOPE_LABELS[scope])}</option>`).join("")}</select><div class="muted">部門知識 / 職務知識目前先作為分類與權限設計基礎；正式多人共享待 Organization Identity 完成。</div><label>適用對象</label>${checkboxGroup(KNOWLEDGE_AGENTS, item.applicableAgents, "libAgents")}<label>適用職務</label>${checkboxGroup(KNOWLEDGE_ROLE_OPTIONS, item.relatedRoles, "libRoles")}<label>工作模式</label>${checkboxGroup(workModels(), item.relatedWorkModels, "libWorkModels")}<label>標籤</label><input id="libTags" class="input" value="${escapeHtml(item.tags.join("、"))}" placeholder="採購、請購、供應商、SOP"><label>觸發關鍵字</label><input id="libTriggers" class="input" value="${escapeHtml(item.triggers.join("、"))}" placeholder="供應商會議、新供應商、年度評鑑"><label>版本</label><input id="libVersion" class="input" value="${escapeHtml(item.version || "v1.0")}" placeholder="v1.0"><label>來源版本</label><input id="libSourceVersion" class="input" value="${escapeHtml(item.sourceVersion || item.version || "v1.0")}" placeholder="v1.0"><label>整理狀態</label><div class="readonly-status">${escapeHtml(processingStatusLabel(item.processingStatus || "uploaded"))}</div><label>上傳檔案</label><div class="upload-drop"><input id="libFile" type="file"><span>${escapeHtml(item.filename || "請選擇要上傳至 Supabase Storage 的檔案")}</span></div><div class="library-ai-preview"><b>儲存後會開始整理文件</b><div class="muted">系統會擷取文字、整理摘要、建立工作知識與可建立工作，協助 Mr. KM 更理解您的工作。</div></div><div class="form-actions"><button class="btn2" data-library-cancel="1">取消</button><button class="btn" id="saveLibrary">儲存知識來源</button></div></section>`;
+  if (!id) {
+    return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>🪶 教 Mr. KM 新知識</h2><div class="muted">請提供文件，其餘分類、標籤與工作拆解交給 Mr. KM 先理解。</div></div><button class="btn2" data-library-back="1">返回</button></div><div class="entry"><b>一份文件，就是一次教學</b><div class="muted">使用者提供內容，Mr. KM 負責理解內容。整理完成後，再請您確認理解是否正確。</div></div><label>知識標題 <span class="muted">必填</span></label><input id="libTitle" class="input" value="" placeholder="例如：採購工作提醒事項 SOP"><label>說明 <span class="muted">選填</span></label><textarea id="libDesc" placeholder="可以簡單說明這份文件想教 Mr. KM 什麼，也可以留空。"></textarea><label>上傳檔案 <span class="muted">必填</span></label><div class="upload-drop"><input id="libFile" type="file"><span>請選擇 PDF / Word / Excel / PowerPoint / TXT</span></div><div class="library-ai-preview"><b>🪶 Mr. KM 會自動閱讀與理解</b><div class="muted">我會整理文件摘要、工作流程、重要規則、可建立工作，並自動判斷適用對象與標籤。</div></div><div class="form-actions"><button class="btn2" data-library-cancel="1">取消</button><button class="btn" id="saveLibrary">🪶 開始學習</button></div></section>`;
+  }
+  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>✏️ 調整 Mr. KM 的理解</h2><div class="muted">只有需要修正 Mr. KM 自動判斷時，才需要調整這些內容。</div></div><button class="btn2" data-library-back="1">返回</button></div><label>知識編號</label><input id="libKnowledgeId" class="input" value="${escapeHtml(item.knowledgeId || "儲存後產生")}" readonly><label>知識標題</label><input id="libTitle" class="input" value="${escapeHtml(item.title || "")}" placeholder="例如：採購請購 SOP"><label>說明</label><textarea id="libDesc" placeholder="這份知識想讓 Mr. KM 知道什麼？">${escapeHtml(item.description || "")}</textarea><label>分類</label><select id="libCategory" class="input">${selectOptions(KNOWLEDGE_CATEGORIES, item.category)}</select><label>知識類型</label><select id="libScope" class="input">${KNOWLEDGE_SCOPES.map(scope => `<option value="${escapeHtml(scope)}" ${scope === item.scope ? "selected" : ""}>${escapeHtml(KNOWLEDGE_SCOPE_LABELS[scope])}</option>`).join("")}</select><div class="muted">這些是 Mr. KM 自動理解後的資料，通常不需要手動調整。</div><label>適用對象</label>${checkboxGroup(KNOWLEDGE_AGENTS, item.applicableAgents, "libAgents")}<label>適用職務</label>${checkboxGroup(KNOWLEDGE_ROLE_OPTIONS, item.relatedRoles, "libRoles")}<label>工作模式</label>${checkboxGroup(workModels(), item.relatedWorkModels, "libWorkModels")}<label>標籤</label><input id="libTags" class="input" value="${escapeHtml(item.tags.join("、"))}" placeholder="採購、請購、供應商、SOP"><label>觸發關鍵字</label><input id="libTriggers" class="input" value="${escapeHtml(item.triggers.join("、"))}" placeholder="供應商會議、新供應商、年度評鑑"><label>版本</label><input id="libVersion" class="input" value="${escapeHtml(item.version || "v1.0")}" placeholder="v1.0"><label>來源版本</label><input id="libSourceVersion" class="input" value="${escapeHtml(item.sourceVersion || item.version || "v1.0")}" placeholder="v1.0"><label>整理狀態</label><div class="readonly-status">${escapeHtml(processingStatusLabel(item.processingStatus || "uploaded"))}</div><label>重新上傳檔案 <span class="muted">選填</span></label><div class="upload-drop"><input id="libFile" type="file"><span>${escapeHtml(item.filename || "不重新上傳，則保留原始檔案")}</span></div><div class="form-actions"><button class="btn2" data-library-cancel="1">取消</button><button class="btn" id="saveLibrary">儲存調整</button></div></section>`;
 }
 
 function settings() {
@@ -2905,7 +2948,7 @@ function bindLibrary() {
       render();
     } catch (error) {
       console.error("Knowledge verify failed", { error, item });
-      toast(error.message || "確認內容失敗");
+      toast(error.message || "確認理解失敗");
     }
   });
   document.querySelectorAll("[data-remove-knowledge-unit]").forEach(b => b.onclick = async () => {
@@ -2960,22 +3003,29 @@ function bindLibraryForm(id = null) {
     const existing = id ? normalizedLibraryItem(library.find(x => x.id === id)) : {};
     const file = document.getElementById("libFile")?.files?.[0] || null;
     const fileName = file?.name || existing.filename || "";
+    const titleValue = document.getElementById("libTitle")?.value.trim() || "";
+    const descriptionValue = document.getElementById("libDesc")?.value.trim() || "";
+    const textSeed = `${titleValue} ${descriptionValue} ${fileName}`;
+    const defaultRole = profile?.role ? roleCode(profile.role) : "PROCUREMENT";
+    const inferredTags = arrayFromInput(textSeed.replace(/\.[^.]+$/, "").replace(/[()（）]/g, "、")).slice(0, 8);
+    const valueOf = (id, fallback = "") => document.getElementById(id)?.value?.trim() || fallback;
+    const checkedValues = name => [...document.querySelectorAll(`input[name=${name}]:checked`)].map(x => x.value);
     const item = normalizedLibraryItem({
       ...existing,
       id: id || existing.id || uid("kb"),
       knowledgeId: existing.knowledgeId || "",
-      title: document.getElementById("libTitle").value.trim(),
-      description: document.getElementById("libDesc").value.trim(),
-      category: document.getElementById("libCategory").value,
-      scope: document.getElementById("libScope").value,
-      applicableAgents: [...document.querySelectorAll("input[name=libAgents]:checked")].map(x => x.value),
-      relatedRoles: [...document.querySelectorAll("input[name=libRoles]:checked")].map(x => x.value),
-      relatedWorkModels: [...document.querySelectorAll("input[name=libWorkModels]:checked")].map(x => x.value),
-      tags: arrayFromInput(document.getElementById("libTags").value),
-      triggers: arrayFromInput(document.getElementById("libTriggers").value),
+      title: titleValue,
+      description: descriptionValue,
+      category: valueOf("libCategory", existing.category || (/SOP|流程|提醒|事項/i.test(textSeed) ? "SOP" : "其他")),
+      scope: valueOf("libScope", existing.scope || "personal"),
+      applicableAgents: checkedValues("libAgents").length ? checkedValues("libAgents") : (existing.applicableAgents || [`${roleDisplayName(defaultRole)} Agent`]),
+      relatedRoles: checkedValues("libRoles").length ? checkedValues("libRoles") : (existing.relatedRoles || [defaultRole]),
+      relatedWorkModels: checkedValues("libWorkModels").length ? checkedValues("libWorkModels") : (existing.relatedWorkModels || []),
+      tags: document.getElementById("libTags") ? arrayFromInput(document.getElementById("libTags").value) : (existing.tags?.length ? existing.tags : inferredTags),
+      triggers: document.getElementById("libTriggers") ? arrayFromInput(document.getElementById("libTriggers").value) : (existing.triggers?.length ? existing.triggers : inferredTags.slice(0, 6)),
       processingStatus: existing.processingStatus || "uploaded",
-      version: document.getElementById("libVersion").value.trim() || "v1.0",
-      sourceVersion: document.getElementById("libSourceVersion").value.trim() || document.getElementById("libVersion").value.trim() || "v1.0",
+      version: valueOf("libVersion", existing.version || "v1.0"),
+      sourceVersion: valueOf("libSourceVersion", existing.sourceVersion || existing.version || "v1.0"),
       filename: fileName,
       storagePath: existing.storagePath || "",
       sourceType: inferKnowledgeSourceType(fileName || existing.sourceName || existing.sourceUrl),
@@ -2986,11 +3036,20 @@ function bindLibraryForm(id = null) {
       updatedAt: new Date().toISOString()
     });
     if (!item.title) return toast("請輸入 知識標題");
-    if (!id && !file) return toast("新增知識來源 必須選擇正式檔案");
+    if (!id && !file) return toast("請選擇要教給 Mr. KM 的檔案");
+    let saved = null;
     try {
-      const saved = await DataService.saveKnowledgeSource(item, { file, requireCloud: true });
+      saved = await DataService.saveKnowledgeSource(item, { file, requireCloud: true });
       if (file) {
+        learningKnowledgeDraft = saved;
+        viewingKnowledgeId = saved.id;
+        editingLibraryId = null;
+        activeWorkspace = "library";
+        view = "libraryLearning";
+        saveAll();
+        render();
         await KnowledgeIntelligence.processSource(saved, { file });
+        learningKnowledgeDraft = null;
         viewingKnowledgeId = saved.id;
         editingLibraryId = null; view = "libraryIntelligence"; saveAll(); render();
       } else {
@@ -2998,7 +3057,14 @@ function bindLibraryForm(id = null) {
       }
     } catch (error) {
       console.error("Knowledge Source save failed", { error, supabase: error.supabase || null });
-      toast(error.message || "知識來源儲存失敗");
+      learningKnowledgeDraft = null;
+      if (saved?.id) {
+        viewingKnowledgeId = saved.id;
+        view = "libraryIntelligence";
+        saveAll();
+        render();
+      }
+      toast(error.message || "Mr. KM 學習失敗，請稍後再試");
     }
   };
 }
