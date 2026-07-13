@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260713-1006";
+const BUILD_TIME = "20260713-1054";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const IS_EXTENSION_ENTRY = document.body?.classList.contains("extension");
@@ -2411,7 +2411,7 @@ function pendingConversationGuidance(pending = null) {
   if (isDurationPending(pending)) return "這筆草稿還缺少時間長度。您可以直接回覆：30m、1h、1.5h、2h，或輸入自訂時間。";
   if (pending.action === "confirm_add_entry") return "目前有一筆工時等待確認。您可以按「確認建立」，或按「取消」重新開始。";
   if (pending.action === "confirm_calendar") return "目前有一筆 Calendar 等待確認。您可以按「確認建立」，或按「取消」重新開始。";
-  if (pending.action === "calendar_worklog_offer") return "Calendar 已建立，正在等待您決定是否同步建立工時。";
+  if (pending.action === "calendar_worklog_offer") return "Calendar 草稿已確認，正在等待您決定是否同步建立工時。";
   return "目前有一個尚未完成的動作，請先確認或取消後再繼續。";
 }
 
@@ -2793,9 +2793,9 @@ async function executeWorklogCommand(intent) {
     const payload = assistantConfirmationPayload(intent.parsedCommand);
     if (isWorkNatureCalendar(intent.parsedCommand)) {
       await setAssistantPendingCommand({ action: "calendar_worklog_offer", command: intent.parsedCommand });
-      return assistantResult("Calendar 已建立。這看起來也可能是工作相關事件，是否同步建立工時？", { type: "calendar_created", payload, offerWorklog: true });
+      return assistantResult("我已整理好 Calendar 草稿。這看起來也屬於工作事件，是否同步建立工時？建立後會出現在我的工作、Calendar Widget 與今日摘要。", { type: "calendar_created", payload, offerWorklog: true });
     }
-    return assistantResult("Calendar 已建立。", { type: "calendar_created", payload });
+    return assistantResult("我已整理好 Calendar 草稿。目前正式 Calendar 寫入尚未啟用，因此不會顯示在首頁 Calendar。", { type: "calendar_created", payload });
   }
   if (intent.type === "create_worklog_from_calendar") {
     const result = await saveAssistantEntry(intent.parsedCommand);
@@ -2973,7 +2973,7 @@ function osShell() {
 }
 
 function onboardingWorkspace() {
-  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>🪶 初次認識工時營帳</h2><div class="muted">建立工作模型後，即可使用 Calendar、我的工作與推理預測。</div></div></div><div class="profile-grid"><div><label>你的職務</label><select id="role" class="input">${roles.map(r => `<option>${r}</option>`).join("")}</select></div><div><label>每日工時</label><select class="input"><option>09:00~18:00，午休 12:00~13:00</option></select></div></div><label>工作模型</label><div class="row two" id="tagOptions">${tagButtons(tagsForRole("採購"))}</div><label>SOP 狀態</label><select id="sop" class="input"><option>目前沒有 SOP，先用職務模型</option><option>有 SOP，之後上傳</option></select><label>工作來源</label><div class="row two">${["Google Drive", "Gmail", "Calendar", "手動紀錄"].map(s => `<button class="btn2 src-btn" data-src="${s}">${s}</button>`).join("")}</div><button class="btn full" id="saveProfile">建立我的工作模型</button></section>`;
+  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>🪶 初次認識工時營帳</h2><div class="muted">建立工作模型後，即可使用 Calendar、我的工作與 Mr. KM 今日建議。</div></div></div><div class="profile-grid"><div><label>你的職務</label><select id="role" class="input">${roles.map(r => `<option>${r}</option>`).join("")}</select></div><div><label>每日工時</label><select class="input"><option>09:00~18:00，午休 12:00~13:00</option></select></div></div><label>工作模型</label><div class="row two" id="tagOptions">${tagButtons(tagsForRole("採購"))}</div><label>SOP 狀態</label><select id="sop" class="input"><option>目前沒有 SOP，先用職務模型</option><option>有 SOP，之後上傳</option></select><label>工作來源</label><div class="row two">${["Google Drive", "Gmail", "Calendar", "手動紀錄"].map(s => `<button class="btn2 src-btn" data-src="${s}">${s}</button>`).join("")}</div><button class="btn full" id="saveProfile">建立我的工作模型</button></section>`;
 }
 
 function onboarding() {
@@ -3134,10 +3134,11 @@ function makeSuggestions() {
 
 function suggestionPanel() {
   const s = makeSuggestions();
-  if (!s.length) return `<h2>🧠 Mr. KM 今日建議</h2><div class="empty"><b>目前沒有今日建議</b><div class="muted">可能今天已滿工時，或工作模型尚未建立。</div></div>`;
-  const index = ((aiTodaySuggestionIndex % s.length) + s.length) % s.length;
-  const x = s[index];
-  return `<div class="panel-head"><h2>🧠 Mr. KM 今日建議</h2><div class="tag">${index + 1} / ${s.length}</div></div><div class="ai-suggestion-carousel"><button class="btn2 carousel-arrow" type="button" data-suggestion-prev="1">◀</button><div class="suggestion compact-card"><div class="suggestion-title-row"><h3>${escapeHtml(x.title)}</h3><div class="actions suggestion-actions"><button class="btn green" data-accept="${escapeHtml(x.id)}">建立</button><button class="btn2" data-suggestion-next="1">忽略</button></div></div><div class="suggestion-source">${escapeHtml(x.sourceLabel || "🧠 Mr. KM 建議")}｜🕘 建議 ${escapeHtml(x.suggestedTimeLabel || String(x.at || "").slice(11, 16))}</div></div><button class="btn2 carousel-arrow" type="button" data-suggestion-next="1">▶</button></div>`;
+  if (!s.length) return `<h2>🪶 Mr. KM 今日建議</h2><div class="empty"><b>目前沒有今日建議</b><div class="muted">可能今天已滿工時，或工作模型尚未建立。</div></div>`;
+  const start = ((aiTodaySuggestionIndex % s.length) + s.length) % s.length;
+  const batchSize = Math.min(5, s.length);
+  const batch = Array.from({ length: batchSize }, (_, i) => s[(start + i) % s.length]);
+  return `<div class="panel-head"><h2>🪶 Mr. KM 今日建議</h2><div class="tag">${batch.length} / ${s.length}</div></div><div class="ai-suggestion-scan-list">${batch.map((x, i) => `<div class="suggestion-scan-item"><div class="suggestion-scan-index">${start + i + 1 > s.length ? start + i + 1 - s.length : start + i + 1}</div><div class="suggestion-scan-body"><div class="suggestion-title-row"><h3>${escapeHtml(x.title)}</h3><div class="actions suggestion-actions"><button class="btn green" data-accept="${escapeHtml(x.id)}">建立</button><button class="btn2" data-suggestion-next="1">忽略</button></div></div><div class="suggestion-source">${escapeHtml(x.sourceLabel || "🪶 Mr. KM 建議")}｜🕘 建議 ${escapeHtml(x.suggestedTimeLabel || String(x.at || "").slice(11, 16))}</div></div></div>`).join("")}</div>${s.length > batch.length ? `<div class="suggestion-scan-footer"><button class="btn2" type="button" data-suggestion-next-batch="1">下一批 &gt;</button></div>` : ""}`;
 }
 
 function renderAssistantCard(card = null) {
@@ -3171,7 +3172,7 @@ function renderAssistantCard(card = null) {
   }
   if (card.type === "calendar_created") {
     const p = card.payload || {};
-    return `<div class="assistant-command-card assistant-created-card"><div class="assistant-card-title">✅ Calendar 已建立</div><div class="assistant-card-grid"><span>內容</span><b>${escapeHtml(p.title || "")}</b><span>日期</span><b>${escapeHtml(p.date || "")}</b><span>時間</span><b>${escapeHtml(p.start || "")}–${escapeHtml(p.end || "")}</b><span>Duration</span><b>${escapeHtml(String(p.hours || ""))}h</b></div>${card.offerWorklog ? `<div class="assistant-card-actions"><button class="btn green" type="button" data-assistant-calendar-to-worklog="1">建立工時</button><button class="btn2" type="button" data-assistant-calendar-no-worklog="1">不用</button></div>` : ""}</div>`;
+    return `<div class="assistant-command-card assistant-created-card"><div class="assistant-card-title">📅 Calendar 草稿已確認</div><div class="assistant-card-grid"><span>內容</span><b>${escapeHtml(p.title || "")}</b><span>日期</span><b>${escapeHtml(p.date || "")}</b><span>時間</span><b>${escapeHtml(p.start || "")}–${escapeHtml(p.end || "")}</b><span>Duration</span><b>${escapeHtml(String(p.hours || ""))}h</b></div>${card.offerWorklog ? `<div class="assistant-card-actions"><button class="btn green" type="button" data-assistant-calendar-to-worklog="1">建立工時</button><button class="btn2" type="button" data-assistant-calendar-no-worklog="1">不用</button></div>` : ""}</div>`;
   }
   if (card.type === "work_profile_confirm") {
     const p = normalizeWorkProfile(card.payload || {}, profile);
@@ -4033,6 +4034,11 @@ function bind() {
   });
   document.querySelectorAll("[data-suggestion-next]").forEach(b => b.onclick = () => {
     aiTodaySuggestionIndex += 1;
+    localStorage.setItem(AI_TODAY_SUGGESTION_INDEX_KEY, String(aiTodaySuggestionIndex));
+    render();
+  });
+  document.querySelectorAll("[data-suggestion-next-batch]").forEach(b => b.onclick = () => {
+    aiTodaySuggestionIndex += 5;
     localStorage.setItem(AI_TODAY_SUGGESTION_INDEX_KEY, String(aiTodaySuggestionIndex));
     render();
   });

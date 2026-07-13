@@ -1,5 +1,15 @@
 # WorkLog RC3 Release Patch1
 
+## Build 20260713-1054 - P4.7 Experience Polish（RC3.3 Final）
+
+- 建立 Today-first 首頁體驗：啟動時 Calendar、我的工作、今日摘要與 Mr. KM 建議預設對齊今天。
+- 將工作身分由首頁大型 Card 收斂為 Header System Status。
+- 手機首頁改為 Action First：新增工時、今天工時、我的工作優先，摘要與月曆採漸進式呈現。
+- 品牌統一為 Mr. KM，AI 建議圖示調整為 🪶。
+- Mr. KM 今日建議改為一次顯示 5 筆，支援快速掃描與下一批。
+- Calendar 對話不再顯示尚未正式寫入的「已建立」狀態，避免聊天與首頁資料不同步造成信任落差。
+- 保留既有 WorkLog、Conversation Core、Cloud Sync、Export、Knowledge Repository 架構；本版不新增 AI 能力與資料表。
+
 ## Version
 
 1.0.0-rc3.1-sp3
