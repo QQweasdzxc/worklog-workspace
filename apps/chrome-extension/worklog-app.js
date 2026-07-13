@@ -1627,23 +1627,18 @@ function makeSuggestions() {
   let tags = workModels();
   tags.sort((a, b) => (feedback[b] || 0) - (feedback[a] || 0));
   const suggestions = [];
-  const reserved = [];
+  const sourceLabel = `📂 來源：${profile?.role ? `${profile.role}工作模型` : "工作模型"}`;
   for (const tag of tags) {
     if (done.some(d => d.includes(tag))) continue;
     const hours = 1;
-    const startMinutes = availableStartMinutes(key(), hours, null, reserved);
-    const at = `${key()}T${timeFromMinutes(startMinutes)}`;
-    const endMinutes = startMinutes + Math.round(hours * 60);
-    reserved.push({ start: startMinutes, end: endMinutes });
     suggestions.push({
       id: tag,
       title: tag,
       note: "",
       hours,
-      at,
+      at: `${key()}T09:00`,
       ecpTask: defaultEcpTaskName(tag),
-      sourceLabel: "🧩 工作模型",
-      suggestedTimeLabel: `${timeFromMinutes(startMinutes)}–${timeFromMinutes(endMinutes)}`
+      sourceLabel
     });
   }
   return suggestions;
@@ -1655,7 +1650,7 @@ function suggestionPanel() {
   const start = ((aiTodaySuggestionIndex % s.length) + s.length) % s.length;
   const batchSize = Math.min(5, s.length);
   const batch = Array.from({ length: batchSize }, (_, i) => s[(start + i) % s.length]);
-  return `<div class="panel-head"><h2>🪶 Mr. KM 建議</h2><div class="tag">${batch.length} / ${s.length}</div></div><div class="ai-suggestion-scan-list">${batch.map((x, i) => `<div class="suggestion-scan-item"><div class="suggestion-scan-index">${start + i + 1 > s.length ? start + i + 1 - s.length : start + i + 1}</div><div class="suggestion-scan-body"><div class="suggestion-title-row"><h3>${escapeHtml(x.title)}</h3><div class="actions suggestion-actions"><button class="btn green" data-accept="${escapeHtml(x.id)}">採納</button><button class="btn2" data-adjust="${escapeHtml(x.id)}">編輯</button></div></div><div class="suggestion-source">${escapeHtml(x.sourceLabel || "🪶 Mr. KM 建議")}｜🕘 建議 ${escapeHtml(x.suggestedTimeLabel || String(x.at || "").slice(11, 16))}</div></div></div>`).join("")}</div>${s.length > batch.length ? `<div class="suggestion-scan-footer"><button class="btn2" type="button" data-suggestion-next-batch="1">下一批 &gt;</button></div>` : ""}`;
+  return `<div class="panel-head"><h2>🪶 Mr. KM 建議</h2><div class="tag">${batch.length} / ${s.length}</div></div><div class="ai-suggestion-scan-list">${batch.map((x, i) => `<div class="suggestion-scan-item"><div class="suggestion-scan-index">${start + i + 1 > s.length ? start + i + 1 - s.length : start + i + 1}</div><div class="suggestion-scan-body"><div class="suggestion-title-row"><h3>${escapeHtml(x.title)}</h3><div class="actions suggestion-actions"><button class="btn green" data-accept="${escapeHtml(x.id)}">加入工時</button><button class="btn2" data-adjust="${escapeHtml(x.id)}">調整</button></div></div><div class="suggestion-source">${escapeHtml(x.sourceLabel || "📂 來源：工作模型")}｜⏱ 預設工時：${Number(x.hours || 1)}h</div></div></div>`).join("")}</div>${s.length > batch.length ? `<div class="suggestion-scan-footer"><button class="btn2" type="button" data-suggestion-next-batch="1">下一批 &gt;</button></div>` : ""}`;
 }
 
 function mobileWorklogTabs() {
@@ -2540,7 +2535,6 @@ function bind() {
   });
   document.querySelectorAll("[data-mobile-worklog-tab]").forEach(b => b.onclick = () => {
     mobileWorklogTab = b.dataset.mobileWorklogTab || "time";
-    localStorage.setItem(MOBILE_WORKLOG_TAB_KEY, mobileWorklogTab);
     render();
   });
   document.querySelectorAll("[data-action=add]").forEach(b => b.onclick = () => { editingEntryId = null; captureSeed = null; activeWorkspace = "worklog"; if (!openTabs.includes("worklog")) openTabs.push("worklog"); rememberWorkspace("worklog"); view = "capture"; saveAll(); render(); });
@@ -2625,8 +2619,10 @@ async function acceptSuggestion(id) {
   const saved = await persistEntry(item);
   if (!saved) return;
   feedback[s.id] = (feedback[s.id] || 0) + 1;
+  aiTodaySuggestionIndex = Math.min(aiTodaySuggestionIndex, Math.max(0, makeSuggestions().length - 1));
+  localStorage.setItem(AI_TODAY_SUGGESTION_INDEX_KEY, String(aiTodaySuggestionIndex));
   saveAll({ skipSync: true });
-  toast("已採納 Mr. KM 建議");
+  toast("已加入工時");
   render();
 }
 
