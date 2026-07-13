@@ -3,7 +3,7 @@
 -- One User / One UUID / One AI / Multiple Entrances
 --
 -- Scope:
--- - Shared conversation thread for "諸葛先生"
+-- - Shared conversation thread for "Mr. KM"
 -- - Shared chat history
 -- - Shared pending conversation state / pending action
 -- - Channel is metadata only: web / chrome / mobile / api
@@ -16,7 +16,7 @@ create table if not exists public.assistant_conversations (
   id uuid primary key default gen_random_uuid(),
   user_uuid uuid not null references auth.users(id) on delete cascade,
   thread_key text not null default 'main',
-  title text not null default '諸葛先生',
+  title text not null default 'Mr. KM',
   status text not null default 'active',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),

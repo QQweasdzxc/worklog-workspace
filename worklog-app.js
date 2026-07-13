@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260713-0934";
+const BUILD_TIME = "20260713-1006";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const IS_EXTENSION_ENTRY = document.body?.classList.contains("extension");
@@ -525,7 +525,7 @@ const SupabaseRepository = {
     const payload = {
       user_uuid: currentUserUuid(),
       thread_key: "main",
-      title: "諸葛先生",
+      title: "Mr. KM",
       status: "active",
       updated_at: new Date().toISOString()
     };
@@ -2039,7 +2039,7 @@ function defaultEcpTaskName(title = "") {
 }
 
 function assistantGreeting() {
-  return { role: "assistant", text: "您好，我是諸葛工時助手。今天想完成什麼？" };
+  return { role: "assistant", text: "您好，我是 Mr. KM。今天想完成什麼？" };
 }
 
 function conversationKey() {
@@ -2153,7 +2153,7 @@ function removeConversationMessage(id) {
 }
 
 function assistantThinkingMessage() {
-  return { id: uid("thinking"), transient: true, role: "assistant", text: "諸葛先生正在整理工時...", at: new Date().toISOString() };
+  return { id: uid("thinking"), transient: true, role: "assistant", text: "Mr. KM 正在整理工時...", at: new Date().toISOString() };
 }
 
 function addAssistantThinkingMessage() {
@@ -2303,14 +2303,14 @@ const assistantSuggestionPool = [
 ];
 
 const assistantGreetingPool = [
-  "👋 您好！今天想先處理哪一件事？",
-  "您好，我是諸葛先生。\n\n今天需要先建立工時、安排 Calendar，還是整理一個任務？",
-  "👋 您好。\n\n可以直接告訴我今天要記錄的工作，例如：今天下午三點到四點開會。"
+  "👋 您好！我是 Mr. KM。\n\n今天我們一起完成工作吧。",
+  "您好，我是 Mr. KM，您的工作搭檔與 Knowledge Manager。\n\n今天需要先建立工時、安排 Calendar，還是整理一個任務？",
+  "👋 您好。\n\n我已經在這裡了。可以直接告訴我今天要記錄的工作，例如：今天下午三點到四點開會。"
 ];
 
 const assistantMorningPool = [
-  "☀️ 早安！\n\n今天有安排會議嗎？還是先建立今天第一筆工時？",
-  "早安。\n\n我可以先協助您建立工時、Calendar 或任務。"
+  "☀️ 早安！今天我們一起完成工作吧。\n\n要先建立今天第一筆工時，還是安排 Calendar？",
+  "早安，我是 Mr. KM。\n\n我可以先協助您整理今天的工時、Calendar 或任務。"
 ];
 
 const assistantNightPool = [
@@ -2335,8 +2335,8 @@ const assistantUnknownPool = [
 ];
 
 const assistantCapabilityPool = [
-  "我目前最擅長協助您處理：\n\n• 工時：新增、補登、查詢今日 / 本週進度\n• Calendar：整理行程草稿與確認\n• 任務：先建立待辦草稿\n\n您可以直接用一句話告訴我，例如：今天下午三點到四點開會。",
-  "目前我主要協助工時、任務與 Calendar。\n\n如果您不確定怎麼開始，可以直接說：「我今天做了什麼？」或「幫我補一筆下午開會」。"
+  "我是 Mr. KM，您的工作搭檔與 Knowledge Manager。\n\n目前我最擅長協助您處理：\n\n• 工時：新增、補登、查詢今日 / 本週進度\n• Calendar：整理行程草稿與確認\n• 任務：先建立待辦草稿\n\n您可以直接用一句話告訴我，例如：今天下午三點到四點開會。",
+  "我是您的 Mr. KM，不是通用聊天機器人。\n\n我會逐步理解您的工作身分、WorkLog、Calendar、任務與個人知識。若不確定怎麼開始，可以直接說：「我今天做了什麼？」或「幫我補一筆下午開會」。"
 ];
 
 function assistantWithSuggestion(text = "") {
@@ -2862,7 +2862,7 @@ function worklogWelcomeScreen() {
     confirm: ["Step 4 / 4", "■■■■"]
   };
   if (step === "welcome") {
-    return `<div class="wrap"><div class="card"><section class="panel welcome-panel work-identity-welcome" style="margin-top:18px"><h1>👋 歡迎來到 ZhuGe AI OS</h1><p class="work-identity-tagline">一句話記錄工作，一步步建立專屬於你的 AI 工作助理。</p><p>我是諸葛先生。</p><p>未來我會逐漸學習您的工作方式，成為最了解您的 AI 助理。</p><p>開始之前，我們先花不到一分鐘，建立您的工作身分。</p><div class="muted">工作身分是 ZhuGe AI OS 對您工作角色的理解基礎，未來 Knowledge Brain、Recommendation Engine 與 Suggestion Engine 都會以此作為 Context。</div><div class="form-actions"><button class="btn" data-work-identity-start="1">開始設定</button></div></section></div></div>`;
+    return `<div class="wrap"><div class="card"><section class="panel welcome-panel work-identity-welcome" style="margin-top:18px"><h1>👋 歡迎來到 ZhuGe AI OS</h1><p class="work-identity-tagline">一句話記錄工作，一步步建立專屬於你的 AI 工作助理。</p><p>我是 Mr. KM，您的工作搭檔與 Knowledge Manager。</p><p>未來我會逐漸學習您的工作方式，成為最了解您的 AI 助理。</p><p>開始之前，我們先花不到一分鐘，建立您的工作身分。</p><div class="muted">工作身分是 ZhuGe AI OS 對您工作角色的理解基礎，未來 Knowledge Brain、Recommendation Engine 與 Suggestion Engine 都會以此作為 Context。</div><div class="form-actions"><button class="btn" data-work-identity-start="1">開始設定</button></div></section></div></div>`;
   }
   if (step === "confirm") {
     const [label, bars] = progress.confirm;
@@ -2977,7 +2977,7 @@ function onboardingWorkspace() {
 }
 
 function onboarding() {
-  return `<div class="wrap"><div class="card"><div class="top"><div><div class="muted">🪶 初次認識</div><h1>你好，我是諸葛先生</h1><div class="muted">我想先了解你的工作，之後才能產生更準的每日工作建議卡。</div></div><div class="header-right">${userBadge()}<div class="tag">${VERSION}</div></div></div><section class="panel" style="margin-top:18px"><div class="profile-grid"><div><label>你的職務</label><select id="role" class="input">${roles.map(r => `<option>${r}</option>`).join("")}</select></div><div><label>每日工時</label><select class="input"><option>09:00~18:00，午休 12:00~13:00</option></select></div></div><label>工作模型</label><div class="row two" id="tagOptions">${tagButtons(tagsForRole("採購"))}</div><label>SOP 狀態</label><select id="sop" class="input"><option>目前沒有 SOP，先用職務模型</option><option>有 SOP，之後上傳</option></select><label>工作來源</label><div class="row two">${["Google Drive", "Gmail", "Calendar", "手動紀錄"].map(s => `<button class="btn2 src-btn" data-src="${s}">${s}</button>`).join("")}</div><button class="btn full" id="saveProfile">建立我的工作模型</button></section></div></div>`;
+  return `<div class="wrap"><div class="card"><div class="top"><div><div class="muted">🪶 初次認識</div><h1>你好，我是 Mr. KM</h1><div class="muted">我想先了解你的工作，之後才能產生更貼近你的每日工作建議卡。</div></div><div class="header-right">${userBadge()}<div class="tag">${VERSION}</div></div></div><section class="panel" style="margin-top:18px"><div class="profile-grid"><div><label>你的職務</label><select id="role" class="input">${roles.map(r => `<option>${r}</option>`).join("")}</select></div><div><label>每日工時</label><select class="input"><option>09:00~18:00，午休 12:00~13:00</option></select></div></div><label>工作模型</label><div class="row two" id="tagOptions">${tagButtons(tagsForRole("採購"))}</div><label>SOP 狀態</label><select id="sop" class="input"><option>目前沒有 SOP，先用職務模型</option><option>有 SOP，之後上傳</option></select><label>工作來源</label><div class="row two">${["Google Drive", "Gmail", "Calendar", "手動紀錄"].map(s => `<button class="btn2 src-btn" data-src="${s}">${s}</button>`).join("")}</div><button class="btn full" id="saveProfile">建立我的工作模型</button></section></div></div>`;
 }
 
 function calendarPanel() {
@@ -3134,10 +3134,10 @@ function makeSuggestions() {
 
 function suggestionPanel() {
   const s = makeSuggestions();
-  if (!s.length) return `<h2>🤖 AI 今日建議</h2><div class="empty"><b>目前沒有今日建議</b><div class="muted">可能今天已滿工時，或工作模型尚未建立。</div></div>`;
+  if (!s.length) return `<h2>🧠 Mr. KM 今日建議</h2><div class="empty"><b>目前沒有今日建議</b><div class="muted">可能今天已滿工時，或工作模型尚未建立。</div></div>`;
   const index = ((aiTodaySuggestionIndex % s.length) + s.length) % s.length;
   const x = s[index];
-  return `<div class="panel-head"><h2>🤖 AI 今日建議</h2><div class="tag">${index + 1} / ${s.length}</div></div><div class="ai-suggestion-carousel"><button class="btn2 carousel-arrow" type="button" data-suggestion-prev="1">◀</button><div class="suggestion compact-card"><div class="suggestion-title-row"><h3>${escapeHtml(x.title)}</h3><div class="actions suggestion-actions"><button class="btn green" data-accept="${escapeHtml(x.id)}">建立</button><button class="btn2" data-suggestion-next="1">忽略</button></div></div><div class="suggestion-source">${escapeHtml(x.sourceLabel || "🤖 AI 建議")}｜🕘 建議 ${escapeHtml(x.suggestedTimeLabel || String(x.at || "").slice(11, 16))}</div></div><button class="btn2 carousel-arrow" type="button" data-suggestion-next="1">▶</button></div>`;
+  return `<div class="panel-head"><h2>🧠 Mr. KM 今日建議</h2><div class="tag">${index + 1} / ${s.length}</div></div><div class="ai-suggestion-carousel"><button class="btn2 carousel-arrow" type="button" data-suggestion-prev="1">◀</button><div class="suggestion compact-card"><div class="suggestion-title-row"><h3>${escapeHtml(x.title)}</h3><div class="actions suggestion-actions"><button class="btn green" data-accept="${escapeHtml(x.id)}">建立</button><button class="btn2" data-suggestion-next="1">忽略</button></div></div><div class="suggestion-source">${escapeHtml(x.sourceLabel || "🧠 Mr. KM 建議")}｜🕘 建議 ${escapeHtml(x.suggestedTimeLabel || String(x.at || "").slice(11, 16))}</div></div><button class="btn2 carousel-arrow" type="button" data-suggestion-next="1">▶</button></div>`;
 }
 
 function renderAssistantCard(card = null) {
@@ -3217,14 +3217,14 @@ function renderAssistantThread(messages = []) {
 function assistantNudgeText() {
   const done = profile ? hours(entriesForDate(new Date())) : 0;
   const remaining = Math.max(0, Math.round((8 - done) * 10) / 10);
-  if (!profile) return "💬 諸葛先生";
+  if (!profile) return "💬 Mr. KM";
   if (remaining <= 0) return "💬 今天工時已完成 ✅";
   return `💬 今天還有 ${remaining}h 尚未紀錄`;
 }
 
 function assistantWelcomePanel(mode = "floating") {
   const modeClass = mode === "extension" ? "extension-assistant" : (mode === "standalone" ? "standalone-assistant" : "floating-assistant");
-  return `<section class="panel assistant-panel ${modeClass}"><div class="assistant-welcome"><h2>歡迎來到 ZhuGe AI OS</h2><p>我是諸葛先生。</p><p>我會協助你管理工時，之後也會協助你閱讀公司的知識。</p><p>今天先完成工時助手。</p><button class="btn full" type="button" data-start-assistant="1">開始</button>${mode === "floating" ? `<button class="btn2 full" type="button" data-close-assistant="1">稍後</button>` : ""}</div></section>`;
+  return `<section class="panel assistant-panel ${modeClass}"><div class="assistant-welcome"><h2>歡迎來到 ZhuGe AI OS</h2><p>我是 Mr. KM。</p><p>我會協助你管理工時、任務與 Calendar，之後也會協助你理解自己的 Knowledge。</p><p>今天先從工作助理開始。</p><button class="btn full" type="button" data-start-assistant="1">開始</button>${mode === "floating" ? `<button class="btn2 full" type="button" data-close-assistant="1">稍後</button>` : ""}</div></section>`;
 }
 
 function worklogAssistantPanel(mode = "web") {
@@ -3232,13 +3232,13 @@ function worklogAssistantPanel(mode = "web") {
   const visibleMessages = messages.filter(msg => !msg.transient);
   const starter = !visibleMessages.length ? renderAssistantMessage({
     role: "assistant",
-    text: "您好，我是諸葛先生。\n\n今天想完成什麼？",
+    text: "您好，我是 Mr. KM。\n\n今天想完成什麼？",
     card: { type: "quick_suggestions" }
   }) : "";
   const intro = mode === "extension"
     ? `<div class="muted">您可以直接告訴我：今天下午三點到四點開會、明天下午請特休、今天補一小時工時。</div>`
     : `<div class="muted">今天想完成什麼？</div>`;
-  const title = "👤 諸葛先生";
+  const title = "👤 Mr. KM";
   const modeClass = mode === "extension" ? "extension-assistant" : (mode === "floating" ? "floating-assistant" : (mode === "standalone" ? "standalone-assistant" : "assistant-module"));
   const installAction = mode === "standalone"
     ? (CHROME_EXTENSION_STORE_URL
@@ -3539,13 +3539,13 @@ function libraryView() {
     : (library.length ? library.map(raw => {
       const item = normalizedLibraryItem(raw);
       return `<div class="entry knowledge-card"><div class="entry-main"><b>${escapeHtml(item.title)}</b><div class="muted">${escapeHtml(item.knowledgeId || "待 Cloud 產生")}｜${escapeHtml(item.category)}｜${escapeHtml(KNOWLEDGE_SCOPE_LABELS[item.scope] || item.scope)}｜${escapeHtml(item.version)}</div><small>${escapeHtml(item.description || "")}</small><div class="library-tag-line">${item.tags.map(tag => `<span>${escapeHtml(tag)}</span>`).join("")}</div><div class="library-tag-line">${item.triggers.map(tag => `<span>Trigger：${escapeHtml(tag)}</span>`).join("")}</div><div class="source-path">Agents：${escapeHtml(item.applicableAgents.join("、") || "未指定")}｜Roles：${escapeHtml(item.relatedRoles.join("、") || "未指定")}｜Work Models：${escapeHtml(item.relatedWorkModels.join("、") || "未指定")}</div><div class="source-path">Processing：${escapeHtml(processingStatusLabel(item.processingStatus))}｜Source：${escapeHtml(item.sourceType)}｜File：${escapeHtml(item.filename || item.sourceName || "尚未上傳正式檔案")} ${escapeHtml(formatFileSize(item.fileSize))}</div><div class="source-path">Uploaded：${escapeHtml(formatKnowledgeTime(item.createdAt))}｜Updated：${escapeHtml(formatKnowledgeTime(item.updatedAt))}</div></div><div class="actions compact"><button class="btn2" data-preview-library="${item.id}">預覽</button><button class="btn2" data-download-library="${item.id}">下載原始檔</button><button class="btn2" data-edit-library="${item.id}">編輯 Metadata</button><button class="btn2" data-archive-library="${item.id}">封存</button><button class="btn2 danger" data-del-library="${item.id}">刪除</button></div></div>`;
-    }).join("") : `<div class="empty"><b>尚無 Knowledge Source</b><div class="muted">請新增 SOP、制度、法規、表單或教材，建立諸葛先生的 Knowledge Brain 地基。</div></div>`);
-  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>📚 藏書閣</h2><div class="muted">Knowledge Repository Foundation：將正式文件上傳至 Cloud Storage，並建立可供未來 AI 判斷的 Knowledge Source。</div></div>${addButton}</div>${legacyBlock}<div class="library-list">${body}</div></section>`;
+    }).join("") : `<div class="empty"><b>尚無 Knowledge Source</b><div class="muted">請新增 SOP、制度、法規、表單或教材，建立 Mr. KM 的 Personal / Department Knowledge 地基。</div></div>`);
+  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>📚 藏書閣</h2><div class="muted">Knowledge Repository Foundation：不是建立全知 AI，而是建立 Mr. KM 理解您工作的 Personal / Department Knowledge。</div></div>${addButton}</div>${legacyBlock}<div class="library-list">${body}</div></section>`;
 }
 
 function libraryForm(id = null) {
   const item = normalizedLibraryItem(id ? library.find(x => x.id === id) : {});
-  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>${id ? "編輯 Knowledge Metadata" : "新增 Knowledge Source"}</h2><div class="muted">P5 Phase 1 只建立 Knowledge Repository，不做 AI/RAG/Embedding。</div></div><button class="btn2" data-library-back="1">返回</button></div><label>Knowledge ID</label><input id="libKnowledgeId" class="input" value="${escapeHtml(item.knowledgeId || "儲存後由 Cloud 產生")}" readonly><label>Title</label><input id="libTitle" class="input" value="${escapeHtml(item.title || "")}" placeholder="例如：採購請購 SOP"><label>Description</label><textarea id="libDesc" placeholder="這份知識想讓諸葛先生知道什麼？">${escapeHtml(item.description || "")}</textarea><label>Category</label><select id="libCategory" class="input">${selectOptions(KNOWLEDGE_CATEGORIES, item.category)}</select><label>Knowledge Scope</label><select id="libScope" class="input">${KNOWLEDGE_SCOPES.map(scope => `<option value="${escapeHtml(scope)}" ${scope === item.scope ? "selected" : ""}>${escapeHtml(KNOWLEDGE_SCOPE_LABELS[scope])}</option>`).join("")}</select><div class="muted">Company / Role scope 目前為架構預留；正式多人共享權限待 Organization Identity 完成。</div><label>Applicable Agents</label>${checkboxGroup(KNOWLEDGE_AGENTS, item.applicableAgents, "libAgents")}<label>Related Roles</label>${checkboxGroup(KNOWLEDGE_ROLE_OPTIONS, item.relatedRoles, "libRoles")}<label>Related Work Models</label>${checkboxGroup(workModels(), item.relatedWorkModels, "libWorkModels")}<label>Tags</label><input id="libTags" class="input" value="${escapeHtml(item.tags.join("、"))}" placeholder="採購、請購、供應商、SOP"><label>Triggers</label><input id="libTriggers" class="input" value="${escapeHtml(item.triggers.join("、"))}" placeholder="供應商會議、新供應商、年度評鑑"><label>Version</label><input id="libVersion" class="input" value="${escapeHtml(item.version || "v1.0")}" placeholder="v1.0"><label>Source Version</label><input id="libSourceVersion" class="input" value="${escapeHtml(item.sourceVersion || item.version || "v1.0")}" placeholder="v1.0"><label>Processing Status</label><div class="readonly-status">${escapeHtml(processingStatusLabel(item.processingStatus || "uploaded"))}</div><label>正式檔案</label><div class="upload-drop"><input id="libFile" type="file"><span>${escapeHtml(item.filename || "請選擇要上傳至 Supabase Storage 的檔案")}</span></div><div class="library-ai-preview"><b>本階段不執行 AI 閱讀</b><div class="muted">檔案會成為正式 Knowledge Source；未來才由 Knowledge Intelligence 建立 Units、Citation 與 Recommendation。</div></div><div class="form-actions"><button class="btn2" data-library-cancel="1">取消</button><button class="btn" id="saveLibrary">儲存 Knowledge Source</button></div></section>`;
+  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>${id ? "編輯 Knowledge Metadata" : "新增 Knowledge Source"}</h2><div class="muted">P5 Phase 1 只建立 Knowledge Repository，不做 AI/RAG/Embedding。</div></div><button class="btn2" data-library-back="1">返回</button></div><label>Knowledge ID</label><input id="libKnowledgeId" class="input" value="${escapeHtml(item.knowledgeId || "儲存後由 Cloud 產生")}" readonly><label>Title</label><input id="libTitle" class="input" value="${escapeHtml(item.title || "")}" placeholder="例如：採購請購 SOP"><label>Description</label><textarea id="libDesc" placeholder="這份知識想讓 Mr. KM 知道什麼？">${escapeHtml(item.description || "")}</textarea><label>Category</label><select id="libCategory" class="input">${selectOptions(KNOWLEDGE_CATEGORIES, item.category)}</select><label>Knowledge Scope</label><select id="libScope" class="input">${KNOWLEDGE_SCOPES.map(scope => `<option value="${escapeHtml(scope)}" ${scope === item.scope ? "selected" : ""}>${escapeHtml(KNOWLEDGE_SCOPE_LABELS[scope])}</option>`).join("")}</select><div class="muted">Company / Role scope 目前為架構預留；正式多人共享權限待 Organization Identity 完成。</div><label>Applicable Agents</label>${checkboxGroup(KNOWLEDGE_AGENTS, item.applicableAgents, "libAgents")}<label>Related Roles</label>${checkboxGroup(KNOWLEDGE_ROLE_OPTIONS, item.relatedRoles, "libRoles")}<label>Related Work Models</label>${checkboxGroup(workModels(), item.relatedWorkModels, "libWorkModels")}<label>Tags</label><input id="libTags" class="input" value="${escapeHtml(item.tags.join("、"))}" placeholder="採購、請購、供應商、SOP"><label>Triggers</label><input id="libTriggers" class="input" value="${escapeHtml(item.triggers.join("、"))}" placeholder="供應商會議、新供應商、年度評鑑"><label>Version</label><input id="libVersion" class="input" value="${escapeHtml(item.version || "v1.0")}" placeholder="v1.0"><label>Source Version</label><input id="libSourceVersion" class="input" value="${escapeHtml(item.sourceVersion || item.version || "v1.0")}" placeholder="v1.0"><label>Processing Status</label><div class="readonly-status">${escapeHtml(processingStatusLabel(item.processingStatus || "uploaded"))}</div><label>正式檔案</label><div class="upload-drop"><input id="libFile" type="file"><span>${escapeHtml(item.filename || "請選擇要上傳至 Supabase Storage 的檔案")}</span></div><div class="library-ai-preview"><b>本階段不執行 AI 閱讀</b><div class="muted">檔案會成為正式 Knowledge Source；未來才由 Knowledge Intelligence 建立 Units、Citation 與 Recommendation。</div></div><div class="form-actions"><button class="btn2" data-library-cancel="1">取消</button><button class="btn" id="saveLibrary">儲存 Knowledge Source</button></div></section>`;
 }
 
 function settings() {
@@ -3788,7 +3788,7 @@ function bindWorklogAssistant() {
       addAssistantResult(response);
     } catch (error) {
       removeConversationMessage(thinkingId);
-      console.error("WorkLog chatbot command failed", assistantCommandErrorDebug({
+      console.error("WorkLog assistant command failed", assistantCommandErrorDebug({
         input: text,
         parsedIntent,
         parsedCommand: parsedIntent?.parsedCommand || null,
@@ -3857,7 +3857,7 @@ function bindWorklogAssistant() {
       addAssistantResult(response);
     } catch (error) {
       removeConversationMessage(thinkingId);
-      console.error("WorkLog chatbot command failed", assistantCommandErrorDebug({
+      console.error("WorkLog assistant command failed", assistantCommandErrorDebug({
         input: "assistant_confirm_entry",
         parsedIntent: { type: "confirm_pending_entry", parsedCommand, entryPayload },
         parsedCommand,
