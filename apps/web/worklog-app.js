@@ -256,15 +256,6 @@ function safeDate(value, fallback = new Date()) {
   return parseTaipeiBusinessDateTime(value, fallback);
 }
 
-function key(d = selected) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-function monthKey(d = selected) {
-  if (typeof d === "string") return d.slice(0, 7);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-}
-
 function selectedMonthDate(day = 1) {
   const [year, month] = selectedMonth.split("-").map(Number);
   return new Date(year, (month || 1) - 1, day);

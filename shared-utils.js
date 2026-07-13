@@ -134,6 +134,15 @@ function writeScopedUiFlag(name, value) {
   localStorage.setItem(scopedLocalKey(name), value ? "1" : "0");
 }
 
+function key(d = selected) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function monthKey(d = selected) {
+  if (typeof d === "string") return d.slice(0, 7);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
 function legacyInventory() {
   const legacyEntries = readJson("wl_entries", []);
   const legacyProfile = readJson("wl_profile", null);
