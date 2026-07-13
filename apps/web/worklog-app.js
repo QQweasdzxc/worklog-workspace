@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260713-0847";
+const BUILD_TIME = "20260713-0856";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const IS_EXTENSION_ENTRY = document.body?.classList.contains("extension");
@@ -2296,13 +2296,13 @@ function pickAssistantResponse(pool = []) {
 }
 
 const assistantSuggestionPool = [
-  "您也可以直接說：\n「今天下午兩點到四點開會」\n「明天下午三點面試」\n「今天請半天特休」",
-  "如果要開始，我可以協助您建立：工時、Calendar 或任務。",
-  "您可以用自然語言告訴我，例如：昨天補兩小時教育訓練。"
+  "如果需要，我可以陪您一起回想今天還有哪些工作要補。",
+  "也可以直接告訴我下一筆工作，例如：今天下午兩點到四點開會。",
+  "若今天還有請假、會議或教育訓練，我可以一起幫您整理。"
 ];
 
 const assistantGreetingPool = [
-  "👋 您好！\n\n今天想完成什麼？\n\n我目前可以協助您：\n• 工時\n• Calendar\n• 任務",
+  "👋 您好！今天想先處理哪一件事？",
   "您好，我是諸葛先生。\n\n今天需要先建立工時、安排 Calendar，還是整理一個任務？",
   "👋 您好。\n\n可以直接告訴我今天要記錄的工作，例如：今天下午三點到四點開會。"
 ];
@@ -2328,9 +2328,14 @@ const assistantGoodbyePool = [
 ];
 
 const assistantUnknownPool = [
-  "😊 目前我還無法處理這類問題。\n\n不過如果今天有：\n• 工時記錄\n• Calendar 安排\n• 任務整理\n\n我可以協助您完成。",
-  "這部分我目前還在學習中。\n\n現在我主要協助您管理工時、任務與 Calendar。今天有工作需要我幫忙記錄嗎？",
-  "目前我主要協助您處理工時、任務與 Calendar。\n\n如果這件事需要記錄成工時，例如投資研究、開會或教育訓練，我可以幫您建立。"
+  "😊 這個問題我目前還無法直接判斷。\n\n不過如果它和今天的工作有關，我可以先幫您記成工時、任務或 Calendar。",
+  "這部分我還在學習中。\n\n如果今天有相關工作，例如研究、開會或整理資料，我可以先幫您留下工作紀錄。",
+  "目前這件事超出我能處理的範圍。\n\n但如果您要把它變成今天的工作安排，我可以接著協助建立工時或任務。"
+];
+
+const assistantCapabilityPool = [
+  "我目前最擅長協助您處理：\n\n• 工時：新增、補登、查詢今日 / 本週進度\n• Calendar：整理行程草稿與確認\n• 任務：先建立待辦草稿\n\n您可以直接用一句話告訴我，例如：今天下午三點到四點開會。",
+  "目前我主要協助工時、任務與 Calendar。\n\n如果您不確定怎麼開始，可以直接說：「我今天做了什麼？」或「幫我補一筆下午開會」。"
 ];
 
 function assistantWithSuggestion(text = "") {
@@ -2341,9 +2346,44 @@ function assistantUnknownResponse() {
   return assistantWithSuggestion(pickAssistantResponse(assistantUnknownPool));
 }
 
+function formatEntryLine(entry) {
+  const start = String(entry.at || "").slice(11, 16) || "--:--";
+  const end = timeFromMinutes(entryEndMinutes(entry));
+  return `${start}–${end}（${Number(entry.hours || 0)}h） ${entry.title || "未命名工時"}`;
+}
+
+function worklogContextAnswer(scope = "today") {
+  const targetDate = new Date();
+  const list = scope === "week" ? weekEntries(targetDate) : entriesForDate(targetDate);
+  const done = hours(list);
+  const target = scope === "week" ? 40 : 8;
+  const remaining = Math.max(0, Math.round((target - done) * 10) / 10);
+  const scopeLabel = scope === "week" ? "本週" : "今天";
+  if (!list.length) {
+    return `${scopeLabel}目前還沒有工時紀錄。\n\n如果您已經有開會、處理文件、採購、教育訓練或請假，我可以陪您一起補上。`;
+  }
+  const lines = list.map(e => `• ${formatEntryLine(e)}`).join("\n");
+  const next = remaining > 0
+    ? `${scopeLabel}距離 ${target} 小時還有 ${remaining} 小時。\n\n要不要一起回想${scope === "week" ? "這週" : "今天"}還有哪些工作需要補齊？`
+    : `${scopeLabel}已達到 ${target} 小時。若還有需要補充的紀錄，我也可以繼續幫您整理。`;
+  return `我幫您看了一下，${scopeLabel}目前已登記 ${done} 小時：\n\n${lines}\n\n${next}`;
+}
+
+function todayWorkListAnswer() {
+  const list = entriesForDate(new Date());
+  if (!list.length) {
+    return "今天目前尚未看到已建立的工作紀錄。\n\n如果今天有會議、採購、文件整理、教育訓練或請假，我可以一起幫您補齊。";
+  }
+  const lines = list.map(e => `• ${formatEntryLine(e)}`).join("\n");
+  const done = hours(list);
+  const remaining = Math.max(0, Math.round((8 - done) * 10) / 10);
+  return `今天目前我看到：\n\n${lines}\n\n共 ${done} 小時。${remaining > 0 ? `\n\n距離今天 8 小時還有 ${remaining} 小時。需要我陪您一起回想剩下的工作嗎？` : "\n\n今天工時已經達標了。若還有其他紀錄，也可以繼續補上。"}`;
+}
+
 function parseConversationIntent(text = "") {
   const raw = String(text || "").trim();
   if (!raw) return null;
+  if (/你(可以|能)(做|幫|協助)什麼|你會什麼|功能|怎麼用/.test(raw)) return { type: "capability" };
   if (/^(早安|早|早上好)(啊|呀|喔|哦|！|!|。)?$/i.test(raw)) return { type: "greeting", subtype: "morning" };
   if (/^(晚安|晚上好)(啊|呀|喔|哦|！|!|。)?$/i.test(raw)) return { type: "greeting", subtype: "night" };
   if (/^(你好|您好|哈囉|嗨|hi|hello|hey)(啊|呀|喔|哦|！|!|。)?$/i.test(raw)) return { type: "greeting", subtype: "hello" };
@@ -2355,6 +2395,7 @@ function parseConversationIntent(text = "") {
 
 function executeConversationIntent(intent = null) {
   if (!intent) return null;
+  if (intent.type === "capability") return assistantResult(pickAssistantResponse(assistantCapabilityPool));
   if (intent.type === "greeting" && intent.subtype === "morning") return assistantResult(assistantWithSuggestion(pickAssistantResponse(assistantMorningPool)));
   if (intent.type === "greeting" && intent.subtype === "night") return assistantResult(pickAssistantResponse(assistantNightPool));
   if (intent.type === "greeting") return assistantResult(assistantWithSuggestion(pickAssistantResponse(assistantGreetingPool)));
@@ -2640,8 +2681,9 @@ function intentFromDomainDraft(raw = "", draft = null) {
 function parseWorklogIntentLocal(text = "") {
   const raw = String(text || "").trim();
   if (!raw) return { type: "empty" };
-  if (/(今天|今日).*(工時|完成)|工時.*(今天|今日)/.test(raw)) return { type: "query_today" };
-  if (/(本週|本周|這週|這周).*(工時|完成)|工時.*(本週|本周|這週|這周)/.test(raw)) return { type: "query_week" };
+  if (/(今天|今日).*(哪些工作|有什麼工作|做了什麼|做哪些|工作)|我.*今天.*(做了什麼|有哪些工作)|還有.*工作|其他工作/.test(raw)) return { type: "query_today_work" };
+  if (/(今天|今日).*(工時|完成|登記|記錄|紀錄|多少)|工時.*(今天|今日)/.test(raw)) return { type: "query_today" };
+  if (/(本週|本周|這週|這周).*(工時|完成|登記|記錄|紀錄|多少)|工時.*(本週|本周|這週|這周)/.test(raw)) return { type: "query_week" };
   if (/刪除|移除/.test(raw)) return { type: /最後|上一筆|剛剛/.test(raw) ? "delete_last" : "unsupported_delete" };
   if (/修改|改成|調整/.test(raw)) return { type: /最後|上一筆|剛剛/.test(raw) ? "update_last" : "unsupported_update", hours: parseAssistantDuration(raw) };
   const slots = parseAssistantSlots(raw);
@@ -2685,8 +2727,9 @@ function parseWorklogIntentLocal(text = "") {
 async function parseWorklogIntent(text = "") {
   const localFirst = String(text || "").trim();
   if (!localFirst) return { type: "empty" };
-  if (/(今天|今日).*(工時|完成)|工時.*(今天|今日)/.test(localFirst)) return parseWorklogIntentLocal(localFirst);
-  if (/(本週|本周|這週|這周).*(工時|完成)|工時.*(本週|本周|這週|這周)/.test(localFirst)) return parseWorklogIntentLocal(localFirst);
+  if (/(今天|今日).*(哪些工作|有什麼工作|做了什麼|做哪些|工作)|我.*今天.*(做了什麼|有哪些工作)|還有.*工作|其他工作/.test(localFirst)) return parseWorklogIntentLocal(localFirst);
+  if (/(今天|今日).*(工時|完成|登記|記錄|紀錄|多少)|工時.*(今天|今日)/.test(localFirst)) return parseWorklogIntentLocal(localFirst);
+  if (/(本週|本周|這週|這周).*(工時|完成|登記|記錄|紀錄|多少)|工時.*(本週|本周|這週|這周)/.test(localFirst)) return parseWorklogIntentLocal(localFirst);
   if (/刪除|移除|修改|改成|調整/.test(localFirst)) return parseWorklogIntentLocal(localFirst);
   const llmDraft = await callWorkLogDomainLLM(localFirst);
   const llmIntent = intentFromDomainDraft(localFirst, llmDraft);
@@ -2706,8 +2749,9 @@ async function saveAssistantEntry(command = {}) {
 
 async function executeWorklogCommand(intent) {
   if (intent.type === "empty") return assistantResult("請直接告訴我想記錄的工時，例如：今天下午三點到四點開會。");
-  if (intent.type === "query_today") return assistantResult(`今天已記錄 ${hours(entriesForDate(new Date()))}h。`);
-  if (intent.type === "query_week") return assistantResult(`本週已記錄 ${hours(weekEntries(new Date()))}h。`);
+  if (intent.type === "query_today_work") return assistantResult(todayWorkListAnswer());
+  if (intent.type === "query_today") return assistantResult(worklogContextAnswer("today"));
+  if (intent.type === "query_week") return assistantResult(worklogContextAnswer("week"));
   if (intent.type === "delete_last") {
     const list = dayEntries();
     const last = list[list.length - 1];
@@ -3688,12 +3732,6 @@ function bindWorklogAssistant() {
         render();
         return;
       }
-      if (shouldPromptWorkProfileToday()) {
-        removeConversationMessage(thinkingId);
-        addAssistantResult(startWorkProfileConversation());
-        render();
-        return;
-      }
       const conversationIntent = parseConversationIntent(text);
       if (pending && conversationIntent) {
         removeConversationMessage(thinkingId);
@@ -3709,6 +3747,26 @@ function bindWorklogAssistant() {
           render();
           return;
         }
+      }
+      const contextIntent = parseWorklogIntentLocal(text);
+      if (!pending && ["query_today_work", "query_today", "query_week"].includes(contextIntent.type)) {
+        const response = await executeWorklogCommand(contextIntent);
+        removeConversationMessage(thinkingId);
+        addAssistantResult(response);
+        render();
+        return;
+      }
+      if (!pending && /股票|投資|基金|ETF|新聞|天氣|匯率|餐廳|旅遊/.test(text)) {
+        removeConversationMessage(thinkingId);
+        addAssistantResult(assistantUnknownResponse());
+        render();
+        return;
+      }
+      if (shouldPromptWorkProfileToday()) {
+        removeConversationMessage(thinkingId);
+        addAssistantResult(startWorkProfileConversation());
+        render();
+        return;
       }
       parsedIntent = await parseWorklogIntent(text);
       const response = await executeWorklogCommand(parsedIntent);
