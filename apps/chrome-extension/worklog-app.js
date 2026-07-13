@@ -1,6 +1,6 @@
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260713-0856";
+const BUILD_TIME = "20260713-0934";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const root = document.getElementById("app");
 const IS_EXTENSION_ENTRY = document.body?.classList.contains("extension");
@@ -16,6 +16,7 @@ const WORK_IDENTITY_SETUP_DRAFT_KEY = "zhuge_work_identity_setup_draft_v1";
 const WORK_IDENTITY_COMPLETION_KEY = "zhuge_work_identity_completion_pending_v1";
 const MOBILE_SUMMARY_OPEN_KEY = "zhuge_mobile_summary_open_v1";
 const MOBILE_CALENDAR_OPEN_KEY = "zhuge_mobile_calendar_open_v1";
+const AI_TODAY_SUGGESTION_INDEX_KEY = "zhuge_ai_today_suggestion_index_v1";
 const WORKLOG_CHAT_KEY = "zhuge_worklog_chat_v1";
 const WORKLOG_CHAT_PENDING_KEY = "zhuge_worklog_chat_pending_v1";
 const ZHUGE_ASSISTANT_WELCOME_KEY = "zhuge_assistant_welcome_seen_v1";
@@ -39,9 +40,8 @@ let hasOsShellState = localStorage.getItem(OS_OPEN_TABS_KEY) !== null;
 let openTabs = readJson(OS_OPEN_TABS_KEY, []);
 let activeWorkspace = localStorage.getItem(OS_ACTIVE_WORKSPACE_KEY) || "dashboard";
 let recentWorkspaces = readJson(OS_RECENT_WORKSPACES_KEY, []);
-let selected = new Date(localStorage.getItem("wl_selected") || Date.now());
-if (Number.isNaN(selected.getTime())) selected = new Date();
-let selectedMonth = localStorage.getItem("wl_selected_month") || monthKey(selected);
+let selected = new Date();
+let selectedMonth = monthKey(selected);
 let entries = [];
 let profile = readJson("wl_profile", null);
 let workProfile = readJson("wl_work_profile", null);
@@ -53,6 +53,7 @@ let editingEntryId = null;
 let captureSeed = null;
 let sidebarOpen = false;
 let mobileCalendarOpen = false;
+let aiTodaySuggestionIndex = Number(localStorage.getItem(AI_TODAY_SUGGESTION_INDEX_KEY) || 0);
 let conversationMessagesState = null;
 let conversationPendingState = undefined;
 let conversationRefreshTimer = null;
@@ -2823,8 +2824,16 @@ function userBadge() {
   return `<div class="identity-badge"><span>👤 ${escapeHtml(session.name)}</span><small>${escapeHtml(session.status || session.email || "")}</small><button class="mini" data-logout="1">登出</button></div>`;
 }
 
+function headerWorkIdentityStatus() {
+  if (!session) return "";
+  const missing = workProfileMissingFields(workProfile);
+  const ready = !missing.length;
+  const detail = ready ? normalizeWorkProfile(workProfile).defaultTask || "查看工作身分" : `缺少：${missing.join("、")}`;
+  return `<button class="work-identity-header-status ${ready ? "ready" : "incomplete"}" type="button" data-open-workspace="settings" title="${escapeHtml(detail)}"><span>${ready ? "🟢" : "🟡"} 工作身分</span><small>${ready ? "已完成" : "未完成"}</small></button>`;
+}
+
 function header() {
-  return `<div class="top"><div class="brand-row"><button class="mini adaptive-menu" data-toggle-sidebar="1">☰</button><h1>🧠 Zhuge AI OS</h1><span class="header-version">${RELEASE_VERSION}</span></div><div class="header-right">${userBadge()}</div></div>`;
+  return `<div class="top"><div class="brand-row"><button class="mini adaptive-menu" data-toggle-sidebar="1">☰</button><h1>🧠 Zhuge AI OS</h1><span class="header-version">${RELEASE_VERSION}</span></div><div class="header-right">${headerWorkIdentityStatus()}${userBadge()}</div></div>`;
 }
 
 function authScreen() {
@@ -2933,6 +2942,10 @@ function osSidebar() {
 
 function workspaceTabs() {
   if (!openTabs.length) return `<div class="workspace-tabs empty"><span>Home</span></div>`;
+  if (openTabs.length === 1) {
+    const w = workspaceDef(openTabs[0]);
+    return `<div class="workspace-title">${w.icon} ${w.label}</div>`;
+  }
   return `<div class="workspace-tabs">${openTabs.map(id => { const w = workspaceDef(id); const close = openTabs.length > 1 ? `<span class="tab-close" data-close-workspace="${id}">×</span>` : ""; return `<button class="workspace-tab ${activeWorkspace === id ? "active" : ""}" data-activate-workspace="${id}"><span>${w.icon} ${w.label}</span>${close}</button>`; }).join("")}</div>`;
 }
 
@@ -2977,7 +2990,8 @@ function calendarPanel() {
   for (let d = 1; d <= last.getDate(); d++) {
     const dk = `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
     const h = entries.filter(e => e.date === dk).reduce((s, e) => s + Number(e.hours || 0), 0);
-    html += `<div class="day ${selectedInMonth && d === selected.getDate() ? "sel" : ""}" data-day="${d}"><b>${d}</b><div class="bar"><div class="fill" style="width:${Math.min(100, h / 8 * 100)}%"></div></div><small>${h ? h + "h" : ""}</small></div>`;
+    const isToday = dk === key(new Date());
+    html += `<div class="day ${isToday ? "today" : ""} ${selectedInMonth && d === selected.getDate() ? "sel" : ""}" data-day="${d}"><b>${d}</b><div class="bar"><div class="fill" style="width:${Math.min(100, h / 8 * 100)}%"></div></div><small>${h ? h + "h" : ""}</small></div>`;
   }
   html += `</div><div class="month-summary"><b>${monthLabel} 工時</b><span>${hours(monthEntries())}h</span></div><button class="btn full" data-export-month="1">⬇️ 下載 ${monthLabel} ECP 匯入檔</button>`;
   return html;
@@ -3087,7 +3101,7 @@ function mobileHomeActionPanel() {
 function todayPanel() {
   const list = dayEntries();
   const h = hours(list);
-  return `<div class="panel-head"><h2>我的工作</h2><div class="tag">${h} / 8h</div></div>${list.length ? list.map(e => `<div class="entry"><div class="entry-main"><b>${escapeHtml(e.title)}</b><div class="muted">${fmt(e.at)}｜${Number(e.hours || 0)}h${e.ecpTask ? `｜🏷 任務` : ""}</div></div><div class="actions compact entry-actions"><button class="btn amber" data-edit-id="${e.id}">編輯</button><button class="btn red" data-del-id="${e.id}">刪除</button></div></div>`).join("") : `<div class="empty"><b>尚無工時紀錄</b><div class="muted">可採納推理預測，或使用下方按鈕新增工作。</div></div>`}<button class="btn full today-add-bottom" data-action="add">➕ 新增工作</button>`;
+  return `<div class="panel-head"><h2>我的工作</h2><div class="tag">${h} / 8h</div></div>${list.length ? list.map(e => `<div class="entry"><div class="entry-main"><b>${escapeHtml(e.title)}</b><div class="muted">${fmt(e.at)}｜${Number(e.hours || 0)}h${e.ecpTask ? `｜🏷 任務` : ""}</div></div><div class="actions compact entry-actions"><button class="btn amber" data-edit-id="${e.id}">編輯</button><button class="btn red" data-del-id="${e.id}">刪除</button></div></div>`).join("") : `<div class="empty"><b>今天尚未建立工時</b><div class="muted">今天的工作會出現在這裡。昨天或歷史月份可從 Calendar 切換查看。</div></div>`}<button class="btn full today-add-bottom" data-action="add">➕ 新增工時</button>`;
 }
 
 function makeSuggestions() {
@@ -3120,10 +3134,10 @@ function makeSuggestions() {
 
 function suggestionPanel() {
   const s = makeSuggestions();
-  if (!s.length) return `<h2>🤖 推理預測</h2><div class="empty"><b>目前沒有推理預測</b><div class="muted">可能今天已滿工時，或工作模型尚未建立。</div></div>`;
-  const queueItems = s.slice(0, AI_REASON_QUEUE_SIZE);
-  const slots = Array.from({ length: AI_REASON_QUEUE_SIZE }, (_, i) => queueItems[i]);
-  return `<div class="panel-head"><h2>🤖 推理預測</h2><div class="tag">${queueItems.length} / ${s.length}</div></div><div class="ai-suggestion-list queue-list">${slots.map(x => x ? `<div class="suggestion compact-card"><div class="suggestion-title-row"><h3>${escapeHtml(x.title)}</h3><div class="actions suggestion-actions"><button class="btn green" data-accept="${escapeHtml(x.id)}">採納</button><button class="btn amber" data-adjust="${escapeHtml(x.id)}">編輯</button></div></div><div class="suggestion-source">${escapeHtml(x.sourceLabel || "🤖 AI 推理")}｜🕘 建議 ${escapeHtml(x.suggestedTimeLabel || String(x.at || "").slice(11, 16))}</div></div>` : `<div class="suggestion compact-card placeholder-card"><div class="muted">等待新的推理預測</div></div>`).join("")}</div>`;
+  if (!s.length) return `<h2>🤖 AI 今日建議</h2><div class="empty"><b>目前沒有今日建議</b><div class="muted">可能今天已滿工時，或工作模型尚未建立。</div></div>`;
+  const index = ((aiTodaySuggestionIndex % s.length) + s.length) % s.length;
+  const x = s[index];
+  return `<div class="panel-head"><h2>🤖 AI 今日建議</h2><div class="tag">${index + 1} / ${s.length}</div></div><div class="ai-suggestion-carousel"><button class="btn2 carousel-arrow" type="button" data-suggestion-prev="1">◀</button><div class="suggestion compact-card"><div class="suggestion-title-row"><h3>${escapeHtml(x.title)}</h3><div class="actions suggestion-actions"><button class="btn green" data-accept="${escapeHtml(x.id)}">建立</button><button class="btn2" data-suggestion-next="1">忽略</button></div></div><div class="suggestion-source">${escapeHtml(x.sourceLabel || "🤖 AI 建議")}｜🕘 建議 ${escapeHtml(x.suggestedTimeLabel || String(x.at || "").slice(11, 16))}</div></div><button class="btn2 carousel-arrow" type="button" data-suggestion-next="1">▶</button></div>`;
 }
 
 function renderAssistantCard(card = null) {
@@ -3262,7 +3276,7 @@ function floatingAssistantWidget() {
 }
 
 function center() {
-  return `<div class="workbench-grid">${workProfileStatusCard()}${mobileHomeActionPanel()}${todaySummaryPanel()}<section class="panel module calendar-module"><div class="desktop-calendar">${calendarPanel()}</div><div class="mobile-calendar">${mobileCalendarPanel()}</div></section><section class="panel module today-module">${todayPanel()}</section><section class="panel module suggestion-module">${suggestionPanel()}</section></div>`;
+  return `<div class="workbench-grid">${mobileHomeActionPanel()}${todaySummaryPanel()}<section class="panel module calendar-module"><div class="desktop-calendar">${calendarPanel()}</div><div class="mobile-calendar">${mobileCalendarPanel()}</div></section><section class="panel module today-module">${todayPanel()}</section><section class="panel module suggestion-module">${suggestionPanel()}</section></div>`;
 }
 
 function workProfileStatusCard() {
@@ -4012,6 +4026,16 @@ function bind() {
   const exportBtn = document.querySelector("[data-export-month]"); if (exportBtn) exportBtn.onclick = () => exportEcpImportFile();
   document.querySelectorAll("[data-accept]").forEach(b => b.onclick = () => acceptSuggestion(b.dataset.accept));
   document.querySelectorAll("[data-adjust]").forEach(b => b.onclick = () => adjustSuggestion(b.dataset.adjust));
+  document.querySelectorAll("[data-suggestion-prev]").forEach(b => b.onclick = () => {
+    aiTodaySuggestionIndex -= 1;
+    localStorage.setItem(AI_TODAY_SUGGESTION_INDEX_KEY, String(aiTodaySuggestionIndex));
+    render();
+  });
+  document.querySelectorAll("[data-suggestion-next]").forEach(b => b.onclick = () => {
+    aiTodaySuggestionIndex += 1;
+    localStorage.setItem(AI_TODAY_SUGGESTION_INDEX_KEY, String(aiTodaySuggestionIndex));
+    render();
+  });
   document.querySelectorAll("[data-del-id]").forEach(b => b.onclick = async () => {
     const removed = entries.find(e => e.id === b.dataset.delId);
     if (!removed) return;
