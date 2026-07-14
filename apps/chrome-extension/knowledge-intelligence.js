@@ -391,23 +391,35 @@ function buildKnowledgeIntelligence(source = {}, extracted = {}) {
       status: "active"
     };
   });
-  const candidateUnits = units.filter(unit => ["recommendation", "checklist", "process"].includes(unit.unitType)).slice(0, 8);
-  const candidates = candidateUnits.map(unit => ({
-    type: "recommendation",
-    title: recommendationTitle(unit.title),
-    content: unit.summary || unit.content,
-    sourceUnitLocalId: unit.localId,
-    sourceKnowledgeId: item.knowledgeId || "",
+  const discovery = WorkIntelligence.discover({ source: item, text, lines: lineObjects, units });
+  const rawWorkCandidates = discovery.works.map(work => ({
+    title: work.name,
+    content: work.purpose,
+    triggers: work.triggers,
+    source: item.title || item.filename || item.knowledgeId || "藏書閣",
     defaultDuration: 1,
-    applicableRole: roleLabel === "待確認職務" ? "" : roleLabel,
-    triggers: unit.triggers,
-    relatedWorkModels: unit.relatedWorkModels || [],
-    status: "candidate",
-    priority: unit.priority || "medium",
-    confidence: unit.confidence || 0.6,
-    version: item.version || "v1.0"
+    confidence: work.confidence,
+    workDna: work
   }));
-  const workItems = [...new Set(candidates.map(x => x.title).filter(Boolean))].slice(0, 10);
+  const preparedSuggestions = SuggestionIntelligence.prepareCandidates(rawWorkCandidates, workModels());
+  const candidates = preparedSuggestions.items.map(prepared => {
+    const workDna = prepared.rawCandidates[0]?.workDna || {};
+    return {
+      type: "recommendation",
+      title: prepared.title,
+      content: workDna.purpose || prepared.content,
+      sourceKnowledgeId: item.knowledgeId || "",
+      defaultDuration: Number(prepared.defaultDuration || 1),
+      applicableRole: roleLabel === "待確認職務" ? "" : roleLabel,
+      triggers: workDna.triggers || [],
+      relatedWorkModels: [],
+      status: "candidate",
+      priority: workDna.confidence >= 0.8 ? "high" : "medium",
+      confidence: workDna.confidence || prepared.confidence || 0.6,
+      version: item.version || "v1.0"
+    };
+  });
+  const workItems = discovery.works.map(work => work.name).slice(0, 10);
   return sanitizeKnowledgeValue({
     extractedText: text.slice(0, 60000),
     summary: {
@@ -416,25 +428,19 @@ function buildKnowledgeIntelligence(source = {}, extracted = {}) {
       sourceType: extracted.sourceType || item.sourceType,
       supportLevel: extracted.supportLevel || "basic",
       topics,
+      works: discovery.works,
+      workDiscovery: discovery.diagnostics,
+      workMemoryReferences: preparedSuggestions.diagnostics.references,
+      newWorks: candidates.map(candidate => candidate.title),
       importantWorkItems: workItems,
-      processes: units.filter(x => x.unitType === "process").map(x => x.title).slice(0, 8),
+      processes: [...new Set(discovery.works.flatMap(work => work.processes || []))].slice(0, 12),
       cautions: units.filter(x => x.unitType === "rule").map(x => x.title).slice(0, 8),
-      recommendationCandidates: workItems,
+      recommendationCandidates: candidates.map(candidate => candidate.title),
       generatedAt: new Date().toISOString()
     },
     units,
     candidates
   });
-}
-
-function recommendationTitle(title = "") {
-  const clean = String(title || "").replace(/^確認|^檢查|^建立|^進行/, "").trim();
-  if (/評鑑/.test(clean)) return "進行供應商評鑑";
-  if (/驗收/.test(clean)) return "追蹤驗收";
-  if (/請款|發票/.test(clean)) return "檢查請款文件";
-  if (/議價/.test(clean)) return "確認議價紀錄";
-  if (/新人|報到/.test(clean)) return "確認新人報到 Checklist";
-  return clean ? `確認${clean}` : "確認文件中的工作事項";
 }
 
 const KnowledgeIntelligence = {
@@ -456,7 +462,8 @@ const KnowledgeIntelligence = {
       const extracted = await extractKnowledgeText(item, options.file || null);
       const result = buildKnowledgeIntelligence(item, extracted);
       const saved = await DataService.saveKnowledgeIntelligenceResult(item, result);
-      toast("我整理好了，請確認我的理解");
+      const workCount = Array.isArray(result.summary?.works) ? result.summary.works.length : 0;
+      toast(workCount ? `我理解出 ${workCount} 項工作，請確認我的理解` : "我沒有辨識出足夠完整的工作，請協助我確認");
       return saved;
     } catch (error) {
       console.error("Knowledge Intelligence processing failed", { error, source: item });

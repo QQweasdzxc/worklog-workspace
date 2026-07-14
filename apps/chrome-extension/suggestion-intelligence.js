@@ -84,6 +84,7 @@ const SuggestionIntelligence = (() => {
 
   function generalize(candidate = {}) {
     const originalTitle = String(candidate.title || "").trim();
+    if (candidate.workDna) return { title: originalTitle, generalized: false, originalTitle };
     const context = [originalTitle, candidate.content, ...(candidate.triggers || [])].filter(Boolean).join(" ");
     const rule = GENERALIZATION_RULES.find(item => item.patterns.some(pattern => pattern.test(context)));
     return {

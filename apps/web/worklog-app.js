@@ -2246,8 +2246,9 @@ function knowledgeCapabilityItems(item = {}, limit = 4) {
   const units = knowledgeUnitsForSource(item);
   const candidates = knowledgeCandidatesForSource(item);
   const items = [
-    ...units.filter(unit => ["process", "checklist", "rule", "recommendation"].includes(unit.unitType)).map(unit => unit.title),
+    ...(Array.isArray(summary.works) ? summary.works.map(work => work.name) : []),
     ...candidates.map(candidate => candidate.title),
+    ...units.filter(unit => ["process", "checklist", "rule", "recommendation"].includes(unit.unitType)).map(unit => unit.title),
     ...arrayFromInput(summary.topics || [])
   ].map(x => String(x || "").trim()).filter(Boolean);
   return [...new Set(items)].slice(0, limit);
@@ -2438,23 +2439,36 @@ function libraryIntelligenceView(id = null) {
   const candidates = knowledgeCandidatesForSource(item);
   const isFailed = item.processingStatus === "failed";
   const isCompleted = ["processed", "verified", "knowledge_built"].includes(item.processingStatus);
-  const resultHeading = isFailed ? "🪶 我暫時讀不懂這份文件" : (isCompleted ? "🪶 我整理好了" : "🪶 我正在整理我的理解");
-  const resultPrompt = isCompleted && !isFailed ? `<div class="entry"><b>我覺得，之後可以依照這些工作協助你。</b><div class="muted">是否接受我的理解，讓我用這些工作提供更貼近的工時建議？</div></div>` : "";
+  const resultHeading = isFailed ? "🪶 我暫時讀不懂這份文件" : (isCompleted ? "🪶 我讀完了" : "🪶 我正在理解這份工作");
+  const resultPrompt = isCompleted && !isFailed ? `<div class="entry"><b>我理解這份文件主要包含以下工作。</b><div class="muted">請確認我理解得對不對；只有你接受後，新的工作才會加入「我的工作」。</div></div>` : "";
   const list = value => arrayFromInput(value).map(x => `<li>${escapeHtml(x)}</li>`).join("") || "<li>尚未整理</li>";
-  const readableSummary = summary.topics?.length
-    ? `我理解這份文件主要是在說 ${summary.topics.slice(0, 6).join("、")} 等工作。之後我會用這些理解，讓工時建議更貼近你的工作。`
+  const discoveredWorks = Array.isArray(summary.works) ? summary.works : [];
+  const workMemoryReferences = Array.isArray(summary.workMemoryReferences) ? summary.workMemoryReferences : [];
+  const candidateNames = new Set(candidates.map(candidate => String(candidate.title || "").trim()).filter(Boolean));
+  const reviewWorks = discoveredWorks.length ? discoveredWorks : candidates.map(candidate => ({ name: candidate.title, purpose: candidate.content, processes: [], systems: [], departments: [], outputs: [], frequency: "依需求", triggers: candidate.triggers || [], keywords: [] }));
+  const readableSummary = reviewWorks.length
+    ? `我目前理解出 ${reviewWorks.length} 項工作：${reviewWorks.slice(0, 6).map(work => work.name).join("、")}。`
     : (isFailed ? "我這次沒有可靠讀懂內容，請查看原因後再讓我重新學習。" : "我還在整理這份文件。");
   const processItems = units.filter(unit => ["process", "checklist"].includes(unit.unitType)).map(unit => unit.title);
   const ruleItems = units.filter(unit => ["rule", "exception"].includes(unit.unitType)).map(unit => unit.title);
   const focusItems = [...summary.topics || [], ...processItems.slice(0, 4), ...ruleItems.slice(0, 4)].slice(0, 10);
+  const workDnaCards = reviewWorks.length ? reviewWorks.map(work => {
+    const reference = workMemoryReferences.find(item => item.candidate === work.name || item.generalizedAs === work.name);
+    const isNew = candidateNames.has(work.name);
+    const decision = isNew
+      ? `<label class="inline-check"><input type="checkbox" class="knowledge-work-candidate" value="${escapeHtml(work.name)}" checked> <span>建議加入「我的工作」</span></label>`
+      : `<span class="work-dna-existing">✓ 已引用「${escapeHtml(reference?.workMemory || work.name)}」</span>`;
+    const dnaList = (values, empty = "尚未辨識") => arrayFromInput(values).map(value => escapeHtml(value)).join("、") || empty;
+    return `<div class="work-dna-card"><div class="work-dna-head"><div><b>${escapeHtml(work.name)}</b><div class="muted">${escapeHtml(work.purpose || work.description || "")}</div></div>${decision}</div><div class="work-dna-grid"><div><span>工作內容</span><b>${escapeHtml(work.description || work.purpose || "尚未整理")}</b></div><div><span>工作頻率</span><b>${escapeHtml(work.frequency || "依需求")}</b></div><div><span>使用系統</span><b>${dnaList(work.systems)}</b></div><div><span>涉及部門</span><b>${dnaList(work.departments)}</b></div><div><span>輸出成果</span><b>${dnaList(work.outputs)}</b></div><div><span>關鍵字</span><b>${dnaList(work.keywords)}</b></div></div><details class="work-dna-process"><summary>查看主要流程</summary><ol>${arrayFromInput(work.processes).map(step => `<li>${escapeHtml(step)}</li>`).join("") || "<li>尚未整理出可靠流程</li>"}</ol><div class="muted">Trigger：${dnaList(work.triggers)}</div></details></div>`;
+  }).join("") : `<div class="empty"><b>我還沒有辨識出完整的工作</b><div class="muted">這次內容可能只有零散步驟；為避免把「確認、檢查、追蹤」誤當成工作，我不會產生低品質建議。</div></div>`;
   const autoMeta = `<div class="entry"><b>我先幫你判斷</b><div class="source-path">工作來源類型：${escapeHtml(KNOWLEDGE_SCOPE_LABELS[item.scope] || item.scope || "待確認")}</div><div class="source-path">適用對象：${escapeHtml(item.applicableAgents.join("、") || "待確認")}</div><div class="source-path">適用職務：${escapeHtml(item.relatedRoles.map(roleDisplayName).join("、") || "待確認")}</div><div class="source-path">標籤：${escapeHtml(item.tags.join("、") || "待確認")}</div><div class="source-path">我的工作：${escapeHtml(item.relatedWorkModels.join("、") || "待確認")}</div></div>`;
   const acceptWorkActions = !isFailed && candidates.length
-    ? `<button class="btn green" data-accept-all-knowledge-work="${item.id}">全部接受到我的工作</button><button class="btn2" data-accept-selected-knowledge-work="${item.id}">接受勾選</button>`
+    ? `<button class="btn green" data-accept-all-knowledge-work="${item.id}">✓ 全部正確</button><button class="btn2" data-accept-selected-knowledge-work="${item.id}">接受勾選</button>`
     : "";
   const resultActions = isFailed
     ? `<button class="btn2" data-reprocess-library="${item.id}">重新學習</button><button class="btn2" data-edit-library="${item.id}">✏️ 調整我的理解</button>`
-    : `${acceptWorkActions}<button class="btn2" data-verify-library="${item.id}">✓ 只確認理解</button><button class="btn2" data-edit-library="${item.id}">✏️ 調整我的理解</button>`;
-  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>${escapeHtml(resultHeading)}</h2><div class="muted">${escapeHtml(item.knowledgeId)}｜${escapeHtml(knowledgeLearnedLabel(item.processingStatus))}</div></div><button class="btn2" data-library-back="1">返回藏書閣</button></div>${resultPrompt}<div class="entry"><div class="entry-main"><b>${escapeHtml(item.title)}</b><div class="source-path">我閱讀到的品質：${escapeHtml(knowledgeSupportLevelLabel(summary.supportLevel))}</div>${item.intelligenceError ? `<div class="source-path">我讀不懂的原因：${escapeHtml(item.intelligenceError)}</div>` : ""}</div><div class="actions compact"><button class="btn2" data-reprocess-library="${item.id}">${knowledgeActionLabel(item.processingStatus)}</button></div></div><div class="entry"><b>我理解這份文件主要是在說</b><p class="muted">${escapeHtml(readableSummary)}</p></div><div class="profile-grid"><div class="entry"><b>我理解出的工作流程</b><ul class="knowledge-result-list">${list(processItems)}</ul></div><div class="entry"><b>我注意到的規則</b><ul class="knowledge-result-list">${list(ruleItems)}</ul></div></div><div class="entry"><b>我之後可以協助你完成這些工作</b><ul class="knowledge-result-list">${candidates.length ? candidates.map(candidate => `<li><label class="inline-check"><input type="checkbox" class="knowledge-work-candidate" value="${escapeHtml(candidate.title)}" checked> <span>${escapeHtml(candidate.title)}（約 ${candidate.defaultDuration}h）</span></label></li>`).join("") : "<li>我還沒整理出可直接協助的工作</li>"}</ul></div><div class="entry"><b>我整理出的重點</b><ul class="knowledge-result-list">${list(focusItems)}</ul></div>${autoMeta}<section class="panel" style="margin-top:12px"><h3>我目前整理出的工作（${units.length}）</h3>${units.length ? units.map(unit => `<div class="entry"><div class="entry-main"><b>${escapeHtml(unit.title)}</b><div class="muted">${escapeHtml(knowledgeUnitTypeLabel(unit.unitType))}｜${escapeHtml(unit.sectionReference || "")}</div><small>${escapeHtml(unit.summary || unit.content)}</small><div class="library-tag-line">${unit.triggers.map(tag => `<span>${escapeHtml(tag)}</span>`).join("")}</div></div><div class="actions compact"><button class="btn2 danger" data-remove-knowledge-unit="${unit.id}">移除</button></div></div>`).join("") : `<div class="empty">我還沒整理出可用於工時的工作。</div>`}</section><div class="form-actions">${resultActions}</div></section>`;
+    : `${acceptWorkActions}<button class="btn2" data-verify-library="${item.id}">✓ 確認理解</button><button class="btn2" data-edit-library="${item.id}">✏️ 調整我的理解</button>`;
+  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>${escapeHtml(resultHeading)}</h2><div class="muted">${escapeHtml(item.knowledgeId)}｜${escapeHtml(knowledgeLearnedLabel(item.processingStatus))}</div></div><button class="btn2" data-library-back="1">返回藏書閣</button></div>${resultPrompt}<div class="entry"><div class="entry-main"><b>${escapeHtml(item.title)}</b><div class="source-path">我閱讀到的品質：${escapeHtml(knowledgeSupportLevelLabel(summary.supportLevel))}</div>${item.intelligenceError ? `<div class="source-path">我讀不懂的原因：${escapeHtml(item.intelligenceError)}</div>` : ""}</div><div class="actions compact"><button class="btn2" data-reprocess-library="${item.id}">${knowledgeActionLabel(item.processingStatus)}</button></div></div><div class="entry"><b>我理解這份文件主要有哪些工作</b><p class="muted">${escapeHtml(readableSummary)}</p></div><div class="work-dna-list">${workDnaCards}</div><details class="work-evidence-panel"><summary>查看我理解工作的依據</summary><div class="profile-grid"><div class="entry"><b>文件中的流程證據</b><ul class="knowledge-result-list">${list(processItems)}</ul></div><div class="entry"><b>文件中的規則證據</b><ul class="knowledge-result-list">${list(ruleItems)}</ul></div></div><div class="entry"><b>文件重點</b><ul class="knowledge-result-list">${list(focusItems)}</ul></div>${autoMeta}<section class="panel" style="margin-top:12px"><h3>可追溯內容（${units.length}）</h3>${units.length ? units.map(unit => `<div class="entry"><div class="entry-main"><b>${escapeHtml(unit.title)}</b><div class="muted">${escapeHtml(knowledgeUnitTypeLabel(unit.unitType))}｜${escapeHtml(unit.pageReference || unit.sectionReference || "")}</div><small>${escapeHtml(unit.summary || unit.content)}</small><div class="library-tag-line">${unit.triggers.map(tag => `<span>${escapeHtml(tag)}</span>`).join("")}</div></div><div class="actions compact"><button class="btn2 danger" data-remove-knowledge-unit="${unit.id}">移除</button></div></div>`).join("") : `<div class="empty">目前沒有可追溯內容。</div>`}</section></details><div class="form-actions">${resultActions}</div></section>`;
 }
 
 function libraryForm(id = null) {

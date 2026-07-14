@@ -45,4 +45,9 @@ const distinctResult = engine.prepareCandidates([
 ], []);
 assert(distinctResult.items.length === 2, "不同工作不應被錯誤合併");
 
+const workDnaResult = engine.prepareCandidates([
+  { title: "供應商績效評鑑", source: "供應商 SOP", workDna: { name: "供應商績效評鑑" } }
+], []);
+assert(workDnaResult.items[0].title === "供應商績效評鑑", "Work Intelligence 已確認的工作名稱不應再次被舊泛化規則改寫");
+
 console.log("Suggestion Intelligence tests: PASS");

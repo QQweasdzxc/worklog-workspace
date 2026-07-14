@@ -1,5 +1,48 @@
 # WorkLog RC3 Release Patch1
 
+## Build 20260714-1641 - P5.4 Work Intelligence
+
+- 新增純邏輯模組 `work-intelligence.js`。
+- Knowledge Intelligence 不再把 checklist / process 的動作句直接轉成工作建議。
+- 新 Learning Pipeline：
+  - Document Evidence
+  - Work Discovery
+  - Work Understanding
+  - Work DNA
+  - Compare Work Memory
+  - Suggestion Intelligence
+  - Learning Review
+- 每項 Work DNA 包含：
+  - 工作名稱、目的、內容
+  - 主要流程
+  - 使用系統
+  - 涉及部門
+  - 輸出成果
+  - 工作頻率
+  - Trigger、關鍵字與來源證據
+- Work DNA 儲存在既有 `intelligence_summary` JSONB，不新增 Supabase Schema。
+- 建議建立前先經 Suggestion Intelligence 與「我的工作」比對；既有相似工作直接引用，不建立新候選。
+- Learning Review 第一層改為 Work DNA；原本的 Unit / Chunk 降為可展開的追溯證據。
+- 只有「確認／檢查／追蹤」而缺少工作脈絡時，不產生低品質工作建議。
+- 新增 Work Intelligence 與完整 Learning Pipeline 自動化測試。
+
+### 🪶 Companion QA
+
+1. 我是否學到工作，而不是只抓到動詞？
+   - 是。動作句只作為 Work DNA 的流程證據。
+2. 我是否知道工作為什麼存在、如何完成與產出什麼？
+   - 是。每項工作都有目的、流程、系統、部門、成果、頻率與 Trigger。
+3. 我是否避免重複教主人已確認的工作？
+   - 是。所有新工作在建立建議前都會比對 Work Memory。
+4. 這次學習是否能改善後續工時？
+   - 是。只有高層級 Work 會進入 Suggestion Queue，後續工時建議不再引用零碎動作。
+
+### 🎯 Mr. KM Perspective
+
+以前，我先看到「確認、檢查、追蹤」。
+
+現在，我會先問：這些步驟共同完成的是哪一份工作？我會把句子留作證據，把真正的工作記成 Work DNA，再請主人確認我理解得對不對。
+
 ## Build 20260714-1604 - P5.3 Refactoring Sprint 1
 
 - 新增獨立純邏輯模組 `suggestion-intelligence.js`，負責：
