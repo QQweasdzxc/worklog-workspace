@@ -277,11 +277,11 @@ async function extractKnowledgeText(source = {}, file = null) {
     console.info("Knowledge Intelligence storage download debug", debugPayload);
     if (!storageKey) {
       console.error("Knowledge Intelligence missing storage_path", debugPayload);
-      throw new Error("此知識來源尚無正式檔案，請重新上傳檔案後再開始整理");
+      throw new Error("我還沒有拿到可閱讀的正式檔案，請重新上傳後再讓我學習");
     }
     if (!storageKey.includes("/")) {
       console.error("Knowledge Intelligence invalid storage_path", debugPayload);
-      throw new Error("此知識來源的 Storage 路徑不完整，請重新上傳檔案後再開始整理");
+      throw new Error("我找不到這份檔案的雲端路徑，請重新上傳後再讓我學習");
     }
     const signedUrl = await KnowledgeRepository.signedSourceUrl(storageKey, 300);
     const res = await fetch(signedUrl);
@@ -449,14 +449,14 @@ const KnowledgeIntelligence = {
       callStack: new Error("KnowledgeIntelligence.processSource stack").stack
     });
     try {
-      toast("藏書閣：等待整理");
+      toast("我準備開始閱讀這份文件");
       await DataService.updateKnowledgeProcessing(item, { processingStatus: "queued", intelligenceError: null });
-      toast("藏書閣：整理中");
+      toast("我正在理解你的工作");
       await DataService.updateKnowledgeProcessing(item, { processingStatus: "processing", intelligenceError: null });
       const extracted = await extractKnowledgeText(item, options.file || null);
       const result = buildKnowledgeIntelligence(item, extracted);
       const saved = await DataService.saveKnowledgeIntelligenceResult(item, result);
-      toast("藏書閣已整理完成");
+      toast("我整理好了，請確認我的理解");
       return saved;
     } catch (error) {
       console.error("Knowledge Intelligence processing failed", { error, source: item });
@@ -464,7 +464,7 @@ const KnowledgeIntelligence = {
         processingStatus: "failed",
         intelligenceError: error.message || "文件處理失敗"
       }).catch(syncError => console.error("Knowledge failure status sync failed", { syncError, source: item }));
-      toast(error.message || "藏書閣整理失敗");
+      toast(error.message || "我這次沒有可靠讀懂這份文件");
       throw error;
     }
   },

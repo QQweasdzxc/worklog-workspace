@@ -1,5 +1,36 @@
 # WorkLog RC3 Release Patch1
 
+## Build 20260714-1347 - P5.2B Product Alignment
+
+- Header 品牌調整為「🪶 Zhuge AI OS / by Mr. KM」，首頁不再顯示工程版本號。
+- 藏書閣文案收斂為「教 Mr. KM 學會你的工作」，避免把第一層體驗做成文件管理。
+- 知識整理、理解結果與能力卡改用 Mr. KM 第一人稱語氣，讓使用者感覺是在教工作夥伴，而不是操作 AI 系統。
+- 設定頁「工作模型」顯示語意調整為「我的工作」，KM 建議來源也改為引用「我的工作」。
+- README 新增 Product Charter 摘要與「🪶 Mr. KM 成長日誌」。
+- 本輪不新增 AI 能力、不修改 Supabase Schema、不修改 Storage / PDF / Unicode / DataService / Repository / WorkLog 正式流程。
+
+### 🎯 Mr. KM Perspective
+
+如果我是 Mr. KM，
+
+這一版我學會了什麼？
+
+- 我學會用更像工作夥伴的方式說話，而不是像一套 AI 系統。
+- 我開始把藏書閣表達成「你正在教我新的工作」，而不是「你正在管理文件」。
+
+我少讓使用者做了哪些事情？
+
+- 使用者不需要先理解 Metadata、Knowledge Units 或 Recommendation Candidate 這些工程詞。
+- 使用者可以更直接知道：文件最後會回到「我的工作」，並讓工時建議更準。
+
+使用者是否更容易完成工時？
+
+- 是。KM 建議的來源更清楚地回到「我的工作」，使用者更容易理解為什麼可以把建議加入工時。
+
+我是否更懂使用者？
+
+- 是。這一版讓產品主線更清楚：每一次學習，都是為了讓下一次工時更容易完成。
+
 ## Build 20260713-2210 - P5.2 Knowledge Intelligence v1
 
 - 新增 `knowledge-intelligence.js`，將文件擷取、摘要、Knowledge Units、建議工作候選從 `worklog-app.js` 拆出。

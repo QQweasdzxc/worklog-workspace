@@ -1350,11 +1350,11 @@ function headerWorkIdentityStatus() {
 }
 
 function header() {
-  return `<div class="top"><div class="brand-row"><button class="mini adaptive-menu" data-toggle-sidebar="1">☰</button><h1>🧠 Zhuge AI OS</h1><span class="header-version">${RELEASE_VERSION}</span></div><div class="header-right">${headerWorkIdentityStatus()}${userBadge()}</div></div>`;
+  return `<div class="top"><div class="brand-row"><button class="mini adaptive-menu" data-toggle-sidebar="1">☰</button><h1>🪶 Zhuge AI OS</h1><span class="header-version">by Mr. KM</span></div><div class="header-right">${headerWorkIdentityStatus()}${userBadge()}</div></div>`;
 }
 
 function authScreen() {
-  return `<div class="wrap"><div class="card"><section class="panel" style="margin-top:18px"><h1>🧠 Zhuge AI OS</h1><button class="btn full" id="googleLoginBtn">使用 Google 登入</button></section></div></div>`;
+  return `<div class="wrap"><div class="card"><section class="panel" style="margin-top:18px"><h1>🪶 Zhuge AI OS</h1><div class="muted">by Mr. KM</div><button class="btn full" id="googleLoginBtn">使用 Google 登入</button></section></div></div>`;
 }
 
 function worklogWelcomeSeen() {
@@ -1395,7 +1395,7 @@ function migrationScreen() {
 }
 
 function zhugeDashboard() {
-  return `<section class="panel os-home"><div class="panel-head"><div><h2>🧠 Zhuge AI OS</h2><div class="muted">請從左側營帳進入工作區。</div></div></div></section>`;
+  return `<section class="panel os-home"><div class="panel-head"><div><h2>🪶 Zhuge AI OS</h2><div class="muted">今天，也讓 Mr. KM 陪你一起完成工作吧。</div></div></div></section>`;
 }
 
 function workspaceDef(id) {
@@ -1495,11 +1495,11 @@ function osShell() {
 }
 
 function onboardingWorkspace() {
-  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>🪶 初次認識工時營帳</h2><div class="muted">建立工作模型後，即可使用 Calendar、我的工作與 Mr. KM 今日建議。</div></div></div><div class="profile-grid"><div><label>你的職務</label><select id="role" class="input">${roles.map(r => `<option>${r}</option>`).join("")}</select></div><div><label>每日工時</label><select class="input"><option>09:00~18:00，午休 12:00~13:00</option></select></div></div><label>工作模型</label><div class="row two" id="tagOptions">${tagButtons(tagsForRole("採購"))}</div><label>SOP 狀態</label><select id="sop" class="input"><option>目前沒有 SOP，先用職務模型</option><option>有 SOP，之後上傳</option></select><label>工作來源</label><div class="row two">${["Google Drive", "Gmail", "Calendar", "手動紀錄"].map(s => `<button class="btn2 src-btn" data-src="${s}">${s}</button>`).join("")}</div><button class="btn full" id="saveProfile">建立我的工作模型</button></section>`;
+  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>🪶 初次認識工時營帳</h2><div class="muted">建立「我的工作」後，我就能提供更貼近你的工時建議。</div></div></div><div class="profile-grid"><div><label>你的職務</label><select id="role" class="input">${roles.map(r => `<option>${r}</option>`).join("")}</select></div><div><label>每日工時</label><select class="input"><option>09:00~18:00，午休 12:00~13:00</option></select></div></div><label>我的工作</label><div class="row two" id="tagOptions">${tagButtons(tagsForRole("採購"))}</div><label>SOP 狀態</label><select id="sop" class="input"><option>目前沒有 SOP，先用職務模型</option><option>有 SOP，之後上傳</option></select><label>工作來源</label><div class="row two">${["Google Drive", "Gmail", "Calendar", "手動紀錄"].map(s => `<button class="btn2 src-btn" data-src="${s}">${s}</button>`).join("")}</div><button class="btn full" id="saveProfile">建立我的工作</button></section>`;
 }
 
 function onboarding() {
-  return `<div class="wrap"><div class="card"><div class="top"><div><div class="muted">🪶 初次認識</div><h1>你好，我是 Mr. KM</h1><div class="muted">我想先了解你的工作，之後才能產生更貼近你的每日工作建議卡。</div></div><div class="header-right">${userBadge()}<div class="tag">${VERSION}</div></div></div><section class="panel" style="margin-top:18px"><div class="profile-grid"><div><label>你的職務</label><select id="role" class="input">${roles.map(r => `<option>${r}</option>`).join("")}</select></div><div><label>每日工時</label><select class="input"><option>09:00~18:00，午休 12:00~13:00</option></select></div></div><label>工作模型</label><div class="row two" id="tagOptions">${tagButtons(tagsForRole("採購"))}</div><label>SOP 狀態</label><select id="sop" class="input"><option>目前沒有 SOP，先用職務模型</option><option>有 SOP，之後上傳</option></select><label>工作來源</label><div class="row two">${["Google Drive", "Gmail", "Calendar", "手動紀錄"].map(s => `<button class="btn2 src-btn" data-src="${s}">${s}</button>`).join("")}</div><button class="btn full" id="saveProfile">建立我的工作模型</button></section></div></div>`;
+  return `<div class="wrap"><div class="card"><div class="top"><div><div class="muted">🪶 初次認識</div><h1>你好，我是 Mr. KM</h1><div class="muted">我想先了解你的工作，之後才能產生更貼近你的每日工作建議卡。</div></div><div class="header-right">${userBadge()}<div class="tag">${VERSION}</div></div></div><section class="panel" style="margin-top:18px"><div class="profile-grid"><div><label>你的職務</label><select id="role" class="input">${roles.map(r => `<option>${r}</option>`).join("")}</select></div><div><label>每日工時</label><select class="input"><option>09:00~18:00，午休 12:00~13:00</option></select></div></div><label>我的工作</label><div class="row two" id="tagOptions">${tagButtons(tagsForRole("採購"))}</div><label>SOP 狀態</label><select id="sop" class="input"><option>目前沒有 SOP，先用職務模型</option><option>有 SOP，之後上傳</option></select><label>工作來源</label><div class="row two">${["Google Drive", "Gmail", "Calendar", "手動紀錄"].map(s => `<button class="btn2 src-btn" data-src="${s}">${s}</button>`).join("")}</div><button class="btn full" id="saveProfile">建立我的工作</button></section></div></div>`;
 }
 
 function calendarPanel() {
@@ -1634,7 +1634,7 @@ function makeSuggestions() {
   let tags = workModels();
   tags.sort((a, b) => (feedback[b] || 0) - (feedback[a] || 0));
   const suggestions = [];
-  const sourceLabel = `📂 來源：${profile?.role ? `${profile.role}工作模型` : "工作模型"}`;
+  const sourceLabel = `📂 來源：我的工作${profile?.role ? `（${profile.role}）` : ""}`;
   for (const tag of tags) {
     if (done.some(d => d.includes(tag))) continue;
     const hours = 1;
@@ -1653,11 +1653,11 @@ function makeSuggestions() {
 
 function suggestionPanel() {
   const s = makeSuggestions();
-  if (!s.length) return `<h2>🪶 Mr. KM 建議</h2><div class="empty"><b>目前沒有建議</b><div class="muted">可能工時已滿，或工作模型尚未建立。</div></div>`;
+  if (!s.length) return `<h2>🪶 Mr. KM 建議</h2><div class="empty"><b>目前沒有建議</b><div class="muted">可能工時已滿，或「我的工作」尚未建立。</div></div>`;
   const start = ((aiTodaySuggestionIndex % s.length) + s.length) % s.length;
   const batchSize = Math.min(5, s.length);
   const batch = Array.from({ length: batchSize }, (_, i) => s[(start + i) % s.length]);
-  return `<div class="panel-head"><h2>🪶 Mr. KM 建議</h2><div class="tag">${batch.length} / ${s.length}</div></div><div class="ai-suggestion-scan-list">${batch.map((x, i) => `<div class="suggestion-scan-item"><div class="suggestion-scan-index">${start + i + 1 > s.length ? start + i + 1 - s.length : start + i + 1}</div><div class="suggestion-scan-body"><div class="suggestion-title-row"><h3>${escapeHtml(x.title)}</h3><div class="actions suggestion-actions"><button class="btn green" data-accept="${escapeHtml(x.id)}">加入工時</button><button class="btn2" data-adjust="${escapeHtml(x.id)}">調整</button></div></div><div class="suggestion-source">${escapeHtml(x.sourceLabel || "📂 來源：工作模型")}｜⏱ 預設工時：${Number(x.hours || 1)}h</div></div></div>`).join("")}</div>${s.length > batch.length ? `<div class="suggestion-scan-footer"><button class="btn2" type="button" data-suggestion-next-batch="1">下一批 &gt;</button></div>` : ""}`;
+  return `<div class="panel-head"><h2>🪶 Mr. KM 建議</h2><div class="tag">${batch.length} / ${s.length}</div></div><div class="ai-suggestion-scan-list">${batch.map((x, i) => `<div class="suggestion-scan-item"><div class="suggestion-scan-index">${start + i + 1 > s.length ? start + i + 1 - s.length : start + i + 1}</div><div class="suggestion-scan-body"><div class="suggestion-title-row"><h3>${escapeHtml(x.title)}</h3><div class="actions suggestion-actions"><button class="btn green" data-accept="${escapeHtml(x.id)}">加入工時</button><button class="btn2" data-adjust="${escapeHtml(x.id)}">調整</button></div></div><div class="suggestion-source">${escapeHtml(x.sourceLabel || "📂 來源：我的工作")}｜⏱ 預設工時：${Number(x.hours || 1)}h</div></div></div>`).join("")}</div>${s.length > batch.length ? `<div class="suggestion-scan-footer"><button class="btn2" type="button" data-suggestion-next-batch="1">下一批 &gt;</button></div>` : ""}`;
 }
 
 function mobileWorklogTabs() {
@@ -1973,7 +1973,7 @@ function knowledgeSourceTypeLabel(type = "") {
 }
 
 function knowledgeActionLabel(status = "uploaded") {
-  return ["processed", "verified", "failed"].includes(status) ? "重新整理" : "開始整理";
+  return ["processed", "verified", "failed"].includes(status) ? "重新學習" : "開始學習";
 }
 
 function canViewKnowledgeResult(status = "uploaded") {
@@ -2161,13 +2161,13 @@ function knowledgeCardSummary(item = {}) {
   const status = item.processingStatus;
   const summaryLine = summary.documentName
     ? `主要主題：${topics.slice(0, 5).join("、") || "尚未擷取"}`
-    : (status === "uploaded" ? "尚未開始整理。可按「開始整理」建立摘要與工作知識。" : "");
+    : (status === "uploaded" ? "我還沒開始閱讀。按「開始學習」後，我會整理成可用於工時建議的工作。" : "");
   const errorLine = status === "failed" && item.intelligenceError ? `<div class="source-path">錯誤：${escapeHtml(item.intelligenceError)}</div>` : "";
-  return `<div class="source-path">${escapeHtml(summaryLine)}</div><div class="source-path">整理成果｜摘要：${counts.summary}｜流程：${counts.process}｜規則：${counts.rule}｜建議工作：${counts.recommendation}</div>${errorLine}`;
+  return `<div class="source-path">${escapeHtml(summaryLine)}</div><div class="source-path">我整理出｜理解：${counts.summary}｜流程：${counts.process}｜規則：${counts.rule}｜可協助工作：${counts.recommendation}</div>${errorLine}`;
 }
 
 function libraryView() {
-  const addButton = knowledgeFoundationNotInitialized ? "" : `<button class="btn" data-add-library="1">🪶 教 Mr. KM 新知識</button>`;
+  const addButton = knowledgeFoundationNotInitialized ? "" : `<button class="btn" data-add-library="1">🪶 教我新的工作</button>`;
   const legacyItems = legacyKnowledgeItems();
   const legacyBlock = !knowledgeFoundationNotInitialized && legacyItems.length && !hasLegacyKnowledgeMigrationDone()
     ? `<div class="empty knowledge-migration-preview"><b>偵測到舊版藏書：${legacyItems.length} 筆</b><div class="muted">舊版資料搬移需由使用者確認。若舊資料沒有原始檔，將先搬移資料摘要，原始檔可後續編輯補上傳。</div><button class="btn2" data-preview-legacy-knowledge="1">預覽 / 搬移舊版藏書</button></div>`
@@ -2180,18 +2180,18 @@ function libraryView() {
       const capabilities = knowledgeCapabilityItems(item, 4);
       const capabilityList = capabilities.length
         ? capabilities.map(capability => `<li>✓ ${escapeHtml(capability)}</li>`).join("")
-        : `<li>${item.processingStatus === "uploaded" ? "等待您開始教 Mr. KM 這份知識" : "尚未整理出工作能力"}</li>`;
+        : `<li>${item.processingStatus === "uploaded" ? "等你把這份文件交給我學習" : "我還沒整理出可用於工時的工作"}</li>`;
       const counts = knowledgeOutcomeCounts(item);
-      return `<div class="entry knowledge-card"><div class="entry-main"><b>🪶 ${escapeHtml(item.title)}</b><div class="muted">${escapeHtml(knowledgeLearnedLabel(item.processingStatus))}</div><small>${escapeHtml(item.description || "這份文件會成為 Mr. KM 的工作知識。")}</small><div class="source-path"><b>Mr. KM 已學會：</b></div><ul class="knowledge-result-list">${capabilityList}</ul><div class="source-path">整理成果｜摘要 ${counts.summary}｜流程 ${counts.process}｜規則 ${counts.rule}｜建議工作 ${counts.recommendation}</div>${item.processingStatus === "failed" && item.intelligenceError ? `<div class="source-path">整理失敗原因：${escapeHtml(item.intelligenceError)}</div>` : ""}</div><div class="actions compact"><button class="btn2" ${viewDisabled} data-view-knowledge-result="${item.id}">查看 Mr. KM 的理解</button><button class="btn2" data-reprocess-library="${item.id}">${knowledgeActionLabel(item.processingStatus)}</button>${item.processingStatus === "processed" ? `<button class="btn green" data-verify-library="${item.id}">✓ 確認理解正確</button>` : ""}<button class="btn2" data-preview-library="${item.id}">預覽原始檔</button><button class="btn2" data-edit-library="${item.id}">✏️ 調整內容</button><button class="btn2" data-archive-library="${item.id}">封存</button><button class="btn2 danger" data-del-library="${item.id}">刪除</button></div></div>`;
-    }).join("") : `<div class="empty"><b>還沒有教 Mr. KM 新知識</b><div class="muted">請上傳 SOP、制度、法規、表單或教材，讓 Mr. KM 學會新的工作能力。</div><button class="btn" data-add-library="1">🪶 教 Mr. KM 新知識</button></div>`);
-  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>📚 藏書閣</h2><div class="muted">這裡不是文件庫，而是 Mr. KM 學習您工作能力的地方。</div></div>${addButton}</div>${legacyBlock}<div class="library-list">${body}</div></section>`;
+      return `<div class="entry knowledge-card"><div class="entry-main"><b>🪶 ${escapeHtml(item.title)}</b><div class="muted">${escapeHtml(knowledgeLearnedLabel(item.processingStatus))}</div><small>${escapeHtml(item.description || "這份文件會幫我更懂你的工作。")}</small><div class="source-path"><b>我目前理解出的工作：</b></div><ul class="knowledge-result-list">${capabilityList}</ul><div class="source-path">我整理出｜理解 ${counts.summary}｜流程 ${counts.process}｜規則 ${counts.rule}｜可協助工作 ${counts.recommendation}</div>${item.processingStatus === "failed" && item.intelligenceError ? `<div class="source-path">我讀不懂的原因：${escapeHtml(item.intelligenceError)}</div>` : ""}</div><div class="actions compact"><button class="btn2" ${viewDisabled} data-view-knowledge-result="${item.id}">查看我的理解</button><button class="btn2" data-reprocess-library="${item.id}">${knowledgeActionLabel(item.processingStatus)}</button>${item.processingStatus === "processed" ? `<button class="btn green" data-verify-library="${item.id}">✓ 接受我的理解</button>` : ""}<button class="btn2" data-preview-library="${item.id}">預覽原始檔</button><button class="btn2" data-edit-library="${item.id}">✏️ 調整我的理解</button><button class="btn2" data-archive-library="${item.id}">封存</button><button class="btn2 danger" data-del-library="${item.id}">刪除</button></div></div>`;
+    }).join("") : `<div class="empty"><b>還沒有教我新的工作</b><div class="muted">請上傳 SOP、Excel 或文件，讓我開始理解你每天會做哪些工作。</div><button class="btn" data-add-library="1">🪶 教我新的工作</button></div>`);
+  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>📚 教 Mr. KM 學會你的工作</h2><div class="muted">上傳 SOP、Excel 或文件後，我會整理出可用於工時建議的工作。</div></div>${addButton}</div>${legacyBlock}<div class="library-list">${body}</div></section>`;
 }
 
 function libraryLearningView() {
   const item = normalizedLibraryItem(learningKnowledgeDraft || library.find(x => x.id === viewingKnowledgeId || x.cloudId === viewingKnowledgeId) || {});
   const title = item.title || "新的工作知識";
   const fileName = item.filename || item.sourceName || "您提供的文件";
-  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>🪶 Mr. KM 正在閱讀...</h2><div class="muted">我正在把這份文件轉換成可以協助您的工作能力。</div></div></div><div class="entry"><div class="entry-main"><b>${escapeHtml(title)}</b><div class="source-path">${escapeHtml(fileName)}</div><small>${escapeHtml(item.description || "Mr. KM 會先理解內容，再請您確認是否正確。")}</small></div></div><div class="entry"><b>學習進度</b><ul class="knowledge-result-list"><li>✓ 讀取檔案</li><li>✓ 擷取文字</li><li>⏳ 理解內容</li><li>⏳ 整理工作知識</li><li>⏳ 建立建議工作</li></ul></div><div class="muted">請稍候，完成後會直接顯示 Mr. KM 的理解結果。</div></section>`;
+  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>🪶 我正在閱讀這份文件...</h2><div class="muted">我正在把它轉換成之後可以協助你完成工時的工作。</div></div></div><div class="entry"><div class="entry-main"><b>${escapeHtml(title)}</b><div class="source-path">${escapeHtml(fileName)}</div><small>${escapeHtml(item.description || "我會先理解內容，再請你確認我理解得對不對。")}</small></div></div><div class="entry"><b>我正在學習</b><ul class="knowledge-result-list"><li>✓ 讀取檔案</li><li>✓ 擷取文字</li><li>⏳ 理解你的工作</li><li>⏳ 整理成「我的工作」</li><li>⏳ 準備之後可提醒你的工時建議</li></ul></div><div class="muted">請稍候，完成後我會請你確認我的理解。</div></section>`;
 }
 
 function libraryIntelligenceView(id = null) {
@@ -2202,27 +2202,27 @@ function libraryIntelligenceView(id = null) {
   const candidates = knowledgeCandidatesForSource(item);
   const isFailed = item.processingStatus === "failed";
   const isCompleted = ["processed", "verified", "knowledge_built"].includes(item.processingStatus);
-  const resultHeading = isFailed ? "🪶 Mr. KM 整理失敗" : (isCompleted ? "🪶 Mr. KM 已完成整理" : "🪶 Mr. KM 整理結果");
+  const resultHeading = isFailed ? "🪶 我暫時讀不懂這份文件" : (isCompleted ? "🪶 我整理好了，請確認我的理解" : "🪶 我正在整理我的理解");
   const list = value => arrayFromInput(value).map(x => `<li>${escapeHtml(x)}</li>`).join("") || "<li>尚未整理</li>";
   const readableSummary = summary.topics?.length
-    ? `這份文件主要說明 ${summary.topics.slice(0, 6).join("、")} 等工作內容，後續可作為 Mr. KM 理解工作與產生建議的依據。`
-    : (isFailed ? "這份文件整理失敗，請查看錯誤原因後重新整理。" : "這份文件尚未完成整理。");
+    ? `我理解這份文件主要是在說 ${summary.topics.slice(0, 6).join("、")} 等工作。之後我會用這些理解，讓工時建議更貼近你的工作。`
+    : (isFailed ? "我這次沒有可靠讀懂內容，請查看原因後再讓我重新學習。" : "我還在整理這份文件。");
   const processItems = units.filter(unit => ["process", "checklist"].includes(unit.unitType)).map(unit => unit.title);
   const ruleItems = units.filter(unit => ["rule", "exception"].includes(unit.unitType)).map(unit => unit.title);
   const focusItems = [...summary.topics || [], ...processItems.slice(0, 4), ...ruleItems.slice(0, 4)].slice(0, 10);
-  const autoMeta = `<div class="entry"><b>我自動判斷</b><div class="source-path">知識類型：${escapeHtml(KNOWLEDGE_SCOPE_LABELS[item.scope] || item.scope || "待確認")}</div><div class="source-path">適用對象：${escapeHtml(item.applicableAgents.join("、") || "待確認")}</div><div class="source-path">適用職務：${escapeHtml(item.relatedRoles.map(roleDisplayName).join("、") || "待確認")}</div><div class="source-path">標籤：${escapeHtml(item.tags.join("、") || "待確認")}</div><div class="source-path">工作模式：${escapeHtml(item.relatedWorkModels.join("、") || "待確認")}</div></div>`;
+  const autoMeta = `<div class="entry"><b>我先幫你判斷</b><div class="source-path">工作來源類型：${escapeHtml(KNOWLEDGE_SCOPE_LABELS[item.scope] || item.scope || "待確認")}</div><div class="source-path">適用對象：${escapeHtml(item.applicableAgents.join("、") || "待確認")}</div><div class="source-path">適用職務：${escapeHtml(item.relatedRoles.map(roleDisplayName).join("、") || "待確認")}</div><div class="source-path">標籤：${escapeHtml(item.tags.join("、") || "待確認")}</div><div class="source-path">我的工作：${escapeHtml(item.relatedWorkModels.join("、") || "待確認")}</div></div>`;
   const resultActions = isFailed
-    ? `<button class="btn2" data-reprocess-library="${item.id}">重新整理</button><button class="btn2" data-edit-library="${item.id}">✏️ 調整內容</button>`
-    : `<button class="btn green" data-verify-library="${item.id}">✓ 確認理解正確</button><button class="btn2" data-edit-library="${item.id}">✏️ 調整內容</button>`;
-  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>${escapeHtml(resultHeading)}</h2><div class="muted">${escapeHtml(item.knowledgeId)}｜${escapeHtml(knowledgeLearnedLabel(item.processingStatus))}</div></div><button class="btn2" data-library-back="1">返回藏書閣</button></div><div class="entry"><div class="entry-main"><b>${escapeHtml(item.title)}</b><div class="source-path">整理方式：${escapeHtml(knowledgeSupportLevelLabel(summary.supportLevel))}</div>${item.intelligenceError ? `<div class="source-path">錯誤原因：${escapeHtml(item.intelligenceError)}</div>` : ""}</div><div class="actions compact"><button class="btn2" data-reprocess-library="${item.id}">${knowledgeActionLabel(item.processingStatus)}</button></div></div><div class="entry"><b>文件摘要</b><p class="muted">${escapeHtml(readableSummary)}</p></div><div class="profile-grid"><div class="entry"><b>工作流程</b><ul class="knowledge-result-list">${list(processItems)}</ul></div><div class="entry"><b>重要規則</b><ul class="knowledge-result-list">${list(ruleItems)}</ul></div></div><div class="entry"><b>我可以協助的工作</b><ul class="knowledge-result-list">${candidates.length ? candidates.map(candidate => `<li>□ ${escapeHtml(candidate.title)}（約 ${candidate.defaultDuration}h）</li>`).join("") : "<li>尚未整理出可建立工作</li>"}</ul></div><div class="entry"><b>重點整理</b><ul class="knowledge-result-list">${list(focusItems)}</ul></div>${autoMeta}<section class="panel" style="margin-top:12px"><h3>工作知識（${units.length}）</h3>${units.length ? units.map(unit => `<div class="entry"><div class="entry-main"><b>${escapeHtml(unit.title)}</b><div class="muted">${escapeHtml(knowledgeUnitTypeLabel(unit.unitType))}｜${escapeHtml(unit.sectionReference || "")}</div><small>${escapeHtml(unit.summary || unit.content)}</small><div class="library-tag-line">${unit.triggers.map(tag => `<span>${escapeHtml(tag)}</span>`).join("")}</div></div><div class="actions compact"><button class="btn2 danger" data-remove-knowledge-unit="${unit.id}">移除</button></div></div>`).join("") : `<div class="empty">尚未整理出工作知識。</div>`}</section><div class="form-actions">${resultActions}</div></section>`;
+    ? `<button class="btn2" data-reprocess-library="${item.id}">重新學習</button><button class="btn2" data-edit-library="${item.id}">✏️ 調整我的理解</button>`
+    : `<button class="btn green" data-verify-library="${item.id}">✓ 接受我的理解</button><button class="btn2" data-edit-library="${item.id}">✏️ 調整我的理解</button>`;
+  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>${escapeHtml(resultHeading)}</h2><div class="muted">${escapeHtml(item.knowledgeId)}｜${escapeHtml(knowledgeLearnedLabel(item.processingStatus))}</div></div><button class="btn2" data-library-back="1">返回藏書閣</button></div><div class="entry"><div class="entry-main"><b>${escapeHtml(item.title)}</b><div class="source-path">我閱讀到的品質：${escapeHtml(knowledgeSupportLevelLabel(summary.supportLevel))}</div>${item.intelligenceError ? `<div class="source-path">我讀不懂的原因：${escapeHtml(item.intelligenceError)}</div>` : ""}</div><div class="actions compact"><button class="btn2" data-reprocess-library="${item.id}">${knowledgeActionLabel(item.processingStatus)}</button></div></div><div class="entry"><b>我理解這份文件主要是在說</b><p class="muted">${escapeHtml(readableSummary)}</p></div><div class="profile-grid"><div class="entry"><b>我理解出的工作流程</b><ul class="knowledge-result-list">${list(processItems)}</ul></div><div class="entry"><b>我注意到的規則</b><ul class="knowledge-result-list">${list(ruleItems)}</ul></div></div><div class="entry"><b>我之後可以協助你完成這些工作</b><ul class="knowledge-result-list">${candidates.length ? candidates.map(candidate => `<li>□ ${escapeHtml(candidate.title)}（約 ${candidate.defaultDuration}h）</li>`).join("") : "<li>我還沒整理出可直接協助的工作</li>"}</ul></div><div class="entry"><b>我整理出的重點</b><ul class="knowledge-result-list">${list(focusItems)}</ul></div>${autoMeta}<section class="panel" style="margin-top:12px"><h3>我目前整理出的工作（${units.length}）</h3>${units.length ? units.map(unit => `<div class="entry"><div class="entry-main"><b>${escapeHtml(unit.title)}</b><div class="muted">${escapeHtml(knowledgeUnitTypeLabel(unit.unitType))}｜${escapeHtml(unit.sectionReference || "")}</div><small>${escapeHtml(unit.summary || unit.content)}</small><div class="library-tag-line">${unit.triggers.map(tag => `<span>${escapeHtml(tag)}</span>`).join("")}</div></div><div class="actions compact"><button class="btn2 danger" data-remove-knowledge-unit="${unit.id}">移除</button></div></div>`).join("") : `<div class="empty">我還沒整理出可用於工時的工作。</div>`}</section><div class="form-actions">${resultActions}</div></section>`;
 }
 
 function libraryForm(id = null) {
   const item = normalizedLibraryItem(id ? library.find(x => x.id === id) : {});
   if (!id) {
-    return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>🪶 教 Mr. KM 新知識</h2><div class="muted">請提供文件，其餘分類、標籤與工作拆解交給 Mr. KM 先理解。</div></div><button class="btn2" data-library-back="1">返回</button></div><div class="entry"><b>一份文件，就是一次教學</b><div class="muted">使用者提供內容，Mr. KM 負責理解內容。整理完成後，再請您確認理解是否正確。</div></div><label>知識標題 <span class="muted">必填</span></label><input id="libTitle" class="input" value="" placeholder="例如：採購工作提醒事項 SOP"><label>說明 <span class="muted">選填</span></label><textarea id="libDesc" placeholder="可以簡單說明這份文件想教 Mr. KM 什麼，也可以留空。"></textarea><label>上傳檔案 <span class="muted">必填</span></label><div class="upload-drop"><input id="libFile" type="file"><span>請選擇 PDF / Word / Excel / PowerPoint / TXT</span></div><div class="library-ai-preview"><b>🪶 Mr. KM 會自動閱讀與理解</b><div class="muted">我會整理文件摘要、工作流程、重要規則、可建立工作，並自動判斷適用對象與標籤。</div></div><div class="form-actions"><button class="btn2" data-library-cancel="1">取消</button><button class="btn" id="saveLibrary">🪶 開始學習</button></div></section>`;
+    return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>🪶 教我新的工作</h2><div class="muted">請提供文件，其餘分類、標籤與工作拆解先交給我理解。</div></div><button class="btn2" data-library-back="1">返回</button></div><div class="entry"><b>一份文件，就是一次教學</b><div class="muted">你只需要提供內容；我會先理解，再請你確認我理解得對不對。</div></div><label>這次要教我的主題 <span class="muted">必填</span></label><input id="libTitle" class="input" value="" placeholder="例如：採購工作提醒事項 SOP"><label>說明 <span class="muted">選填</span></label><textarea id="libDesc" placeholder="可以簡單告訴我這份文件和什麼工作有關，也可以留空。"></textarea><label>上傳檔案 <span class="muted">必填</span></label><div class="upload-drop"><input id="libFile" type="file"><span>請選擇 PDF / Word / Excel / PowerPoint / TXT</span></div><div class="library-ai-preview"><b>🪶 我會先讀，再請你確認</b><div class="muted">我會整理我理解的工作、流程、規則與之後可以協助你的工時建議。</div></div><div class="form-actions"><button class="btn2" data-library-cancel="1">取消</button><button class="btn" id="saveLibrary">🪶 開始學習</button></div></section>`;
   }
-  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>✏️ 調整 Mr. KM 的理解</h2><div class="muted">只有需要修正 Mr. KM 自動判斷時，才需要調整這些內容。</div></div><button class="btn2" data-library-back="1">返回</button></div><label>知識編號</label><input id="libKnowledgeId" class="input" value="${escapeHtml(item.knowledgeId || "儲存後產生")}" readonly><label>知識標題</label><input id="libTitle" class="input" value="${escapeHtml(item.title || "")}" placeholder="例如：採購請購 SOP"><label>說明</label><textarea id="libDesc" placeholder="這份知識想讓 Mr. KM 知道什麼？">${escapeHtml(item.description || "")}</textarea><label>分類</label><select id="libCategory" class="input">${selectOptions(KNOWLEDGE_CATEGORIES, item.category)}</select><label>知識類型</label><select id="libScope" class="input">${KNOWLEDGE_SCOPES.map(scope => `<option value="${escapeHtml(scope)}" ${scope === item.scope ? "selected" : ""}>${escapeHtml(KNOWLEDGE_SCOPE_LABELS[scope])}</option>`).join("")}</select><div class="muted">這些是 Mr. KM 自動理解後的資料，通常不需要手動調整。</div><label>適用對象</label>${checkboxGroup(KNOWLEDGE_AGENTS, item.applicableAgents, "libAgents")}<label>適用職務</label>${checkboxGroup(KNOWLEDGE_ROLE_OPTIONS, item.relatedRoles, "libRoles")}<label>工作模式</label>${checkboxGroup(workModels(), item.relatedWorkModels, "libWorkModels")}<label>標籤</label><input id="libTags" class="input" value="${escapeHtml(item.tags.join("、"))}" placeholder="採購、請購、供應商、SOP"><label>觸發關鍵字</label><input id="libTriggers" class="input" value="${escapeHtml(item.triggers.join("、"))}" placeholder="供應商會議、新供應商、年度評鑑"><label>版本</label><input id="libVersion" class="input" value="${escapeHtml(item.version || "v1.0")}" placeholder="v1.0"><label>來源版本</label><input id="libSourceVersion" class="input" value="${escapeHtml(item.sourceVersion || item.version || "v1.0")}" placeholder="v1.0"><label>整理狀態</label><div class="readonly-status">${escapeHtml(processingStatusLabel(item.processingStatus || "uploaded"))}</div><label>重新上傳檔案 <span class="muted">選填</span></label><div class="upload-drop"><input id="libFile" type="file"><span>${escapeHtml(item.filename || "不重新上傳，則保留原始檔案")}</span></div><div class="form-actions"><button class="btn2" data-library-cancel="1">取消</button><button class="btn" id="saveLibrary">儲存調整</button></div></section>`;
+  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>✏️ 調整我的理解</h2><div class="muted">只有需要修正我自動判斷時，才需要調整這些內容。</div></div><button class="btn2" data-library-back="1">返回</button></div><label>知識編號</label><input id="libKnowledgeId" class="input" value="${escapeHtml(item.knowledgeId || "儲存後產生")}" readonly><label>主題</label><input id="libTitle" class="input" value="${escapeHtml(item.title || "")}" placeholder="例如：採購請購 SOP"><label>說明</label><textarea id="libDesc" placeholder="這份文件想讓我理解什麼工作？">${escapeHtml(item.description || "")}</textarea><label>分類</label><select id="libCategory" class="input">${selectOptions(KNOWLEDGE_CATEGORIES, item.category)}</select><label>工作來源類型</label><select id="libScope" class="input">${KNOWLEDGE_SCOPES.map(scope => `<option value="${escapeHtml(scope)}" ${scope === item.scope ? "selected" : ""}>${escapeHtml(KNOWLEDGE_SCOPE_LABELS[scope])}</option>`).join("")}</select><div class="muted">這些是我自動理解後的資料，通常不需要手動調整。</div><label>適用對象</label>${checkboxGroup(KNOWLEDGE_AGENTS, item.applicableAgents, "libAgents")}<label>適用職務</label>${checkboxGroup(KNOWLEDGE_ROLE_OPTIONS, item.relatedRoles, "libRoles")}<label>我的工作</label>${checkboxGroup(workModels(), item.relatedWorkModels, "libWorkModels")}<label>標籤</label><input id="libTags" class="input" value="${escapeHtml(item.tags.join("、"))}" placeholder="採購、請購、供應商、SOP"><label>觸發關鍵字</label><input id="libTriggers" class="input" value="${escapeHtml(item.triggers.join("、"))}" placeholder="供應商會議、新供應商、年度評鑑"><label>版本</label><input id="libVersion" class="input" value="${escapeHtml(item.version || "v1.0")}" placeholder="v1.0"><label>來源版本</label><input id="libSourceVersion" class="input" value="${escapeHtml(item.sourceVersion || item.version || "v1.0")}" placeholder="v1.0"><label>整理狀態</label><div class="readonly-status">${escapeHtml(processingStatusLabel(item.processingStatus || "uploaded"))}</div><label>重新上傳檔案 <span class="muted">選填</span></label><div class="upload-drop"><input id="libFile" type="file"><span>${escapeHtml(item.filename || "不重新上傳，則保留原始檔案")}</span></div><div class="form-actions"><button class="btn2" data-library-cancel="1">取消</button><button class="btn" id="saveLibrary">儲存調整</button></div></section>`;
 }
 
 function settings() {
@@ -2230,7 +2230,7 @@ function settings() {
   const tasks = ecpTasks();
   const wp = normalizeWorkProfile(workProfile || {}, profile);
   const profileStatus = isWorkProfileReady(wp) ? "✓ 已完成" : `⚠ 尚未完成：${workProfileMissingFields(wp).join("、")}`;
-  return `<section class="panel" style="margin-top:18px"><h2>⚙️ 設定</h2><div class="entry"><b>目前使用者</b><div class="muted">${escapeHtml(session.name)}｜${escapeHtml(session.status || session.email || "")}</div></div><div class="entry"><b>工作身分</b><div class="muted">${escapeHtml(profileStatus)}</div><div class="source-path">目前工作任務：${escapeHtml(wp.defaultTask || "尚未設定")}｜有效月份：${escapeHtml(wp.taskEffectiveMonth || "尚未設定")}</div></div><div class="entry"><b>Smart Auto Save</b><div class="muted">設定一修改即更新本機狀態，約 2 秒後自動同步 Cloud。</div></div><label>角色</label><select id="roleSet" class="input">${roles.map(r => `<option ${profile && profile.role === r ? "selected" : ""}>${r}</option>`).join("")}</select><div class="work-model-section"><label>工作模型</label><div class="work-model-list" id="workModelList">${workModelChecks(models, models)}</div><div class="work-model-add"><input class="input" id="newWorkModel" placeholder="新增工作模型，例如：ISO 稽核"><button class="btn2" id="addWorkModel" type="button">＋ 新增工作模型</button></div><div class="muted">工作模型給 AI 學習、推理與推薦使用，不直接等於 ECP 匯入欄位。</div></div><div class="work-model-section"><label>ECP 設定</label><label>ECP 負責人</label><input class="input" id="ecpOwner" value="${escapeHtml(profile?.ecpOwner || "")}" placeholder="例如：陳彥達-UU"><label>ECP 負責部門</label><input class="input" id="ecpDepartment" value="${escapeHtml(profile?.ecpDepartment || "")}" placeholder="例如：UU管理部"><label>目前工作任務（Current Active Task）</label>${ecpTaskList(tasks)}<div class="work-model-add"><input class="input" id="newEcpTask" placeholder="新增 ECP 任務，例如：採購案件處理"><button class="btn2" id="addEcpTask" type="button">＋ 新增 ECP 任務</button></div><div class="muted">目前工作任務會作為 ECP 匯出的任務欄位來源；快速紀錄仍可選「不指定 ECP 任務」。</div></div><button class="btn gray full" id="resetProfile">重新初次認識</button><button class="btn red full" id="logoutBtn">登出</button><div class="entry"><b>版本</b><div class="muted">${VERSION}</div></div></section>`;
+  return `<section class="panel" style="margin-top:18px"><h2>⚙️ 設定</h2><div class="entry"><b>目前使用者</b><div class="muted">${escapeHtml(session.name)}｜${escapeHtml(session.status || session.email || "")}</div></div><div class="entry"><b>工作身分</b><div class="muted">${escapeHtml(profileStatus)}</div><div class="source-path">目前工作任務：${escapeHtml(wp.defaultTask || "尚未設定")}｜有效月份：${escapeHtml(wp.taskEffectiveMonth || "尚未設定")}</div></div><div class="entry"><b>Smart Auto Save</b><div class="muted">設定一修改即更新本機狀態，約 2 秒後自動同步 Cloud。</div></div><label>角色</label><select id="roleSet" class="input">${roles.map(r => `<option ${profile && profile.role === r ? "selected" : ""}>${r}</option>`).join("")}</select><div class="work-model-section"><label>我的工作</label><div class="work-model-list" id="workModelList">${workModelChecks(models, models)}</div><div class="work-model-add"><input class="input" id="newWorkModel" placeholder="新增我的工作，例如：ISO 稽核"><button class="btn2" id="addWorkModel" type="button">＋ 新增我的工作</button></div><div class="muted">這些是我目前理解你常做的工作，會用於快速建立工時與 Mr. KM 建議。</div></div><div class="work-model-section"><label>ECP 設定</label><label>ECP 負責人</label><input class="input" id="ecpOwner" value="${escapeHtml(profile?.ecpOwner || "")}" placeholder="例如：陳彥達-UU"><label>ECP 負責部門</label><input class="input" id="ecpDepartment" value="${escapeHtml(profile?.ecpDepartment || "")}" placeholder="例如：UU管理部"><label>目前工作任務（Current Active Task）</label>${ecpTaskList(tasks)}<div class="work-model-add"><input class="input" id="newEcpTask" placeholder="新增 ECP 任務，例如：採購案件處理"><button class="btn2" id="addEcpTask" type="button">＋ 新增 ECP 任務</button></div><div class="muted">目前工作任務會作為 ECP 匯出的任務欄位來源；快速紀錄仍可選「不指定 ECP 任務」。</div></div><button class="btn gray full" id="resetProfile">重新初次認識</button><button class="btn red full" id="logoutBtn">登出</button><div class="entry"><b>版本</b><div class="muted">${VERSION}</div></div></section>`;
 }
 
 function currentViewHtml() {
@@ -2656,7 +2656,7 @@ function bindOnboarding() {
     saveAll();
     await DataService.saveProfileSettingsOnly();
     await DataService.saveWorkModelsOnly();
-    toast("已建立工作模型"); render();
+    toast("已建立我的工作"); render();
   };
 }
 
@@ -3128,14 +3128,14 @@ function bindSettings() {
   if (add) add.onclick = () => {
     const input = document.getElementById("newWorkModel");
     const name = input.value.trim();
-    if (!name) return toast("請輸入工作模型名稱");
+    if (!name) return toast("請輸入我的工作名稱");
     const current = [...document.querySelectorAll(".work-model-option")].map(x => x.value);
     const selected = [...document.querySelectorAll(".work-model-option:checked")].map(x => x.value);
     const models = current.includes(name) ? current : [...current, name];
     renderModelChecks(models, [...new Set([...selected, name])]);
     syncSelectedWorkModels();
     input.value = "";
-    toast("已新增工作模型，將自動同步");
+    toast("已新增到我的工作，將自動同步");
   };
   const addEcp = document.getElementById("addEcpTask");
   if (addEcp) addEcp.onclick = () => {
