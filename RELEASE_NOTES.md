@@ -1,5 +1,41 @@
 # WorkLog RC3 Release Patch1
 
+## Build 20260714-1409 - P5.3 Work Memory Foundation
+
+- 新增正式功能頁 `🪶 我的工作`，作為 P5.3 Work Memory 的產品層入口。
+- Work Memory 目前沿用既有 `user_work_models` / DataService state，不新增 Supabase Schema。
+- 每一項「我的工作」顯示：
+  - 工作名稱
+  - 工作說明
+  - 工作分類
+  - 來源文件
+  - 熟悉度
+  - 最近使用時間
+  - 是否啟用
+- 支援新增、重新命名、合併、停用「我的工作」，並透過既有 DataService 同步到 Cloud。
+- Knowledge 理解完成後，可將 Mr. KM 整理出的工作「全部接受」或「接受勾選」加入「我的工作」。
+- KM 建議主線明確收斂為：文件 → Mr. KM 學習 → 我的工作 → KM 建議 → 工時。
+- 本 Sprint 不新增 OCR、RAG、Embedding、Vector Search、Edge Function、工作習慣分析或新 AI 能力。
+
+### 🪶 Companion QA
+
+1. 我是否更懂使用者的工作？
+   - 是。Mr. KM 不只停在文件理解，而是開始把理解結果整理成「我的工作」。
+2. 我是否減少了一個操作？
+   - 是。使用者不需要手動從整理結果重新建立工作，可直接接受 Mr. KM 建議加入「我的工作」。
+3. 我是否讓工時更容易完成？
+   - 是。KM 建議未來會以「我的工作」為來源，讓使用者更快加入工時。
+4. 我是否符合 Product Charter？
+   - 是。AI 只建議，使用者決定；每一次學習都回到讓工時更好填。
+
+### 🎯 Mr. KM Perspective
+
+以前，你教我一份文件。
+
+現在，我開始記住你的工作。
+
+因為只有真正理解你每天在做什麼，我才能在未來給你更貼近、更有幫助的工時建議。
+
 ## Build 20260714-1352 - P5.2B Review UX Refinement
 
 - Header 視覺比例微調：`Zhuge AI OS` 作為品牌主體，`by Mr. KM` 下移為陪伴者署名。

@@ -1471,6 +1471,70 @@ function comingSoonWorkspace(id) {
   return `<section class="panel coming-soon"><h2>${w.icon} ${w.label}</h2><div class="empty"><b>施工中</b><div class="muted">${w.label} 將於後續版本實作。</div></div></section>`;
 }
 
+function workMemorySourcesFor(name = "") {
+  const target = String(name || "").trim();
+  if (!target) return [];
+  const sources = [];
+  for (const raw of library || []) {
+    const item = normalizedLibraryItem(raw);
+    const related = arrayFromInput(item.relatedWorkModels);
+    const capabilities = knowledgeCapabilityItems(item, 12);
+    const candidates = knowledgeCandidatesForSource(item).map(candidate => candidate.title);
+    const haystack = [...related, ...capabilities, ...candidates].map(x => String(x || ""));
+    if (haystack.some(value => value === target || value.includes(target) || target.includes(value))) sources.push(item.title || item.filename || item.knowledgeId);
+  }
+  return [...new Set(sources)].filter(Boolean);
+}
+
+function workMemoryUsageFor(name = "") {
+  const target = String(name || "").trim();
+  const matched = (entries || []).filter(entry => String(entry.title || "").includes(target) || target.includes(String(entry.title || "")));
+  const latest = matched.map(entry => entry.at || `${entry.date || ""}T00:00`).sort().pop() || "";
+  return { count: matched.length, latest };
+}
+
+function workMemoryCategoryFor(name = "") {
+  const text = String(name || "");
+  if (/請假|特休|病假|事假|補休|公假|婚假|喪假|育嬰|生理|家庭照顧/.test(text)) return "請假";
+  if (/會議|面試|訪談|討論|協調/.test(text)) return "會議";
+  if (/教育|訓練|課程|研習/.test(text)) return "教育訓練";
+  if (/採購|供應商|詢價|議價|驗收|請款|發票/.test(text)) return "採購";
+  return profile?.role || "一般工作";
+}
+
+function workMemoryFamiliarity(count = 0, sourceCount = 0) {
+  const score = Math.min(5, Math.max(1, Math.ceil((count + sourceCount * 2) / 3)));
+  return "★★★★★".slice(0, score) + "☆☆☆☆☆".slice(0, 5 - score);
+}
+
+function workMemoryItems() {
+  return workModels().map(name => {
+    const usage = workMemoryUsageFor(name);
+    const sources = workMemorySourcesFor(name);
+    return {
+      name,
+      description: `我目前把「${name}」理解為你會記錄到工時中的一項工作。`,
+      category: workMemoryCategoryFor(name),
+      sources,
+      familiarity: workMemoryFamiliarity(usage.count, sources.length),
+      recentUsedAt: usage.latest,
+      enabled: true,
+      usageCount: usage.count
+    };
+  });
+}
+
+function workMemoryPage() {
+  const items = workMemoryItems();
+  const sourceCount = items.reduce((sum, item) => sum + item.sources.length, 0);
+  const cards = items.length ? items.map(item => {
+    const sourceList = item.sources.length ? item.sources.slice(0, 3).map(source => `<li>${escapeHtml(source)}</li>`).join("") : "<li>手動建立，尚未連結來源文件</li>";
+    const recent = item.recentUsedAt ? fmt(item.recentUsedAt) : "尚未使用";
+    return `<div class="entry work-memory-card"><div class="entry-main"><div class="work-memory-title"><b>${escapeHtml(item.name)}</b><span>${escapeHtml(item.category)}</span></div><small>${escapeHtml(item.description)}</small><div class="source-path">熟悉度：${escapeHtml(item.familiarity)}｜最近使用：${escapeHtml(recent)}｜使用 ${item.usageCount} 次</div><details class="work-memory-sources"><summary>查看工作來源</summary><ul>${sourceList}</ul></details></div><div class="actions compact"><button class="btn2" data-edit-work-memory="${escapeHtml(item.name)}">重新命名</button><button class="btn2" data-merge-work-memory="${escapeHtml(item.name)}">合併</button><button class="btn2 danger" data-disable-work-memory="${escapeHtml(item.name)}">停用</button></div></div>`;
+  }).join("") : `<div class="empty"><b>我還沒有記住你的工作</b><div class="muted">你可以先手動新增，或到藏書閣教我一份 SOP，讓我整理出可用於工時建議的工作。</div></div>`;
+  return `<section class="panel work-memory-page" style="margin-top:18px"><div class="panel-head"><div><h2>🪶 我的工作</h2><div class="muted">這裡是 Work Memory：我目前理解你會做到、也會用來產生工時建議的工作。</div></div><button class="btn" data-add-work-memory="1">＋ 新增我的工作</button></div><div class="dashboard-grid work-memory-summary"><div class="entry"><b>${items.length}</b><div class="muted">目前記住的工作</div></div><div class="entry"><b>${sourceCount}</b><div class="muted">連結的來源文件</div></div><div class="entry"><b>${items.length ? "學習中" : "等待教學"}</b><div class="muted">Mr. KM 狀態</div></div></div><div class="entry"><b>我不只是記住文件，我希望記住的是你的工作。</b><div class="muted">文件會教我工作；我的工作會讓 KM 建議更貼近；KM 建議最後會讓工時更好填。</div></div><div class="library-list">${cards}</div></section>`;
+}
+
 function worklogWorkspace() {
   return view === "capture" ? capture() : center();
 }
@@ -1478,6 +1542,7 @@ function worklogWorkspace() {
 function workspaceContent() {
   if (activeWorkspace === "dashboard") return zhugeDashboard();
   if (activeWorkspace === "worklog") return profile ? worklogWorkspace() : onboardingWorkspace();
+  if (activeWorkspace === "workMemory") return workMemoryPage();
   if (activeWorkspace === "library") {
     if (view === "libraryForm") return libraryForm(editingLibraryId);
     if (view === "libraryLearning") return libraryLearningView();
@@ -2212,10 +2277,13 @@ function libraryIntelligenceView(id = null) {
   const ruleItems = units.filter(unit => ["rule", "exception"].includes(unit.unitType)).map(unit => unit.title);
   const focusItems = [...summary.topics || [], ...processItems.slice(0, 4), ...ruleItems.slice(0, 4)].slice(0, 10);
   const autoMeta = `<div class="entry"><b>我先幫你判斷</b><div class="source-path">工作來源類型：${escapeHtml(KNOWLEDGE_SCOPE_LABELS[item.scope] || item.scope || "待確認")}</div><div class="source-path">適用對象：${escapeHtml(item.applicableAgents.join("、") || "待確認")}</div><div class="source-path">適用職務：${escapeHtml(item.relatedRoles.map(roleDisplayName).join("、") || "待確認")}</div><div class="source-path">標籤：${escapeHtml(item.tags.join("、") || "待確認")}</div><div class="source-path">我的工作：${escapeHtml(item.relatedWorkModels.join("、") || "待確認")}</div></div>`;
+  const acceptWorkActions = !isFailed && candidates.length
+    ? `<button class="btn green" data-accept-all-knowledge-work="${item.id}">全部接受到我的工作</button><button class="btn2" data-accept-selected-knowledge-work="${item.id}">接受勾選</button>`
+    : "";
   const resultActions = isFailed
     ? `<button class="btn2" data-reprocess-library="${item.id}">重新學習</button><button class="btn2" data-edit-library="${item.id}">✏️ 調整我的理解</button>`
-    : `<button class="btn green" data-verify-library="${item.id}">✓ 接受我的理解</button><button class="btn2" data-edit-library="${item.id}">✏️ 調整我的理解</button>`;
-  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>${escapeHtml(resultHeading)}</h2><div class="muted">${escapeHtml(item.knowledgeId)}｜${escapeHtml(knowledgeLearnedLabel(item.processingStatus))}</div></div><button class="btn2" data-library-back="1">返回藏書閣</button></div>${resultPrompt}<div class="entry"><div class="entry-main"><b>${escapeHtml(item.title)}</b><div class="source-path">我閱讀到的品質：${escapeHtml(knowledgeSupportLevelLabel(summary.supportLevel))}</div>${item.intelligenceError ? `<div class="source-path">我讀不懂的原因：${escapeHtml(item.intelligenceError)}</div>` : ""}</div><div class="actions compact"><button class="btn2" data-reprocess-library="${item.id}">${knowledgeActionLabel(item.processingStatus)}</button></div></div><div class="entry"><b>我理解這份文件主要是在說</b><p class="muted">${escapeHtml(readableSummary)}</p></div><div class="profile-grid"><div class="entry"><b>我理解出的工作流程</b><ul class="knowledge-result-list">${list(processItems)}</ul></div><div class="entry"><b>我注意到的規則</b><ul class="knowledge-result-list">${list(ruleItems)}</ul></div></div><div class="entry"><b>我之後可以協助你完成這些工作</b><ul class="knowledge-result-list">${candidates.length ? candidates.map(candidate => `<li>□ ${escapeHtml(candidate.title)}（約 ${candidate.defaultDuration}h）</li>`).join("") : "<li>我還沒整理出可直接協助的工作</li>"}</ul></div><div class="entry"><b>我整理出的重點</b><ul class="knowledge-result-list">${list(focusItems)}</ul></div>${autoMeta}<section class="panel" style="margin-top:12px"><h3>我目前整理出的工作（${units.length}）</h3>${units.length ? units.map(unit => `<div class="entry"><div class="entry-main"><b>${escapeHtml(unit.title)}</b><div class="muted">${escapeHtml(knowledgeUnitTypeLabel(unit.unitType))}｜${escapeHtml(unit.sectionReference || "")}</div><small>${escapeHtml(unit.summary || unit.content)}</small><div class="library-tag-line">${unit.triggers.map(tag => `<span>${escapeHtml(tag)}</span>`).join("")}</div></div><div class="actions compact"><button class="btn2 danger" data-remove-knowledge-unit="${unit.id}">移除</button></div></div>`).join("") : `<div class="empty">我還沒整理出可用於工時的工作。</div>`}</section><div class="form-actions">${resultActions}</div></section>`;
+    : `${acceptWorkActions}<button class="btn2" data-verify-library="${item.id}">✓ 只確認理解</button><button class="btn2" data-edit-library="${item.id}">✏️ 調整我的理解</button>`;
+  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>${escapeHtml(resultHeading)}</h2><div class="muted">${escapeHtml(item.knowledgeId)}｜${escapeHtml(knowledgeLearnedLabel(item.processingStatus))}</div></div><button class="btn2" data-library-back="1">返回藏書閣</button></div>${resultPrompt}<div class="entry"><div class="entry-main"><b>${escapeHtml(item.title)}</b><div class="source-path">我閱讀到的品質：${escapeHtml(knowledgeSupportLevelLabel(summary.supportLevel))}</div>${item.intelligenceError ? `<div class="source-path">我讀不懂的原因：${escapeHtml(item.intelligenceError)}</div>` : ""}</div><div class="actions compact"><button class="btn2" data-reprocess-library="${item.id}">${knowledgeActionLabel(item.processingStatus)}</button></div></div><div class="entry"><b>我理解這份文件主要是在說</b><p class="muted">${escapeHtml(readableSummary)}</p></div><div class="profile-grid"><div class="entry"><b>我理解出的工作流程</b><ul class="knowledge-result-list">${list(processItems)}</ul></div><div class="entry"><b>我注意到的規則</b><ul class="knowledge-result-list">${list(ruleItems)}</ul></div></div><div class="entry"><b>我之後可以協助你完成這些工作</b><ul class="knowledge-result-list">${candidates.length ? candidates.map(candidate => `<li><label class="inline-check"><input type="checkbox" class="knowledge-work-candidate" value="${escapeHtml(candidate.title)}" checked> <span>${escapeHtml(candidate.title)}（約 ${candidate.defaultDuration}h）</span></label></li>`).join("") : "<li>我還沒整理出可直接協助的工作</li>"}</ul></div><div class="entry"><b>我整理出的重點</b><ul class="knowledge-result-list">${list(focusItems)}</ul></div>${autoMeta}<section class="panel" style="margin-top:12px"><h3>我目前整理出的工作（${units.length}）</h3>${units.length ? units.map(unit => `<div class="entry"><div class="entry-main"><b>${escapeHtml(unit.title)}</b><div class="muted">${escapeHtml(knowledgeUnitTypeLabel(unit.unitType))}｜${escapeHtml(unit.sectionReference || "")}</div><small>${escapeHtml(unit.summary || unit.content)}</small><div class="library-tag-line">${unit.triggers.map(tag => `<span>${escapeHtml(tag)}</span>`).join("")}</div></div><div class="actions compact"><button class="btn2 danger" data-remove-knowledge-unit="${unit.id}">移除</button></div></div>`).join("") : `<div class="empty">我還沒整理出可用於工時的工作。</div>`}</section><div class="form-actions">${resultActions}</div></section>`;
 }
 
 function libraryForm(id = null) {
@@ -2730,11 +2798,56 @@ function bind() {
   });
   document.querySelectorAll("[data-edit-id]").forEach(b => b.onclick = () => { editingEntryId = b.dataset.editId; captureSeed = null; activeWorkspace = "worklog"; if (!openTabs.includes("worklog")) openTabs.push("worklog"); rememberWorkspace("worklog"); view = "capture"; saveAll(); render(); });
   bindLibrary();
+  if (activeWorkspace === "workMemory") bindWorkMemory();
   if (activeWorkspace === "worklog" && view === "capture") bindCapture();
   bindWorklogAssistant();
   if (activeWorkspace === "worklog" && !profile) bindOnboarding();
   if (activeWorkspace === "library" && view === "libraryForm") bindLibraryForm(editingLibraryId);
   if (activeWorkspace === "settings") bindSettings();
+}
+
+async function persistWorkMemory(nextModels = [], message = "我的工作已更新") {
+  setWorkModels(nextModels);
+  saveAll({ skipSync: true });
+  await DataService.saveWorkModelsOnly();
+  toast(message);
+  render();
+}
+
+function bindWorkMemory() {
+  const add = document.querySelector("[data-add-work-memory]");
+  if (add) add.onclick = async () => {
+    const name = prompt("想讓我記住哪一項工作？");
+    const clean = String(name || "").trim();
+    if (!clean) return;
+    const next = [...new Set([...workModels(), clean])];
+    await persistWorkMemory(next, "我已記住這項工作");
+  };
+  document.querySelectorAll("[data-edit-work-memory]").forEach(button => button.onclick = async () => {
+    const oldName = button.dataset.editWorkMemory;
+    const nextName = prompt("要把這項工作改成什麼名稱？", oldName);
+    const clean = String(nextName || "").trim();
+    if (!clean || clean === oldName) return;
+    const next = workModels().map(name => name === oldName ? clean : name);
+    await persistWorkMemory([...new Set(next)], "我的工作已重新命名");
+  });
+  document.querySelectorAll("[data-merge-work-memory]").forEach(button => button.onclick = async () => {
+    const source = button.dataset.mergeWorkMemory;
+    const candidates = workModels().filter(name => name !== source);
+    if (!candidates.length) return toast("目前沒有其他工作可合併");
+    const target = prompt(`要把「${source}」合併到哪一項工作？\n\n可選：${candidates.join("、")}`, candidates[0]);
+    const clean = String(target || "").trim();
+    if (!clean || clean === source) return;
+    const next = workModels().filter(name => name !== source);
+    if (!next.includes(clean)) next.push(clean);
+    await persistWorkMemory(next, "我已合併這兩項工作");
+  });
+  document.querySelectorAll("[data-disable-work-memory]").forEach(button => button.onclick = async () => {
+    const name = button.dataset.disableWorkMemory;
+    if (!confirm(`停用「${name}」後，我就不會用它產生工時建議。\n\n確認停用？`)) return;
+    const next = workModels().filter(model => model !== name);
+    await persistWorkMemory(next, "已停用這項工作");
+  });
 }
 
 
@@ -2964,6 +3077,33 @@ function bindLibrary() {
     } catch (error) {
       console.error("Knowledge verify failed", { error, item });
       toast(error.message || "確認理解失敗");
+    }
+  });
+  document.querySelectorAll("[data-accept-all-knowledge-work],[data-accept-selected-knowledge-work]").forEach(b => b.onclick = async () => {
+    const id = b.dataset.acceptAllKnowledgeWork || b.dataset.acceptSelectedKnowledgeWork;
+    const selectedOnly = !!b.dataset.acceptSelectedKnowledgeWork;
+    const item = library.find(x => x.id === id || x.cloudId === id);
+    if (!item) return;
+    const candidates = knowledgeCandidatesForSource(item);
+    const selected = selectedOnly
+      ? [...document.querySelectorAll(".knowledge-work-candidate:checked")].map(input => input.value.trim()).filter(Boolean)
+      : candidates.map(candidate => String(candidate.title || "").trim()).filter(Boolean);
+    const names = [...new Set(selected)];
+    if (!names.length) return toast("請先選擇要加入「我的工作」的項目");
+    try {
+      setWorkModels([...new Set([...workModels(), ...names])]);
+      saveAll({ skipSync: true });
+      await DataService.saveWorkModelsOnly();
+      await KnowledgeIntelligence.verifySource(item).catch(error => console.warn("Knowledge verify after Work Memory accept failed", { error, item }));
+      toast(`我已把 ${names.length} 項工作加入「我的工作」`);
+      activeWorkspace = "workMemory";
+      if (!openTabs.includes("workMemory")) openTabs.push("workMemory");
+      rememberWorkspace("workMemory");
+      view = "center";
+      render();
+    } catch (error) {
+      console.error("Accept knowledge work into Work Memory failed", { error, item, names });
+      toast(error.message || "加入我的工作失敗，請稍後再試");
     }
   });
   document.querySelectorAll("[data-remove-knowledge-unit]").forEach(b => b.onclick = async () => {
