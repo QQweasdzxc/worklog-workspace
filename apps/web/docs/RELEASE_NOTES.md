@@ -504,6 +504,24 @@ RC3 Release Patch1 only. No new features, no version number change, no repositor
 - 當日無足夠空檔時，才接在最後一筆工作之後。
 - 舊版 AI 推理卡曾顯示建議時段；RC3.4.1 起 Mr. KM 建議不再扮演排程助手。
 - 新增 5h 工時快捷鍵。
+# Build 20260714-1746 - P5.6 Work Memory Cloud Foundation + UX Polish
+
+- Work Memory 完整欄位 Cloud 化，Supabase `user_work_models` 成為唯一正式來源。
+- Legacy Local metadata 自動搬移；LocalStorage 降為 Cache／Offline Queue。
+- Mr. KM 建議卡與固定高度 Panel 完成 UX Polish。
+- 新增 schema、verification、Architecture Review 與 regression tests。
+
+## Cloud Verification
+
+- Production project migration applied: PASS
+- Work Memory columns: PASS
+- Own-user RLS SELECT / INSERT / UPDATE / DELETE: PASS
+- Authenticated grants and indexes: PASS
+
+## 🎯 Mr. KM Perspective
+
+我現在能在不同入口記住同一份完整工作記憶，也能用更精簡的方式陪主人決定下一筆工時。
+
 # Build 20260714-1715 - P5.5 Work Intelligence UX Optimization
 
 - 修復 Learning Review 返回與確認流程。

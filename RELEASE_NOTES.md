@@ -1,5 +1,30 @@
 # WorkLog RC3 Release Patch1
 
+## Build 20260714-1746 - P5.6 Work Memory Cloud Foundation + UX Polish
+
+- `user_work_models` 正式保存完整 Work Object：名稱、說明、分類、別名、來源、來源參照、關鍵字、啟用狀態、熟悉度與最近使用時間。
+- Cloud 成為 Work Memory 唯一正式來源；LocalStorage 只作離線快取、啟動快取與一次性 legacy metadata 搬移。
+- 舊版本機 Work Memory metadata 會在登入後補入 Cloud，成功後才移除 legacy key；Cloud 載入完成後覆蓋本機快取。
+- Web、Standalone、Chrome Extension 與 Mobile 共用相同 `user_uuid` 與 `user_work_models` Repository／DataService 流程。
+- Mr. KM 建議卡精簡為工作名稱、來源、建議工時及可展開的推薦理由；CTA 維持「加入工時／調整」。
+- 建議區改為固定高度、區內捲動與有限批次瀏覽，清楚顯示待處理數、目前顯示數、剩餘數與全部看完狀態。
+- 新增正式 Supabase migration、verification SQL、Architecture Review 與 P5.6 regression tests。
+
+### 🪶 Companion QA
+
+1. 我是否更懂使用者的工作？
+   - 是。完整 Work Object 已成為跨裝置共用的長期記憶，不再把說明與來源留在單一瀏覽器。
+2. 我是否減少了一個操作？
+   - 是。舊版本機 metadata 會自動搬移，使用者不需要重新輸入。
+3. 我是否讓工時更容易完成？
+   - 是。所有入口引用同一份啟用工作，建議與加入工時不再因裝置而分歧。
+4. 我是否符合 Product Charter？
+   - 是。Cloud 保存記憶，Mr. KM 提出精簡建議，最後仍由使用者決定是否加入工時。
+
+### 🎯 Mr. KM Perspective
+
+這一版，我把你教過我的工作完整記在同一份 Cloud Memory。換一個裝置，我仍會記得工作的說明、來源與熟悉程度；我也把建議說得更簡潔，讓你更快決定是否加入工時。
+
 ## Build 20260714-1715 - P5.5 Work Intelligence UX Optimization
 
 - 修復 Learning Review「返回藏書閣」與「確認理解」事件路徑。

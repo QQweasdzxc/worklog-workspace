@@ -115,8 +115,8 @@ const DataService = {
         await SupabaseRepository.upsertWorkProfile(workProfile);
       }
       if (scopes.has("workModels")) {
-        const rows = await SupabaseRepository.saveWorkModels(workModels(), profile);
-        setWorkModels(Array.isArray(rows) ? rows.map(row => row.name).filter(Boolean) : workModels());
+        const rows = await SupabaseRepository.saveWorkModels(workMemoryObjects(), profile);
+        setWorkModels(Array.isArray(rows) ? rows : workMemoryObjects());
       }
       if (scopes.has("ecpTasks")) {
         const rows = await SupabaseRepository.saveEcpTasks(ecpTasks());
@@ -131,7 +131,10 @@ const DataService = {
     } catch (error) {
       scopes.forEach(scope => autoSaveDirtyScopes.add(scope));
       console.error("Smart Auto Save failed", { error, supabase: error.supabase || null, scopes: [...scopes] });
-      this.setStatus("failed", error.message || "Smart Auto Save failed");
+      if (scopes.has("workModels") && isWorkMemoryNotInitializedError(error)) {
+        workMemoryFoundationNotInitialized = true;
+        this.setStatus("work_memory_uninitialized", `請先執行 ${WORK_MEMORY_SCHEMA_SQL}`);
+      } else this.setStatus("failed", error.message || "Smart Auto Save failed");
     } finally {
       autoSaveInFlight = false;
     }
@@ -144,6 +147,46 @@ const DataService = {
     }
     if (autoSaveTimer) clearTimeout(autoSaveTimer);
     autoSaveTimer = setTimeout(() => this.flushAutoSaveQueue(), 0);
+  },
+  async migrateLegacyWorkMemoryMetadata(cloudRows = []) {
+    const legacyKey = scopedLocalKey(LEGACY_WORK_MEMORY_METADATA_KEY);
+    const markerKey = scopedLocalKey(WORK_MEMORY_CLOUD_MIGRATION_KEY);
+    const legacy = readJson(legacyKey, {});
+    if (localStorage.getItem(markerKey) === "1" || !legacy || typeof legacy !== "object" || !Object.keys(legacy).length) return cloudRows;
+    const objects = (cloudRows || []).map((row, index) => normalizeWorkMemoryObject(row, index));
+    const cachedObjects = (Array.isArray(this.workModelsState) ? this.workModelsState : []).map((row, index) => normalizeWorkMemoryObject(row, index));
+    for (const name of Object.keys(legacy)) {
+      if (objects.some(object => object.name === name)) continue;
+      const cached = cachedObjects.find(object => object.name === name);
+      objects.push(normalizeWorkMemoryObject({ ...(cached || {}), name, source: "migrated", isActive: cached?.isActive !== false }, objects.length));
+    }
+    let changed = false;
+    for (const object of objects) {
+      const note = legacy[object.name];
+      if (!note || typeof note !== "object") continue;
+      const cloudMetadataWasEmpty = !object.description && (!object.category || object.category === "一般工作") && !object.aliases.length && !object.sourceReferences.length;
+      if (!object.description && note.description) { object.description = String(note.description); changed = true; }
+      if ((!object.category || object.category === "一般工作") && note.category) { object.category = String(note.category); changed = true; }
+      const aliases = [...new Set([...object.aliases, ...arrayFromInput(note.aliases)])];
+      if (aliases.length !== object.aliases.length) { object.aliases = aliases; changed = true; }
+      const existingLabels = new Set(object.sourceReferences.map(reference => reference.label || ""));
+      for (const label of arrayFromInput(note.from)) {
+        if (!existingLabels.has(label)) {
+          object.sourceReferences.push({ type: "legacy", label });
+          existingLabels.add(label);
+          changed = true;
+        }
+      }
+      if (typeof note.enabled === "boolean" && object.isActive !== note.enabled && cloudMetadataWasEmpty) {
+        object.isActive = note.enabled;
+        changed = true;
+      }
+    }
+    const rows = changed ? await SupabaseRepository.saveWorkModels(objects, profile) : cloudRows;
+    localStorage.removeItem(legacyKey);
+    localStorage.setItem(markerKey, "1");
+    console.info("Work Memory legacy metadata migrated to Cloud", { migratedItems: Object.keys(legacy).length, updatedRows: changed ? objects.length : 0 });
+    return rows;
   },
   async loadConversation() {
     if (!hasGoogleOAuthSession() || migrationRequired || migrationRunning) return null;
@@ -276,6 +319,12 @@ const DataService = {
             });
             return fallback;
           }
+          if (label === "work_models" && isWorkMemoryNotInitializedError(error)) {
+            workMemoryFoundationNotInitialized = true;
+            failedLoads.add(label);
+            console.warn("Work Memory Cloud Foundation not initialized", { setupSql: WORK_MEMORY_SCHEMA_SQL, error });
+            return fallback;
+          }
           errors.push(`${label}: ${error.message || error}`);
           failedLoads.add(label);
           console.error(`Cloud Sync ${label} load failed`, error);
@@ -285,19 +334,24 @@ const DataService = {
       const cloudProfile = await safeLoad("profile", () => SupabaseRepository.loadUserProfile(), null);
       const exportSettings = await safeLoad("export_settings", () => SupabaseRepository.loadExportSettings(), null);
       const cloudWorkProfile = await safeLoad("work_profile", () => SupabaseRepository.loadWorkProfile(), null);
-      const workModelsRows = await safeLoad("work_models", () => SupabaseRepository.loadWorkModels(), []);
+      let workModelsRows = await safeLoad("work_models", () => SupabaseRepository.loadWorkModels(), []);
       const ecpTaskRows = await safeLoad("ecp_tasks", () => SupabaseRepository.loadEcpTasks(), []);
       const entryRows = await safeLoad("entries", () => SupabaseRepository.loadEntries(selectedMonth), []);
       const knowledgeRows = await safeLoad("knowledge", () => KnowledgeRepository.loadSources(), []);
       const knowledgeUnitRows = await safeLoad("knowledge_units", () => KnowledgeRepository.loadUnits(), []);
       const knowledgeCandidateRows = await safeLoad("knowledge_candidates", () => KnowledgeRepository.loadRecommendationCandidates(), []);
       await this.loadConversation();
+      if (!failedLoads.has("work_models")) {
+        workMemoryFoundationNotInitialized = false;
+        workModelsRows = await this.migrateLegacyWorkMemoryMetadata(workModelsRows || []);
+        this.workModelsState = (workModelsRows || []).map((row, index) => normalizeWorkMemoryObject(row, index));
+      }
       if (cloudProfile || exportSettings || !failedLoads.has("work_models") || !failedLoads.has("ecp_tasks")) {
         profile = profileFromCloud(cloudProfile, exportSettings, workModelsRows || [], ecpTaskRows || [], {
           workModelsLoaded: !failedLoads.has("work_models"),
           ecpTasksLoaded: !failedLoads.has("ecp_tasks")
         });
-        this.workModelsState = Array.isArray(profile?.tags) ? [...profile.tags] : [];
+        if (failedLoads.has("work_models")) this.workModelsState = Array.isArray(profile?.tags) ? profile.tags.map((name, index) => normalizeWorkMemoryObject(name, index)) : [];
         this.ecpTasksState = Array.isArray(profile?.ecpTasks) ? [...profile.ecpTasks] : [];
       }
       workProfile = workProfileFromCloud(cloudWorkProfile, exportSettings, ecpTaskRows || [], profile);
@@ -315,6 +369,7 @@ const DataService = {
       }
       LocalCache.saveAll();
       if (errors.length) this.setStatus("failed", errors.join(" | "));
+      else if (workMemoryFoundationNotInitialized) this.setStatus("work_memory_uninitialized", "Work Memory Cloud 尚未初始化");
       else if (knowledgeFoundationNotInitialized) this.setStatus("knowledge_uninitialized", "Knowledge Library 尚未初始化");
       else this.setStatus("synced");
     } catch (error) {
@@ -363,7 +418,7 @@ const DataService = {
         await SupabaseRepository.upsertUserProfile(profile);
         await SupabaseRepository.upsertExportSettings(profile);
         await SupabaseRepository.upsertWorkProfile(workProfile);
-        await SupabaseRepository.saveWorkModels(workModels(), profile);
+        await SupabaseRepository.saveWorkModels(workMemoryObjects(), profile);
         await SupabaseRepository.saveEcpTasks(ecpTasks());
       }
       for (const entry of entries.filter(e => e.status !== "deleted")) {
@@ -402,7 +457,7 @@ const DataService = {
         await SupabaseRepository.upsertUserProfile(profile);
         await SupabaseRepository.upsertExportSettings(profile);
         await SupabaseRepository.upsertWorkProfile(workProfile);
-        await SupabaseRepository.saveWorkModels(workModels(), profile);
+        await SupabaseRepository.saveWorkModels(workMemoryObjects(), profile);
         await SupabaseRepository.saveEcpTasks(ecpTasks());
       }
       for (const entry of entries.filter(e => e.status !== "deleted")) {
@@ -471,19 +526,38 @@ const DataService = {
       if (hasGoogleOAuthSession() && !dataServiceHydrating && !migrationRunning) {
         dataServiceReady = true;
         this.setStatus("syncing");
-        const rows = await SupabaseRepository.saveWorkModels(workModels(), profile);
-        setWorkModels(Array.isArray(rows) ? rows.map(row => row.name).filter(Boolean) : workModels());
+        const rows = await SupabaseRepository.saveWorkModels(workMemoryObjects(), profile);
+        setWorkModels(Array.isArray(rows) ? rows : workMemoryObjects());
         LocalCache.saveAll();
         this.setStatus("synced");
       } else {
         const reason = !hasGoogleOAuthSession() ? "尚未登入 Google" : "Cloud Sync 正在初始化";
-        console.warn("Work model saved to cache; cloud sync deferred", { reason, models: workModels() });
+        console.warn("Work Memory saved to cache; cloud sync deferred", { reason, models: workMemoryObjects().map(item => item.name) });
         if (options.requireCloud) throw new Error(reason);
       }
     } catch (error) {
-      console.error("Save work models failed", { error, supabase: error.supabase || null, models: workModels() });
-      this.setStatus("failed", error.message || "Work model sync failed");
+      console.error("Save Work Memory failed", { error, supabase: error.supabase || null, models: workMemoryObjects().map(item => item.name) });
+      if (isWorkMemoryNotInitializedError(error)) {
+        workMemoryFoundationNotInitialized = true;
+        this.setStatus("work_memory_uninitialized", `請先執行 ${WORK_MEMORY_SCHEMA_SQL}`);
+      } else this.setStatus("failed", error.message || "Work Memory sync failed");
       if (options.requireCloud) throw error;
+    }
+  },
+  async deleteWorkModel(item = {}) {
+    if (!hasGoogleOAuthSession() || dataServiceHydrating || migrationRunning) throw new Error("Cloud Sync 尚未就緒");
+    this.setStatus("syncing");
+    try {
+      await SupabaseRepository.deleteWorkModel(item);
+      const remaining = workMemoryObjects().filter(model => model.id !== item.id && model.name !== item.name);
+      setWorkModels(remaining);
+      LocalCache.saveAll();
+      this.setStatus("synced");
+      return true;
+    } catch (error) {
+      console.error("Delete Work Memory failed", { error, supabase: error.supabase || null, item });
+      this.setStatus("failed", error.message || "Delete Work Memory failed");
+      throw error;
     }
   },
   async saveEcpTasksOnly(options = {}) {

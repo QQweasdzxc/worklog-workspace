@@ -57,6 +57,9 @@ const SupabaseRepository = {
   insert(table, payload) {
     return this.request(`${table}`, { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify(payload) });
   },
+  remove(table, query = "") {
+    return this.request(`${table}${query}`, { method: "DELETE", headers: { Prefer: "return=representation" } });
+  },
   async patch(table, query, payload) {
     const isKnowledgeSourcesPatch = table === "knowledge_sources";
     if (isKnowledgeSourcesPatch) {
@@ -254,10 +257,50 @@ const SupabaseRepository = {
     return this.select(table, "?select=*&is_active=eq.true&order=sort_order.asc,name.asc");
   },
   loadWorkModels() {
-    return this.select("user_work_models", "?select=*&is_active=eq.true&order=sort_order.asc,name.asc");
+    return this.select("user_work_models", "?select=id,user_uuid,role_code,name,description,category,aliases,source,source_references,keywords,is_active,familiarity,last_used_at,sort_order,created_at,updated_at&order=sort_order.asc,name.asc");
   },
-  saveWorkModels(names, profileValue = profile) {
-    return this.syncNameList("user_work_models", names, { role_code: roleCode(profileValue?.role || "採購"), source: "manual" });
+  async saveWorkModels(items, profileValue = profile) {
+    const current = await this.loadWorkModels() || [];
+    const normalized = (items || []).map((item, index) => normalizeWorkMemoryObject(item, index)).filter(item => item.name);
+    const retainedIds = new Set();
+    const retainedNames = new Set();
+    for (const [index, item] of normalized.entries()) {
+      const existing = current.find(row => (item.id && row.id === item.id) || row.name === item.name);
+      const payload = {
+        user_uuid: currentUserUuid(),
+        role_code: roleCode(profileValue?.role || "採購"),
+        name: item.name,
+        description: item.description || "",
+        category: item.category || "一般工作",
+        aliases: item.aliases || [],
+        source: item.source || "manual",
+        source_references: item.sourceReferences || [],
+        keywords: item.keywords || [],
+        is_active: item.isActive !== false,
+        familiarity: Math.min(5, Math.max(1, Number(item.familiarity || 1))),
+        last_used_at: item.lastUsedAt || null,
+        sort_order: index
+      };
+      if (existing) {
+        await this.patch("user_work_models", `?id=eq.${encodeURIComponent(existing.id)}`, payload);
+        retainedIds.add(existing.id);
+      } else {
+        const inserted = await this.insert("user_work_models", payload);
+        if (inserted?.[0]?.id) retainedIds.add(inserted[0].id);
+      }
+      retainedNames.add(item.name);
+    }
+    for (const row of current) {
+      if (!retainedIds.has(row.id) && !retainedNames.has(row.name) && row.is_active) {
+        await this.patch("user_work_models", `?id=eq.${encodeURIComponent(row.id)}`, { is_active: false });
+      }
+    }
+    return this.loadWorkModels();
+  },
+  deleteWorkModel(item = {}) {
+    const id = item.id || item.cloudId;
+    if (!id) throw new Error("缺少 Work Memory ID，無法刪除");
+    return this.remove("user_work_models", `?id=eq.${encodeURIComponent(id)}`);
   },
   loadEcpTasks() {
     return this.select("user_ecp_tasks", "?select=*&is_active=eq.true&order=sort_order.asc,name.asc");

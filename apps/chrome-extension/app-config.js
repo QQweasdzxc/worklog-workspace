@@ -1,7 +1,7 @@
 // P5.2A-1 Foundation Split: configuration and static constants.
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260714-1715";
+const BUILD_TIME = "20260714-1746";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const KNOWLEDGE_DEBUG_MODE = (() => {
   try { return new URLSearchParams(location.search).has("debugKnowledge") || localStorage.getItem("zhuge_debug_knowledge") === "1"; }
@@ -28,6 +28,9 @@ const AI_TODAY_SUGGESTION_INDEX_KEY = "zhuge_ai_today_suggestion_index_v1";
 const WORK_MEMORY_MERGE_DECISIONS_KEY = "zhuge_work_memory_merge_decisions_v1";
 const WORK_MEMORY_MERGE_STATS_KEY = "zhuge_work_memory_merge_stats_v1";
 const WORK_MEMORY_AI_SUGGESTION_DECISIONS_KEY = "zhuge_work_memory_ai_suggestion_decisions_v1";
+const LEGACY_WORK_MEMORY_METADATA_KEY = "zhuge_work_memory_merge_notes_v1";
+const WORK_MEMORY_CLOUD_MIGRATION_KEY = "p5_6_work_memory_cloud_migrated_v1";
+const WORK_MEMORY_SCHEMA_SQL = "docs/supabase/20260714_p5_6_work_memory_cloud_foundation_schema.sql";
 const WORKLOG_CHAT_KEY = "zhuge_worklog_chat_v1";
 const WORKLOG_CHAT_PENDING_KEY = "zhuge_worklog_chat_pending_v1";
 const ZHUGE_ASSISTANT_WELCOME_KEY = "zhuge_assistant_welcome_seen_v1";

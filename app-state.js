@@ -21,6 +21,7 @@ let knowledgeRecommendationCandidates = [];
 let viewingKnowledgeId = null;
 let editingLibraryId = null;
 let editingWorkMemoryName = null;
+let workMemoryFoundationNotInitialized = false;
 let learningKnowledgeDraft = null;
 let editingEntryId = null;
 let captureSeed = null;

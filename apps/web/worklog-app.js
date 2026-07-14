@@ -63,8 +63,9 @@ function applyWorkProfileToProfile(nextWorkProfile = workProfile) {
     setEcpTasks(tasks);
   }
   if (p.defaultWorkModel) {
-    const models = [...new Set([p.defaultWorkModel, ...workModels()].map(x => String(x || "").trim()).filter(Boolean))];
-    setWorkModels(models);
+    const objects = workMemoryObjects();
+    if (!objects.some(item => item.name === p.defaultWorkModel)) objects.unshift(normalizeWorkMemoryObject({ name: p.defaultWorkModel, source: "manual", isActive: true }));
+    setWorkModels(objects);
   }
   workProfile = p;
   LocalCache.save("work_profile", workProfile);
@@ -106,7 +107,7 @@ function profileFromCloud(cloudProfile, exportSettings, workModels, ecpTaskRows,
   const fallbackRole = profile?.role || "採購";
   const fallbackTags = Array.isArray(profile?.tags) && profile.tags.length ? profile.tags : tagsForRole(fallbackRole);
   const fallbackEcpTasks = Array.isArray(profile?.ecpTasks) && profile.ecpTasks.length ? profile.ecpTasks : defaultEcpTasks;
-  const cloudWorkModels = Array.isArray(workModels) ? workModels.map(row => row.name).filter(Boolean) : [];
+  const cloudWorkModels = Array.isArray(workModels) ? workModels.filter(row => row.is_active !== false && row.isActive !== false).map(row => row.name).filter(Boolean) : [];
   const cloudEcpTasks = Array.isArray(ecpTaskRows) ? ecpTaskRows.map(row => row.name).filter(Boolean) : [];
   return {
     ...(profile || {}),
@@ -299,17 +300,58 @@ function tagsForRole(role) {
   return roleTagMap[role] || defaultTags;
 }
 
+function normalizeWorkMemoryObject(value = {}, index = 0, existing = null) {
+  const raw = typeof value === "string" ? { name: value } : (value || {});
+  const name = String(raw.name || "").trim();
+  const base = existing || {};
+  const aliases = arrayFromInput(raw.aliases ?? base.aliases ?? []);
+  const keywords = arrayFromInput(raw.keywords ?? base.keywords ?? []);
+  const sourceReferencesRaw = raw.sourceReferences ?? raw.source_references ?? base.sourceReferences ?? [];
+  const sourceReferences = Array.isArray(sourceReferencesRaw)
+    ? sourceReferencesRaw.filter(Boolean).map(reference => typeof reference === "string" ? { label: reference } : reference)
+    : [];
+  return {
+    id: raw.id || raw.cloudId || base.id || base.cloudId || "",
+    cloudId: raw.cloudId || raw.id || base.cloudId || base.id || "",
+    userUuid: raw.userUuid || raw.user_uuid || base.userUuid || currentUserUuid() || "",
+    name,
+    description: String(raw.description ?? base.description ?? "").trim(),
+    category: String(raw.category ?? base.category ?? "一般工作").trim() || "一般工作",
+    aliases: [...new Set(aliases)],
+    source: String(raw.source ?? base.source ?? "manual").trim() || "manual",
+    sourceReferences,
+    keywords: [...new Set(keywords)],
+    isActive: Boolean(raw.isActive ?? raw.is_active ?? base.isActive ?? true),
+    familiarity: Math.min(5, Math.max(1, Number(raw.familiarity ?? base.familiarity ?? 1) || 1)),
+    lastUsedAt: raw.lastUsedAt || raw.last_used_at || base.lastUsedAt || "",
+    sortOrder: Number(raw.sortOrder ?? raw.sort_order ?? base.sortOrder ?? index) || 0,
+    createdAt: raw.createdAt || raw.created_at || base.createdAt || "",
+    updatedAt: raw.updatedAt || raw.updated_at || base.updatedAt || ""
+  };
+}
+
+function workMemoryObjects() {
+  const state = Array.isArray(DataService.workModelsState) ? DataService.workModelsState : null;
+  const fallback = Array.isArray(profile?.tags) && profile.tags.length ? profile.tags : tagsForRole(profile?.role || "採購");
+  const source = state || fallback;
+  return source.map((item, index) => normalizeWorkMemoryObject(item, index)).filter(item => item.name);
+}
+
 function workModels() {
-  if (Array.isArray(DataService.workModelsState)) return [...new Set(DataService.workModelsState.map(x => String(x).trim()).filter(Boolean))];
-  const models = Array.isArray(profile?.tags) && profile.tags.length ? profile.tags : tagsForRole(profile?.role || "採購");
-  return [...new Set(models.map(x => String(x).trim()).filter(Boolean))];
+  return [...new Set(workMemoryObjects().filter(item => item.isActive).map(item => item.name))];
 }
 
 function setWorkModels(models = []) {
   if (!profile) profile = { role: "採購", tags: [], sources: ["Google Drive", "Gmail", "Calendar", "手動紀錄"], workHours: "09:00~18:00", lunch: "12:00~13:00", sop: "目前沒有 SOP，先用職務模型" };
-  DataService.workModelsState = [...new Set((models || []).map(x => String(x).trim()).filter(Boolean))];
-  profile.tags = [...DataService.workModelsState];
-  LocalCache.save("work_models", profile.tags);
+  const current = workMemoryObjects();
+  const normalized = (models || []).map((item, index) => {
+    const name = String(typeof item === "string" ? item : item?.name || "").trim();
+    const existing = current.find(model => model.name === name || (item?.id && model.id === item.id));
+    return normalizeWorkMemoryObject(item, index, existing);
+  }).filter(item => item.name);
+  DataService.workModelsState = normalized.filter((item, index, list) => list.findIndex(candidate => candidate.name === item.name) === index);
+  profile.tags = DataService.workModelsState.filter(item => item.isActive).map(item => item.name);
+  LocalCache.save("work_models", DataService.workModelsState);
   return profile.tags;
 }
 
@@ -361,8 +403,8 @@ function workModelOptions(selectedModel = "") {
 function addWorkModel(model) {
   const name = String(model || "").trim();
   if (!name) return false;
-  const models = workModels();
-  if (!models.includes(name)) setWorkModels([...models, name]);
+  const models = workMemoryObjects();
+  if (!models.some(item => item.name === name)) setWorkModels([...models, normalizeWorkMemoryObject({ name, category: workMemoryCategoryFor(name), source: "manual", isActive: true })]);
   return true;
 }
 
@@ -386,6 +428,7 @@ function cloudSyncLabel() {
   if (cloudSync.status === "syncing") return "🟡 同步中";
   if (cloudSync.status === "pending") return "🔄 尚未同步";
   if (cloudSync.status === "knowledge_uninitialized") return "🟡 Knowledge 未初始化";
+  if (cloudSync.status === "work_memory_uninitialized") return "🟡 Work Memory 未初始化";
   if (cloudSync.status === "migration_required") return "🟡 等待資料搬移";
   if (cloudSync.status === "migrating") return "🟡 資料搬移中";
   if (cloudSync.status === "failed") return "🔴 同步失敗";
@@ -397,6 +440,7 @@ function cloudSyncDetail() {
   if (cloudSync.status === "pending") return "等待自動同步";
   if (cloudSync.status === "syncing") return "同步中...";
   if (cloudSync.status === "knowledge_uninitialized") return "請先建立 Knowledge Database 與 Storage Bucket";
+  if (cloudSync.status === "work_memory_uninitialized") return `請先執行 ${WORK_MEMORY_SCHEMA_SQL}`;
   if (cloudSync.status === "migration_required") return "請先確認 Migration Preview";
   if (cloudSync.status === "migrating") return "正在搬移 RC3.3 本機資料";
   if (!cloudSync.lastSyncedAt) return "等待 Cloud Sync";
@@ -442,6 +486,11 @@ function isConversationNotInitializedError(error) {
 function isWorkProfileNotInitializedError(error) {
   const text = `${error?.supabase?.status || ""} ${error?.supabase?.message || ""} ${error?.supabase?.body || ""} ${error?.message || ""}`;
   return /404/.test(text) && /user_work_profiles/i.test(text);
+}
+
+function isWorkMemoryNotInitializedError(error) {
+  const text = `${error?.supabase?.status || ""} ${error?.supabase?.code || ""} ${error?.supabase?.message || ""} ${error?.supabase?.body || ""} ${error?.message || ""}`;
+  return /user_work_models/i.test(text) && /description|category|aliases|source_references|keywords|familiarity|last_used_at|schema cache|column/i.test(text);
 }
 
 function minutesFromTime(value = "09:00") {
@@ -1474,6 +1523,9 @@ function comingSoonWorkspace(id) {
 function workMemorySourcesFor(name = "") {
   const target = String(name || "").trim();
   if (!target) return [];
+  const formal = workMemoryObjects().find(item => item.name === target);
+  const formalSources = (formal?.sourceReferences || []).map(reference => reference.label || reference.title || reference.name || "").filter(Boolean);
+  if (formalSources.length) return [...new Set(formalSources)];
   const sources = [];
   for (const raw of library || []) {
     const item = normalizedLibraryItem(raw);
@@ -1662,18 +1714,18 @@ function workMemoryMergeSuggestions(limit = 3) {
 }
 
 function workMemoryItems() {
-  const notes = readJson(scopedLocalKey("zhuge_work_memory_merge_notes_v1"), {});
-  return workModels().map(name => {
-    const usage = workMemoryUsageFor(name);
-    const sources = workMemorySourcesFor(name);
+  return workMemoryObjects().map(model => {
+    const usage = workMemoryUsageFor(model.name);
+    const sources = workMemorySourcesFor(model.name);
     return {
-      name,
-      description: notes[name]?.description || `我目前把「${name}」理解為你會記錄到工時中的一項工作。`,
-      category: notes[name]?.category || workMemoryCategoryFor(name),
+      ...model,
+      name: model.name,
+      description: model.description || `我目前把「${model.name}」理解為你會記錄到工時中的一項工作。`,
+      category: model.category || workMemoryCategoryFor(model.name),
       sources,
-      familiarityScore: workMemoryFamiliarityScore(usage.count, sources.length),
-      recentUsedAt: usage.latest,
-      enabled: notes[name]?.enabled !== false,
+      familiarityScore: model.familiarity || workMemoryFamiliarityScore(usage.count, sources.length),
+      recentUsedAt: model.lastUsedAt || usage.latest,
+      enabled: model.isActive,
       usageCount: usage.count
     };
   });
@@ -1686,10 +1738,13 @@ function workMemoryPage(options = {}) {
   const aiSuggestionButton = aiSuggestionCount
     ? `<button class="btn" data-open-workspace="aiSuggestions">🪶 查看 AI 建議（${aiSuggestionCount}）</button>`
     : `<button class="btn2" disabled>目前沒有新的 AI 建議</button>`;
+  const cloudNotice = workMemoryFoundationNotInitialized
+    ? `<div class="empty work-memory-cloud-notice"><b>🟡 Work Memory Cloud 尚未初始化</b><div class="muted">目前畫面只顯示本機快取，不能視為正式記憶。請先執行 ${escapeHtml(WORK_MEMORY_SCHEMA_SQL)}。</div></div>`
+    : "";
   const cards = items.length ? items.map(item => `<div class="entry work-memory-card work-memory-confirmed-card"><div class="entry-main"><div class="work-memory-confirmed-label">已採用工作</div><b>${escapeHtml(item.name)}</b><small>${escapeHtml(item.description)}</small></div><div class="work-memory-confirmed-category"><span class="mobile-field-label">分類</span>${escapeHtml(item.category)}</div><div class="work-memory-enabled-status ${item.enabled ? "" : "disabled"}"><span class="mobile-field-label">啟用狀態</span><span class="status-dot ${item.enabled ? "ok" : "off"}"></span>${item.enabled ? "已啟用" : "已停用"}</div><div class="work-memory-confirmed-action"><button class="btn2" type="button" data-edit-work-memory="${escapeHtml(item.name)}">✏️ 編輯</button></div></div>`).join("") : `<div class="empty"><b>目前還沒有已採用工作</b><div class="muted">你可以新增工作，或查看 Mr. KM 整理好的 AI 建議。</div></div>`;
   const editingItem = items.find(item => item.name === editingWorkMemoryName);
   const editor = editingItem ? `<div class="quick-add-dialog work-memory-editor"><div class="quick-add-card"><div class="panel-head"><div><h3>✏️ 編輯工作</h3><div class="muted">修改後，Mr. KM 會依照新的內容提供工時建議。</div></div><button class="btn2" type="button" data-cancel-work-memory-edit="1">關閉</button></div><label>工作名稱</label><input class="input" id="workMemoryEditName" value="${escapeHtml(editingItem.name)}"><label>工作說明</label><textarea id="workMemoryEditDescription">${escapeHtml(editingItem.description)}</textarea><label>分類</label><input class="input" id="workMemoryEditCategory" value="${escapeHtml(editingItem.category)}"><label>啟用狀態</label><select class="input" id="workMemoryEditEnabled"><option value="1" ${editingItem.enabled ? "selected" : ""}>啟用</option><option value="0" ${editingItem.enabled ? "" : "selected"}>停用</option></select><div class="form-actions"><button class="btn2 danger" type="button" data-delete-work-memory="${escapeHtml(editingItem.name)}">刪除</button><button class="btn" type="button" data-save-work-memory-edit="${escapeHtml(editingItem.name)}">儲存修改</button></div></div></div>` : "";
-  const content = `<div class="panel-head"><div><h2>🪶 我的工作</h2><div class="muted">這裡只放你已經確認的工作，也是工時建議的正式來源。</div></div><div class="actions compact work-memory-head-actions"><button class="btn" data-add-work-memory="1">＋ 新增工作</button>${aiSuggestionButton}</div></div><div class="work-memory-list-head"><span>工作名稱</span><span>分類</span><span>啟用狀態</span><span>管理</span></div><div class="library-list">${cards}</div>${editor}`;
+  const content = `<div class="panel-head"><div><h2>🪶 我的工作</h2><div class="muted">這裡只放你已經確認的工作，也是工時建議的正式來源。</div></div><div class="actions compact work-memory-head-actions"><button class="btn" data-add-work-memory="1">＋ 新增工作</button>${aiSuggestionButton}</div></div>${cloudNotice}<div class="work-memory-list-head"><span>工作名稱</span><span>分類</span><span>啟用狀態</span><span>管理</span></div><div class="library-list">${cards}</div>${editor}`;
   return compact ? `<div class="work-memory-page">${content}</div>` : `<section class="panel work-memory-page" style="margin-top:18px">${content}</section>`;
 }
 
@@ -1869,8 +1924,7 @@ function todayPanel() {
 function makeSuggestions() {
   if (!profile) return [];
   const done = dayEntries().map(e => e.title);
-  const notes = readJson(scopedLocalKey("zhuge_work_memory_merge_notes_v1"), {});
-  let tags = workModels().filter(name => notes[name]?.enabled !== false);
+  let tags = workModels();
   tags.sort((a, b) => (feedback[b] || 0) - (feedback[a] || 0));
   const suggestions = [];
   const sourceLabel = `📂 來源：我的工作${profile?.role ? `（${profile.role}）` : ""}`;
@@ -1892,12 +1946,16 @@ function makeSuggestions() {
 
 function suggestionPanel() {
   const s = makeSuggestions();
-  if (!s.length) return `<h2>🪶 Mr. KM 建議</h2><div class="empty"><b>目前沒有建議</b><div class="muted">可能工時已滿，或「我的工作」尚未建立。</div></div>`;
-  const start = ((aiTodaySuggestionIndex % s.length) + s.length) % s.length;
+  if (!s.length) return `<h2>🪶 今天建議</h2><div class="empty"><b>目前沒有建議</b><div class="muted">可能工時已滿，或「我的工作」尚未建立。</div></div>`;
+  const start = Math.min(Math.max(0, aiTodaySuggestionIndex), Math.max(0, s.length - 1));
   const batchSize = Math.min(5, s.length);
-  const batch = Array.from({ length: batchSize }, (_, i) => s[(start + i) % s.length]);
-  const remaining = Math.max(0, s.length - batch.length);
-  return `<div class="panel-head"><h2>🪶 Mr. KM 建議</h2><div class="tag">目前 ${batch.length} / ${s.length}</div></div><div class="ai-suggestion-scan-list">${batch.map(x => `<div class="suggestion-scan-item"><div class="suggestion-scan-body"><div class="suggestion-title-row"><h3>${escapeHtml(x.title)}</h3><div class="actions suggestion-actions"><button class="btn green" data-accept="${escapeHtml(x.id)}">加入工時</button><button class="btn2" data-adjust="${escapeHtml(x.id)}">調整</button></div></div><div class="suggestion-source">🪶 我是根據「我的工作」建議你補上這項工時｜⏱ 預設工時：${Number(x.hours || 1)}h</div>${x.sourceLabel ? `<div class="suggestion-source">${escapeHtml(x.sourceLabel)}</div>` : ""}</div></div>`).join("")}</div>${remaining ? `<div class="suggestion-scan-footer"><span class="muted">還有 ${remaining} 筆建議</span><button class="btn2" type="button" data-suggestion-next-batch="1">查看更多</button></div>` : ""}`;
+  const batch = s.slice(start, start + batchSize);
+  const shownTo = start + batch.length;
+  const remaining = Math.max(0, s.length - shownTo);
+  const footer = remaining
+    ? `<div class="suggestion-scan-footer"><span class="muted">還有 ${remaining} 項</span><button class="btn2" type="button" data-suggestion-next-batch="1">查看更多</button></div>`
+    : (s.length > batchSize ? `<div class="suggestion-scan-footer"><span class="muted">✓ 全部看完</span><button class="btn2" type="button" data-suggestion-restart="1">重新開始</button></div>` : "");
+  return `<div class="suggestion-panel-head"><h2>🪶 今天建議</h2><b>${s.length} 項待處理</b><span>目前顯示 ${batch.length} 項</span></div><div class="ai-suggestion-scan-list">${batch.map(x => `<div class="suggestion-scan-item"><div class="suggestion-scan-body"><h3>${escapeHtml(x.title)}</h3><div class="suggestion-card-meta"><span>📂 來源：${escapeHtml(x.title)}</span><span>⏱ 建議：${Number(x.hours || 1)}h</span></div><details class="suggestion-reason"><summary>ℹ︎ 為什麼推薦？</summary><p>${escapeHtml(`這是你已確認的「我的工作」，Mr. KM 會依照這份 Work Memory 協助補齊工時。`)}</p></details><div class="actions suggestion-actions"><button class="btn green" data-accept="${escapeHtml(x.id)}">加入工時</button><button class="btn2" data-adjust="${escapeHtml(x.id)}">調整</button></div></div></div>`).join("")}</div>${footer}`;
 }
 
 function mobileWorklogTabs() {
@@ -2975,6 +3033,11 @@ function bind() {
     localStorage.setItem(AI_TODAY_SUGGESTION_INDEX_KEY, String(aiTodaySuggestionIndex));
     render();
   });
+  document.querySelectorAll("[data-suggestion-restart]").forEach(b => b.onclick = () => {
+    aiTodaySuggestionIndex = 0;
+    localStorage.setItem(AI_TODAY_SUGGESTION_INDEX_KEY, "0");
+    render();
+  });
   document.querySelectorAll("[data-del-id]").forEach(b => b.onclick = async () => {
     const removed = entries.find(e => e.id === b.dataset.delId);
     if (!removed) return;
@@ -3001,9 +3064,17 @@ function bind() {
 async function persistWorkMemory(nextModels = [], message = "我的工作已更新") {
   setWorkModels(nextModels);
   saveAll({ skipSync: true });
-  await DataService.saveWorkModelsOnly();
-  toast(message);
-  render();
+  try {
+    await DataService.saveWorkModelsOnly({ requireCloud: true });
+    toast(message);
+    render();
+    return true;
+  } catch (error) {
+    console.error("Persist Work Memory failed", { error, models: workMemoryObjects() });
+    toast(workMemoryFoundationNotInitialized ? "Work Memory Cloud 尚未初始化" : "我的工作尚未同步，請稍後重試");
+    render();
+    return false;
+  }
 }
 
 function closestWorkMemoryMatch(name = "", excludeNames = [], models = workModels()) {
@@ -3027,30 +3098,42 @@ function confirmWorkMemorySimilarity(name = "", options = {}) {
   return { action: "existing", match };
 }
 
-function rememberWorkMemoryAlias(targetName = "", alias = "", source = "") {
-  const notes = readJson(scopedLocalKey("zhuge_work_memory_merge_notes_v1"), {});
-  notes[targetName] = {
-    ...(notes[targetName] || {}),
-    aliases: [...new Set([...(arrayFromInput(notes[targetName]?.aliases)), alias].filter(Boolean))],
-    from: [...new Set([...(arrayFromInput(notes[targetName]?.from)), source].filter(Boolean))],
-    updatedAt: new Date().toISOString()
-  };
-  localStorage.setItem(scopedLocalKey("zhuge_work_memory_merge_notes_v1"), JSON.stringify(notes));
+function workMemoryObjectByName(name = "") {
+  return workMemoryObjects().find(item => item.name === String(name || "").trim()) || null;
+}
+
+async function rememberWorkMemoryAlias(targetName = "", alias = "", source = "") {
+  const objects = workMemoryObjects();
+  const index = objects.findIndex(item => item.name === targetName);
+  if (index < 0) return false;
+  const target = { ...objects[index] };
+  target.aliases = [...new Set([...target.aliases, alias].filter(Boolean))];
+  if (source) {
+    const labels = new Set(target.sourceReferences.map(reference => reference.label || ""));
+    if (!labels.has(source)) target.sourceReferences = [...target.sourceReferences, { type: "work_memory", label: source }];
+  }
+  objects[index] = target;
+  await persistWorkMemory(objects, `我已把這項理解整理到「${targetName}」`);
+  return true;
 }
 
 async function acceptWorkMemoryMergeSuggestion(suggestion, nextName = "", nextDescription = "") {
   if (!suggestion) return;
   const keepName = String(nextName || suggestion.keep || "").trim();
   if (!keepName) return toast("請輸入要保留的工作名稱");
-  const models = workModels().filter(name => name !== suggestion.a && name !== suggestion.b);
-  const next = [...new Set([keepName, ...models])];
+  const objects = workMemoryObjects();
+  const keepObject = objects.find(item => item.name === suggestion.keep || item.name === keepName) || normalizeWorkMemoryObject(keepName);
+  const mergedObjects = objects.filter(item => item.name !== suggestion.a && item.name !== suggestion.b);
+  const nextObject = normalizeWorkMemoryObject({
+    ...keepObject,
+    name: keepName,
+    description: nextDescription || keepObject.description || suggestion.description || "",
+    aliases: [...new Set([...(keepObject.aliases || []), suggestion.a, suggestion.b].filter(name => name && name !== keepName))],
+    sourceReferences: [...(keepObject.sourceReferences || []), ...(suggestion.sources || []).map(label => ({ type: "merge", label }))]
+  }, 0, keepObject);
+  const next = [nextObject, ...mergedObjects];
   saveWorkMemoryMergeDecision(suggestion.a, suggestion.b, "accepted");
   bumpWorkMemoryMergeStat(nextName && nextName !== suggestion.keep ? "renamed" : "merged");
-  if (nextDescription) {
-    const notes = readJson(scopedLocalKey("zhuge_work_memory_merge_notes_v1"), {});
-    notes[keepName] = { description: nextDescription, from: [suggestion.a, suggestion.b], at: new Date().toISOString() };
-    localStorage.setItem(scopedLocalKey("zhuge_work_memory_merge_notes_v1"), JSON.stringify(notes));
-  }
   await persistWorkMemory(next, "我已記住這次整理方式");
 }
 
@@ -3066,23 +3149,24 @@ async function adoptAiSuggestion(item, override = {}) {
   const similarity = confirmWorkMemorySimilarity(name);
   if (similarity.action === "cancel") return;
   if (["existing", "merge"].includes(similarity.action)) {
-    if (similarity.action === "merge") rememberWorkMemoryAlias(similarity.match.name, name, item.source || "AI 建議");
+    if (similarity.action === "merge") await rememberWorkMemoryAlias(similarity.match.name, name, item.source || "AI 建議");
     saveWorkMemoryAiSuggestionDecision(item.key, similarity.action === "merge" ? "merged" : "adopted", { type: item.type, name: similarity.match.name });
     toast(similarity.action === "merge" ? `我已把這項理解整理到「${similarity.match.name}」` : `我會繼續使用既有工作「${similarity.match.name}」`);
     render();
     return;
   }
-  const notes = readJson(scopedLocalKey("zhuge_work_memory_merge_notes_v1"), {});
-  notes[name] = {
-    ...(notes[name] || {}),
-    description: override.description || item.content || notes[name]?.description || "",
-    category: override.category || notes[name]?.category || workMemoryCategoryFor(name),
-    from: item.source ? [item.source] : [],
-    at: new Date().toISOString()
-  };
-  localStorage.setItem(scopedLocalKey("zhuge_work_memory_merge_notes_v1"), JSON.stringify(notes));
+  const nextObject = normalizeWorkMemoryObject({
+    name,
+    description: override.description || item.content || "",
+    category: override.category || workMemoryCategoryFor(name),
+    source: "ai_suggestion",
+    sourceReferences: item.source ? [{ type: "ai_suggestion", label: item.source }] : [],
+    keywords: arrayFromInput(item.triggers || item.candidate?.triggers || []),
+    familiarity: 1,
+    isActive: true
+  });
   saveWorkMemoryAiSuggestionDecision(item.key, "adopted", { type: item.type, name });
-  await persistWorkMemory([...new Set([...workModels(), name])], "我已把這項建議加入「我的工作」");
+  await persistWorkMemory([...workMemoryObjects(), nextObject], "我已把這項建議加入「我的工作」");
 }
 
 async function mergeAiSuggestion(item) {
@@ -3096,19 +3180,10 @@ async function mergeAiSuggestion(item) {
   const target = prompt(`要把「${item.title}」合併到哪一項已確認工作？\n\n目前我的工作：\n${models.join("\n")}`, models[0]);
   const clean = String(target || "").trim();
   if (!clean || !models.includes(clean)) return toast("請輸入既有的工作名稱");
-  const notes = readJson(scopedLocalKey("zhuge_work_memory_merge_notes_v1"), {});
-  notes[clean] = {
-    ...(notes[clean] || {}),
-    description: notes[clean]?.description || item.content || "",
-    from: [...new Set([...(arrayFromInput(notes[clean]?.from)), item.source].filter(Boolean))],
-    mergedSuggestions: [...new Set([...(arrayFromInput(notes[clean]?.mergedSuggestions)), item.title].filter(Boolean))],
-    updatedAt: new Date().toISOString()
-  };
-  localStorage.setItem(scopedLocalKey("zhuge_work_memory_merge_notes_v1"), JSON.stringify(notes));
+  await rememberWorkMemoryAlias(clean, item.title, item.source || "AI 建議");
   saveWorkMemoryAiSuggestionDecision(item.key, "merged", { into: clean, title: item.title });
   bumpWorkMemoryMergeStat("merged");
   toast(`我已記住「${item.title}」併入「${clean}」`);
-  render();
 }
 
 function bindWorkMemory() {
@@ -3121,12 +3196,12 @@ function bindWorkMemory() {
     const similarity = confirmWorkMemorySimilarity(clean);
     if (similarity.action === "cancel") return;
     if (["existing", "merge"].includes(similarity.action)) {
-      if (similarity.action === "merge") rememberWorkMemoryAlias(similarity.match.name, clean, "手動新增");
+      if (similarity.action === "merge") await rememberWorkMemoryAlias(similarity.match.name, clean, "手動新增");
       toast(similarity.action === "merge" ? `我已整理到既有工作「${similarity.match.name}」` : `「${similarity.match.name}」已經在我的工作中`);
-      render();
+      if (similarity.action !== "merge") render();
       return;
     }
-    const next = [...new Set([...workModels(), clean])];
+    const next = [...workMemoryObjects(), normalizeWorkMemoryObject({ name: clean, category: workMemoryCategoryFor(clean), source: "manual", isActive: true })];
     bumpWorkMemoryMergeStat("added");
     await persistWorkMemory(next, "我已記住這項工作");
   };
@@ -3148,24 +3223,35 @@ function bindWorkMemory() {
     const similarity = name === originalName ? { action: "create" } : confirmWorkMemorySimilarity(name, { excludeNames: [originalName] });
     if (similarity.action === "cancel") return;
     const targetName = ["existing", "merge"].includes(similarity.action) ? similarity.match.name : name;
-    const notes = readJson(scopedLocalKey("zhuge_work_memory_merge_notes_v1"), {});
-    const originalNote = notes[originalName] || {};
-    if (targetName !== originalName) delete notes[originalName];
-    notes[targetName] = { ...(notes[targetName] || {}), ...originalNote, description, category, enabled, updatedAt: new Date().toISOString() };
-    if (similarity.action === "merge") notes[targetName].aliases = [...new Set([...(arrayFromInput(notes[targetName].aliases)), originalName, name].filter(Boolean))];
-    localStorage.setItem(scopedLocalKey("zhuge_work_memory_merge_notes_v1"), JSON.stringify(notes));
-    const next = [...new Set(workModels().filter(model => model !== originalName).concat(targetName))];
+    const objects = workMemoryObjects();
+    const original = objects.find(model => model.name === originalName);
+    const target = objects.find(model => model.name === targetName);
+    const updated = normalizeWorkMemoryObject({
+      ...(target || original || {}),
+      name: targetName,
+      description,
+      category,
+      isActive: enabled,
+      aliases: similarity.action === "merge" ? [...new Set([...(target?.aliases || []), ...(original?.aliases || []), originalName, name].filter(alias => alias && alias !== targetName))] : (original?.aliases || []),
+      updatedAt: new Date().toISOString()
+    }, 0, target || original);
+    const next = objects.filter(model => model.name !== originalName && model.name !== targetName).concat(updated);
     editingWorkMemoryName = null;
     await persistWorkMemory(next, similarity.action === "merge" ? "我已依照你的決定整理這項工作" : "工作內容已更新");
   });
   document.querySelectorAll("[data-delete-work-memory]").forEach(button => button.onclick = async () => {
     const originalName = button.dataset.deleteWorkMemory || "";
     if (!confirm(`確認刪除「${originalName}」？`)) return;
-    const notes = readJson(scopedLocalKey("zhuge_work_memory_merge_notes_v1"), {});
-    delete notes[originalName];
-    localStorage.setItem(scopedLocalKey("zhuge_work_memory_merge_notes_v1"), JSON.stringify(notes));
+    const item = workMemoryObjectByName(originalName);
+    if (!item) return toast("找不到這項工作，請重新整理後再試");
     editingWorkMemoryName = null;
-    await persistWorkMemory(workModels().filter(model => model !== originalName), "已刪除這項工作");
+    try {
+      await DataService.deleteWorkModel(item);
+      toast("已刪除這項工作");
+      render();
+    } catch (error) {
+      toast(error.message || "刪除工作失敗");
+    }
   });
   document.querySelectorAll("[data-work-memory-source-name]").forEach(button => button.onclick = () => {
     const sourceName = button.dataset.workMemorySourceName || "";
@@ -3461,17 +3547,39 @@ function bindLibrary() {
     const names = [...new Set(selected)];
     if (!names.length) return toast("請先選擇要加入「我的工作」的項目");
     try {
-      const nextModels = [...workModels()];
+      const nextObjects = [...workMemoryObjects()];
+      const nextModels = nextObjects.filter(model => model.isActive).map(model => model.name);
       for (const name of names) {
         const similarity = confirmWorkMemorySimilarity(name, { models: nextModels });
         if (similarity.action === "cancel") continue;
         if (["existing", "merge"].includes(similarity.action)) {
-          if (similarity.action === "merge") rememberWorkMemoryAlias(similarity.match.name, name, item.title || "文件學習");
+          if (similarity.action === "merge") {
+            const targetIndex = nextObjects.findIndex(model => model.name === similarity.match.name);
+            if (targetIndex >= 0) {
+              const target = { ...nextObjects[targetIndex] };
+              target.aliases = [...new Set([...target.aliases, name].filter(Boolean))];
+              target.sourceReferences = [...target.sourceReferences, { type: "knowledge", label: item.title || "文件學習", knowledgeId: item.knowledgeId || "" }];
+              nextObjects[targetIndex] = target;
+            }
+          }
           continue;
         }
-        if (!nextModels.includes(name)) nextModels.push(name);
+        if (!nextModels.includes(name)) {
+          const candidate = candidates.find(value => String(value.title || "").trim() === name);
+          nextModels.push(name);
+          nextObjects.push(normalizeWorkMemoryObject({
+            name,
+            description: candidate?.content || candidate?.summary || "",
+            category: workMemoryCategoryFor(name),
+            source: "knowledge",
+            sourceReferences: [{ type: "knowledge", label: item.title || item.filename || "藏書閣", knowledgeId: item.knowledgeId || "", sourceId: item.cloudId || item.id || "" }],
+            keywords: arrayFromInput(candidate?.triggers || []),
+            isActive: true,
+            familiarity: 1
+          }));
+        }
       }
-      setWorkModels(nextModels);
+      setWorkModels(nextObjects);
       saveAll({ skipSync: true });
       await DataService.saveWorkModelsOnly();
       await KnowledgeIntelligence.verifySource(item).catch(error => console.warn("Knowledge verify after Work Memory accept failed", { error, item }));
@@ -3613,7 +3721,10 @@ function bindSettings() {
   };
   const currentSelectedWorkModels = () => [...document.querySelectorAll(".work-model-option:checked")].map(x => x.value.trim()).filter(Boolean);
   const syncSelectedWorkModels = () => {
-    setWorkModels(currentSelectedWorkModels());
+    const selected = new Set(currentSelectedWorkModels());
+    const objects = workMemoryObjects().map(item => ({ ...item, isActive: selected.has(item.name) }));
+    for (const name of selected) if (!objects.some(item => item.name === name)) objects.push(normalizeWorkMemoryObject({ name, category: workMemoryCategoryFor(name), source: "manual", isActive: true }));
+    setWorkModels(objects);
     queueSettingsAutoSave("workModels");
   };
   const bindWorkModelOptions = () => {
@@ -3641,9 +3752,10 @@ function bindSettings() {
   bindWorkModelOptions();
   if (roleSet) roleSet.onchange = e => {
     profile.role = e.target.value;
-    const models = tagsForRole(e.target.value);
+    const existing = workMemoryObjects();
+    const models = existing.length ? existing : tagsForRole(e.target.value).map(name => normalizeWorkMemoryObject({ name, category: workMemoryCategoryFor(name), source: "manual", isActive: true }));
     setWorkModels(models);
-    renderModelChecks(models, models);
+    renderModelChecks(workModels(), workModels());
     queueSettingsAutoSave(["profile", "workModels"]);
     render();
   };
