@@ -1,7 +1,7 @@
 // P5.2A-1 Foundation Split: configuration and static constants.
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260714-1437";
+const BUILD_TIME = "20260714-1453";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const KNOWLEDGE_DEBUG_MODE = (() => {
   try { return new URLSearchParams(location.search).has("debugKnowledge") || localStorage.getItem("zhuge_debug_knowledge") === "1"; }
@@ -84,7 +84,6 @@ const workspaceRegistry = {
   procurement: { icon: "📦", label: "採購營帳", group: "camp", comingSoon: true },
   hr: { icon: "👥", label: "HR營帳", group: "camp", comingSoon: true },
   travel: { icon: "✈️", label: "旅遊營帳", group: "camp", comingSoon: true },
-  workMemory: { icon: "🪶", label: "我的工作", group: "system", enabled: true },
   library: { icon: "📚", label: "藏書閣", group: "system", enabled: true },
   sync: { icon: "🔗", label: "控制台", group: "system", enabled: true },
   settings: { icon: "⚙️", label: "設定", group: "system", enabled: true }

@@ -1650,7 +1650,8 @@ function workMemoryItems() {
   });
 }
 
-function workMemoryPage() {
+function workMemoryPage(options = {}) {
+  const compact = !!options.compact;
   const items = workMemoryItems();
   const mergeSuggestions = workMemoryMergeSuggestions(3);
   const stats = readWorkMemoryMergeStats();
@@ -1666,7 +1667,8 @@ function workMemoryPage() {
     const companionLine = workMemoryCompanionLine(item);
     return `<div class="entry work-memory-card companion-card"><div class="entry-main"><div class="work-memory-title"><b>${escapeHtml(item.name)}</b><span>${escapeHtml(item.category)}</span></div><div class="companion-card-section"><b>🪶 我是從：</b><ul class="knowledge-result-list">${sourceList}</ul><div class="muted">慢慢學會這項工作的。</div></div><div class="companion-card-grid"><div><span>最近一次陪你完成</span><b>${escapeHtml(recent)}</b></div><div><span>熟悉程度</span><b>${escapeHtml(workMemoryFamiliarityBars(item.familiarityScore))}</b><small>${escapeHtml(familiarityLabel)}</small></div></div><div class="companion-card-section"><b>之後我可以：</b><ul class="knowledge-result-list"><li>✓ 推薦相關工時</li><li>✓ 幫你整理相近工作</li><li>✓ 在月底提醒你</li><li>✓ 引用這份經驗協助建立工時</li></ul></div><div class="companion-note">🪶 ${escapeHtml(companionLine)}</div></div><div class="actions compact"><button class="btn2" data-edit-work-memory="${escapeHtml(item.name)}">重新命名</button><button class="btn2" data-view-work-memory-source="${escapeHtml(item.name)}">查看來源</button><button class="btn2 danger" data-disable-work-memory="${escapeHtml(item.name)}">停用</button></div></div>`;
   }).join("") : `<div class="empty"><b>我還沒有記住你的工作</b><div class="muted">你可以先手動新增，或到藏書閣教我一份 SOP，讓我整理出可用於工時建議的工作。</div></div>`;
-  return `<section class="panel work-memory-page" style="margin-top:18px"><div class="panel-head"><div><h2>🪶 我的工作</h2><div class="muted">這裡是 Work Memory：我目前理解你會做到、也會用來產生工時建議的工作。</div></div><button class="btn" data-add-work-memory="1">＋ 新增我的工作</button></div><div class="dashboard-grid work-memory-summary"><div class="entry"><b>${items.length}</b><div class="muted">目前記住的工作</div></div><div class="entry"><b>${sourceCount}</b><div class="muted">連結的來源文件</div></div><div class="entry"><b>${items.length ? "學習中" : "等待教學"}</b><div class="muted">Mr. KM 狀態</div></div></div><div class="entry"><b>Mr. KM 幫你整理過</b><div class="muted">合併 ${Number(stats.merged || 0)} 次｜更名 ${Number(stats.renamed || 0)} 次｜新增 ${Number(stats.added || 0)} 次</div></div>${mergeNotice}${mergeCards}<div class="entry"><b>我不只是記住文件，我希望記住的是你的工作。</b><div class="muted">文件會教我工作；我的工作會讓 KM 建議更貼近；KM 建議最後會讓工時更好填。</div></div><div class="library-list">${cards}</div></section>`;
+  const content = `<div class="panel-head"><div><h2>🪶 我的工作</h2><div class="muted">這裡是 Mr. KM 已經學會的工作，也是工時建議的主要來源。</div></div><button class="btn" data-add-work-memory="1">＋ 新增我的工作</button></div><div class="entry"><b>然後呢？</b><div class="muted">加入「我的工作」後，我會開始引用它：KM 建議會更準，工時會更快建立，月底也更容易整理 ECP。</div></div><div class="dashboard-grid work-memory-summary"><div class="entry"><b>${items.length}</b><div class="muted">目前記住的工作</div></div><div class="entry"><b>${sourceCount}</b><div class="muted">連結的來源文件</div></div><div class="entry"><b>${items.length ? "學習中" : "等待教學"}</b><div class="muted">Mr. KM 狀態</div></div></div><div class="entry"><b>Mr. KM 幫你整理過</b><div class="muted">合併 ${Number(stats.merged || 0)} 次｜更名 ${Number(stats.renamed || 0)} 次｜新增 ${Number(stats.added || 0)} 次</div></div>${mergeNotice}${mergeCards}<div class="entry"><b>我不只是記住文件，我希望記住的是你的工作。</b><div class="muted">文件會教我工作；我的工作會讓 KM 建議更貼近；KM 建議最後會讓工時更好填。</div></div><div class="library-list">${cards}</div>`;
+  return compact ? `<div class="work-memory-page">${content}</div>` : `<section class="panel work-memory-page" style="margin-top:18px">${content}</section>`;
 }
 
 function worklogWorkspace() {
@@ -1676,7 +1678,6 @@ function worklogWorkspace() {
 function workspaceContent() {
   if (activeWorkspace === "dashboard") return zhugeDashboard();
   if (activeWorkspace === "worklog") return profile ? worklogWorkspace() : onboardingWorkspace();
-  if (activeWorkspace === "workMemory") return workMemoryPage();
   if (activeWorkspace === "library") {
     if (view === "libraryForm") return libraryForm(editingLibraryId);
     if (view === "libraryLearning") return libraryLearningView();
@@ -2429,12 +2430,10 @@ function libraryForm(id = null) {
 }
 
 function settings() {
-  const models = workModels();
   const tasks = ecpTasks();
   const wp = normalizeWorkProfile(workProfile || {}, profile);
   const profileStatus = isWorkProfileReady(wp) ? "✓ 已完成" : `⚠ 尚未完成：${workProfileMissingFields(wp).join("、")}`;
-  const familiarity = models.length >= 12 ? "★★★★★" : models.length >= 8 ? "★★★★☆" : models.length >= 4 ? "★★★☆☆" : models.length ? "★★☆☆☆" : "☆☆☆☆☆";
-  return `<section class="panel" style="margin-top:18px"><h2>⚙️ 設定</h2><div class="entry"><b>目前使用者</b><div class="muted">${escapeHtml(session.name)}｜${escapeHtml(session.status || session.email || "")}</div></div><div class="entry"><b>工作身分</b><div class="muted">${escapeHtml(profileStatus)}</div><div class="source-path">目前工作任務：${escapeHtml(wp.defaultTask || "尚未設定")}｜有效月份：${escapeHtml(wp.taskEffectiveMonth || "尚未設定")}</div></div><div class="entry"><b>Smart Auto Save</b><div class="muted">設定一修改即更新本機狀態，約 2 秒後自動同步 Cloud。</div></div><label>角色</label><select id="roleSet" class="input">${roles.map(r => `<option ${profile && profile.role === r ? "selected" : ""}>${r}</option>`).join("")}</select><div class="work-model-section"><label>我的工作</label><div class="entry"><div class="entry-main"><b>目前共有：${models.length} 項工作</b><div class="muted">Mr. KM 已經熟悉：${familiarity}</div></div></div><div class="work-model-list" id="workModelList">${workModelChecks(models, models)}</div><div class="work-model-add"><input class="input" id="newWorkModel" placeholder="新增我的工作，例如：ISO 稽核"><button class="btn2" id="addWorkModel" type="button">＋ 新增我的工作</button></div><div class="muted">這些是我目前理解你常做的工作，會用於快速建立工時與 Mr. KM 建議。</div></div><div class="work-model-section"><label>ECP 設定</label><label>ECP 負責人</label><input class="input" id="ecpOwner" value="${escapeHtml(profile?.ecpOwner || "")}" placeholder="例如：陳彥達-UU"><label>ECP 負責部門</label><input class="input" id="ecpDepartment" value="${escapeHtml(profile?.ecpDepartment || "")}" placeholder="例如：UU管理部"><label>目前工作任務（Current Active Task）</label>${ecpTaskList(tasks)}<div class="work-model-add"><input class="input" id="newEcpTask" placeholder="新增 ECP 任務，例如：採購案件處理"><button class="btn2" id="addEcpTask" type="button">＋ 新增 ECP 任務</button></div><div class="muted">目前工作任務會作為 ECP 匯出的任務欄位來源；快速紀錄仍可選「不指定 ECP 任務」。</div></div><button class="btn gray full" id="resetProfile">重新初次認識</button><button class="btn red full" id="logoutBtn">登出</button><div class="entry"><b>版本</b><div class="muted">${VERSION}</div></div></section>`;
+  return `<section class="panel" style="margin-top:18px"><h2>⚙️ 設定</h2><div class="entry"><b>目前使用者</b><div class="muted">${escapeHtml(session.name)}｜${escapeHtml(session.status || session.email || "")}</div></div><div class="entry"><b>工作身分</b><div class="muted">${escapeHtml(profileStatus)}</div><div class="source-path">目前工作任務：${escapeHtml(wp.defaultTask || "尚未設定")}｜有效月份：${escapeHtml(wp.taskEffectiveMonth || "尚未設定")}</div></div><div class="entry"><b>Smart Auto Save</b><div class="muted">設定一修改即更新本機狀態，約 2 秒後自動同步 Cloud。</div></div><label>角色</label><select id="roleSet" class="input">${roles.map(r => `<option ${profile && profile.role === r ? "selected" : ""}>${r}</option>`).join("")}</select><div class="work-model-section">${workMemoryPage({ compact: true })}</div><div class="work-model-section"><label>ECP 設定</label><label>ECP 負責人</label><input class="input" id="ecpOwner" value="${escapeHtml(profile?.ecpOwner || "")}" placeholder="例如：陳彥達-UU"><label>ECP 負責部門</label><input class="input" id="ecpDepartment" value="${escapeHtml(profile?.ecpDepartment || "")}" placeholder="例如：UU管理部"><label>目前工作任務（Current Active Task）</label>${ecpTaskList(tasks)}<div class="work-model-add"><input class="input" id="newEcpTask" placeholder="新增 ECP 任務，例如：採購案件處理"><button class="btn2" id="addEcpTask" type="button">＋ 新增 ECP 任務</button></div><div class="muted">目前工作任務會作為 ECP 匯出的任務欄位來源；快速紀錄仍可選「不指定 ECP 任務」。</div></div><button class="btn gray full" id="resetProfile">重新初次認識</button><button class="btn red full" id="logoutBtn">登出</button><div class="entry"><b>版本</b><div class="muted">${VERSION}</div></div></section>`;
 }
 
 function currentViewHtml() {
@@ -2932,7 +2931,7 @@ function bind() {
   });
   document.querySelectorAll("[data-edit-id]").forEach(b => b.onclick = () => { editingEntryId = b.dataset.editId; captureSeed = null; activeWorkspace = "worklog"; if (!openTabs.includes("worklog")) openTabs.push("worklog"); rememberWorkspace("worklog"); view = "capture"; saveAll(); render(); });
   bindLibrary();
-  if (activeWorkspace === "workMemory") bindWorkMemory();
+  if (activeWorkspace === "workMemory" || activeWorkspace === "settings") bindWorkMemory();
   if (activeWorkspace === "worklog" && view === "capture") bindCapture();
   bindWorklogAssistant();
   if (activeWorkspace === "worklog" && !profile) bindOnboarding();
@@ -3265,9 +3264,9 @@ function bindLibrary() {
       await DataService.saveWorkModelsOnly();
       await KnowledgeIntelligence.verifySource(item).catch(error => console.warn("Knowledge verify after Work Memory accept failed", { error, item }));
       toast(`我已把 ${names.length} 項工作加入「我的工作」`);
-      activeWorkspace = "workMemory";
-      if (!openTabs.includes("workMemory")) openTabs.push("workMemory");
-      rememberWorkspace("workMemory");
+      activeWorkspace = "settings";
+      if (!openTabs.includes("settings")) openTabs.push("settings");
+      rememberWorkspace("settings");
       view = "center";
       render();
     } catch (error) {
@@ -3434,6 +3433,7 @@ function bindSettings() {
     setWorkModels(models);
     renderModelChecks(models, models);
     queueSettingsAutoSave(["profile", "workModels"]);
+    render();
   };
   const add = document.getElementById("addWorkModel");
   if (add) add.onclick = () => {
