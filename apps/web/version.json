@@ -1,11 +1,11 @@
 {
   "version": "1.0.0-rc3.1-sp3",
   "release": "RC3.3",
-  "buildTime": "20260714-1507",
-  "cacheBust": "20260714-1507",
+  "buildTime": "20260714-1525",
+  "cacheBust": "20260714-1525",
   "source": {
-    "css": "worklog.css?v=20260714-1507",
-    "knowledge": "knowledge-intelligence.js?v=20260714-1507",
-    "js": "worklog-app.js?v=20260714-1507"
+    "css": "worklog.css?v=20260714-1525",
+    "knowledge": "knowledge-intelligence.js?v=20260714-1525",
+    "js": "worklog-app.js?v=20260714-1525"
   }
 }
