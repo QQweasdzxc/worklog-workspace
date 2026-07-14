@@ -1,5 +1,37 @@
 # WorkLog RC3 Release Patch1
 
+## Build 20260714-1604 - P5.3 Refactoring Sprint 1
+
+- 新增獨立純邏輯模組 `suggestion-intelligence.js`，負責：
+  - Candidate normalization
+  - Generalization
+  - Work Memory similarity matching
+  - Cross-source deduplication
+- AI 建議會先比對「我的工作」；高相似度候選直接引用既有工作，不再產生重複建議。
+- 將「檢查請款文件／追蹤驗收／確認交貨」等零散動作凝聚為較高層級的「採購案件管理」。
+- 相同或高度相似候選只保留一張建議卡，並合併來源資料。
+- 建議 Decision Key 改以正規化後的工作名稱為主，同時相容既有 LocalStorage decision key。
+- 移除 Sprint 2.2／2.3 IA 修正後已無 DOM 入口的舊事件處理、函式與 CSS。
+- 新增 Suggestion Intelligence 自動化測試，覆蓋去重、泛化、Work Memory 引用與避免錯誤合併。
+- 新增 Architecture Review、Project Health Check 與 Technical Debt 評估。
+
+### 🪶 Companion QA
+
+1. 我是否減少主人需要處理的重複建議？
+   - 是。相同建議會合併，高相似度既有工作不再重複詢問。
+2. 我是否把零散動作整理成更容易理解的工作？
+   - 是。已加入保守、可測試的 Generalization 規則。
+3. 我是否仍保留主人的決定權？
+   - 是。只有真正的新工作或整理建議才進 Queue，仍需使用者採用。
+4. 我是否讓後續架構更容易維護？
+   - 是。Suggestion 判斷已與 UI、DataService、Supabase 分離。
+
+### 🎯 Mr. KM Perspective
+
+以前，同一件工作可能因為出現在不同文件裡，就被我重複提出。
+
+現在，我會先整理、比對並確認它是不是主人已經教過我的工作。只有真正值得主人決定的新內容，我才會提出建議。
+
 ## Build 20260714-1536 - P5.3 Sprint 2.3 IA Correction
 
 - 將「我的工作」收斂為使用者已確認的正式工作清單，第一層只顯示：
