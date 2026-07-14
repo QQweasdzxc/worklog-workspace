@@ -27,6 +27,22 @@ Mr. KM 理解
 
 產品原則：[Teach Mr. KM, Not Manage Files](docs/product-principles.md)
 
+## Why Mr. KM?
+
+Mr. KM 不是一個功能名稱，而是 Zhuge AI OS 的產品人格。
+
+KM 代表：
+
+- **Knowledge Mate**：陪著使用者一起工作的知識夥伴。
+- **Knowledge Mentor**：隨著每一次互動，逐步理解使用者工作方式的指引者。
+- **Knowledge Companion**：不要求使用者適應系統，而是努力配合使用者的工作節奏。
+
+Mr. KM 不追求知道全世界。
+
+他追求的是：
+
+> 越來越懂這位使用者的工作，並讓下一次工時更容易完成。
+
 ## 目前能力
 
 - 自然語言建立工時，確認後寫入正式工時月曆。
