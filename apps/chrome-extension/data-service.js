@@ -584,7 +584,7 @@ const DataService = {
   },
   async updateKnowledgeProcessing(item, patch = {}) {
     const normalized = normalizedLibraryItem(item);
-    console.warn("Knowledge Process Call Stack Debug", {
+    knowledgeDebugLog("warn", "Knowledge Process Call Stack Debug", {
       functionName: "DataService.updateKnowledgeProcessing",
       knowledgeId: normalized.knowledgeId,
       id: normalized.id,
@@ -621,7 +621,7 @@ const DataService = {
     const sanitizedSummary = sanitizeKnowledgeValue(result.summary || {});
     const sanitizedUnits = sanitizeKnowledgeValue(result.units || []);
     const sanitizedCandidates = sanitizeKnowledgeValue(result.candidates || []);
-    console.warn("Knowledge Process Call Stack Debug", {
+    knowledgeDebugLog("warn", "Knowledge Process Call Stack Debug", {
       functionName: "DataService.saveKnowledgeIntelligenceResult",
       knowledgeId: normalized.knowledgeId,
       id: normalized.id,
@@ -634,7 +634,7 @@ const DataService = {
       dataServiceReady = true;
       this.setStatus("syncing");
       const processedAt = new Date().toISOString();
-      console.info("Knowledge Intelligence Supabase Write Debug", {
+      knowledgeDebugLog("info", "Knowledge Intelligence Supabase Write Debug", {
         operation: "PATCH",
         table: "knowledge_sources",
         query: `?id=eq.${normalized.cloudId || normalized.id || ""}`,

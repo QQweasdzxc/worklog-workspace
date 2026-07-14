@@ -2935,7 +2935,7 @@ function bindLibrary() {
     const item = library.find(x => x.id === b.dataset.reprocessLibrary);
     if (!item) return;
     try {
-      console.warn("Knowledge Process Call Stack Debug", {
+      knowledgeDebugLog("warn", "Knowledge Process Call Stack Debug", {
         functionName: "bindLibrary[data-reprocess-library].onclick",
         knowledgeId: item.knowledgeId,
         id: item.id,

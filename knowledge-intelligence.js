@@ -156,20 +156,107 @@ function excelText(entries = []) {
   return values.filter(Boolean).join("\n");
 }
 
-function pdfLiteralText(raw = "") {
-  const output = [];
-  for (const match of String(raw || "").matchAll(/\(([^()]|\\[()\\nrtbf]){2,}\)/g)) {
-    const text = match[0]
-      .slice(1, -1)
-      .replace(/\\n/g, "\n")
-      .replace(/\\r/g, "\n")
-      .replace(/\\t/g, "\t")
-      .replace(/\\\(/g, "(")
-      .replace(/\\\)/g, ")")
-      .replace(/\\\\/g, "\\");
-    if (/[\u4e00-\u9fffA-Za-z]/.test(text)) output.push(text);
+async function loadPdfJs() {
+  if (globalThis.pdfjsLib?.getDocument) return globalThis.pdfjsLib;
+  try {
+    const pdfjsLib = await import(PDFJS_LIB_URL);
+    pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_URL;
+    globalThis.pdfjsLib = pdfjsLib;
+    return pdfjsLib;
+  } catch (error) {
+    console.error("PDF.js load failed", { error });
+    throw new Error("PDF 文字擷取元件載入失敗，請確認網路連線後再試。");
   }
-  return output.join("\n");
+}
+
+function normalizePdfPageText(text = "") {
+  return sanitizeKnowledgeString(text)
+    .replace(/([\u4e00-\u9fff])\s+([\u4e00-\u9fff])/g, "$1$2")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function pdfTextFromItems(items = []) {
+  let text = "";
+  let previousY = null;
+  for (const item of items) {
+    const str = sanitizeKnowledgeString(item.str || "");
+    if (!str.trim()) continue;
+    const y = Array.isArray(item.transform) ? Math.round(item.transform[5] || 0) : null;
+    if (previousY !== null && y !== null && Math.abs(y - previousY) > 4) {
+      text += "\n";
+    } else if (text && !/[\n\s]$/.test(text)) {
+      text += " ";
+    }
+    text += str;
+    previousY = y;
+  }
+  return normalizePdfPageText(text);
+}
+
+function analyzeKnowledgeTextQuality(text = "") {
+  const raw = String(text || "");
+  const compact = raw.replace(/\s/g, "");
+  const chars = Array.from(compact);
+  const total = chars.length;
+  const readableCount = chars.filter(char => /[\p{Script=Han}A-Za-z0-9]/u.test(char)).length;
+  const commonPunctuationCount = chars.filter(char => /[，。、；：？！「」『』（）()《》〈〉,.!?;:'"、\-–—/\\%+&@#\[\]【】]/u.test(char)).length;
+  const replacementCharacterCount = chars.filter(char => char === "�").length;
+  const unsafe = countKnowledgeUnsafeCharacters(raw);
+  const unreadableSymbolCount = Math.max(0, total - readableCount - commonPunctuationCount - replacementCharacterCount);
+  const ratio = count => total ? count / total : 0;
+  return {
+    totalCharacters: total,
+    readableCount,
+    readableRatio: ratio(readableCount),
+    replacementCharacterCount,
+    replacementRatio: ratio(replacementCharacterCount),
+    controlCharacterCount: unsafe.controlCharacterCount + unsafe.nullCharacterCount,
+    controlRatio: ratio(unsafe.controlCharacterCount + unsafe.nullCharacterCount),
+    invalidSurrogateCount: unsafe.invalidSurrogateCount,
+    unreadableSymbolCount,
+    unreadableSymbolRatio: ratio(unreadableSymbolCount)
+  };
+}
+
+function assertKnowledgeTextQuality(text = "", context = {}) {
+  const quality = analyzeKnowledgeTextQuality(text);
+  knowledgeDebugLog("info", "Knowledge Text Quality Debug", { context, quality });
+  const hasEnoughText = quality.totalCharacters >= 20;
+  const readableEnough = quality.readableRatio >= 0.35;
+  const replacementOk = quality.replacementRatio <= 0.02;
+  const controlOk = quality.controlRatio <= 0.01 && quality.invalidSurrogateCount === 0;
+  const symbolsOk = quality.unreadableSymbolRatio <= 0.45;
+  if (!hasEnoughText) {
+    const error = new Error("此 PDF 沒有可讀文字層，可能是掃描檔；目前尚未支援 OCR。");
+    error.quality = quality;
+    throw error;
+  }
+  if (!readableEnough || !replacementOk || !controlOk || !symbolsOk) {
+    const error = new Error("此 PDF 的文字層品質過低，Mr. KM 無法可靠閱讀；可能是掃描檔、特殊字型編碼或加密文字。P5.2 目前尚未支援 OCR。");
+    error.quality = quality;
+    throw error;
+  }
+  return quality;
+}
+
+async function extractPdfTextWithPdfJs(blob) {
+  const pdfjsLib = await loadPdfJs();
+  const data = new Uint8Array(await blob.arrayBuffer());
+  const loadingTask = pdfjsLib.getDocument({ data });
+  const pdf = await loadingTask.promise;
+  const pages = [];
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+    const page = await pdf.getPage(pageNumber);
+    const content = await page.getTextContent();
+    const pageText = pdfTextFromItems(content.items || []);
+    if (pageText) pages.push({ pageNumber, text: pageText });
+  }
+  if (!pages.length) throw new Error("此 PDF 沒有可讀文字層，可能是掃描檔；目前尚未支援 OCR。");
+  const text = pages.map(page => `第 ${page.pageNumber} 頁\n${page.text}`).join("\n\n");
+  const quality = assertKnowledgeTextQuality(text, { sourceType: "pdf", pages: pages.length });
+  return { text, pages, quality, supportLevel: "pdfjs-text-layer", sourceType: "pdf" };
 }
 
 async function extractKnowledgeText(source = {}, file = null) {
@@ -218,10 +305,7 @@ async function extractKnowledgeText(source = {}, file = null) {
     return { text: excelText(entries), supportLevel: "xml-text", sourceType: "excel" };
   }
   if (type === "pdf" || /\.pdf$/i.test(name)) {
-    const raw = new TextDecoder("latin1").decode(new Uint8Array(await blob.arrayBuffer()));
-    const text = pdfLiteralText(raw);
-    if (!text || text.length < 20) throw new Error("PDF 無可擷取文字層；P5.2 v1 尚不支援掃描圖像 OCR。請改上傳含文字層 PDF、DOCX 或 TXT。");
-    return { text, supportLevel: "basic-text-layer", sourceType: "pdf" };
+    return extractPdfTextWithPdfJs(blob);
   }
   throw new Error("此檔案格式尚未支援，請使用 PDF / DOCX / XLSX / PPTX / TXT / Markdown");
 }
@@ -233,6 +317,21 @@ function splitKnowledgeLines(text = "") {
     .map(x => x.replace(/^[\s•\-–—\d.、()（）]+/, "").trim())
     .filter(x => x.length >= 4)
     .slice(0, 180);
+}
+
+function splitKnowledgeLineObjects(text = "", extracted = {}) {
+  if (Array.isArray(extracted.pages) && extracted.pages.length) {
+    return extracted.pages.flatMap(page => splitKnowledgeLines(page.text).map((line, index) => ({
+      text: line,
+      pageReference: `第 ${page.pageNumber} 頁`,
+      sectionReference: `第 ${page.pageNumber} 頁｜段落 ${index + 1}`
+    }))).slice(0, 180);
+  }
+  return splitKnowledgeLines(text).map((line, index) => ({
+    text: line,
+    pageReference: "",
+    sectionReference: `自動擷取段落 ${index + 1}`
+  }));
 }
 
 function keywordHits(text = "", keywords = []) {
@@ -255,21 +354,22 @@ function titleFromLine(line = "", fallback = "Knowledge Unit") {
 function buildKnowledgeIntelligence(source = {}, extracted = {}) {
   const rawText = String(extracted.text || "").replace(/\s+\n/g, "\n").trim();
   const text = sanitizeKnowledgeString(rawText);
-  console.info("Knowledge Intelligence Text Sanitize Debug", knowledgeSanitizationStats(rawText, text));
+  knowledgeDebugLog("info", "Knowledge Intelligence Text Sanitize Debug", knowledgeSanitizationStats(rawText, text));
   if (!text) throw new Error("文件內容為空，無法建立工作知識");
   const item = normalizedLibraryItem(source);
   const roleLabel = knowledgeRoleLabel(item);
   const roleCodes = knowledgeRoleCodes(item);
   const agents = item.applicableAgents?.length ? item.applicableAgents : [`${roleLabel} Agent`];
-  const lines = splitKnowledgeLines(text);
+  const lineObjects = splitKnowledgeLineObjects(text, extracted);
   const topics = [...new Set([
     ...keywordHits(text, ["採購", "請購", "詢價", "比價", "議價", "驗收", "請款", "供應商", "評鑑", "合約", "發票"]),
     ...keywordHits(text, ["新人", "報到", "教育訓練", "帳號", "主管", "制度"]),
     ...keywordHits(text, ["ISO", "稽核", "改善", "缺失", "追蹤", "SOP"])
   ])].slice(0, 12);
-  const unitLines = lines.filter(line => /採購|請購|詢價|比價|議價|驗收|請款|供應商|評鑑|合約|發票|新人|報到|教育訓練|ISO|稽核|改善|缺失|追蹤|流程|檢查|確認|準備|通知|建立|每月|定期/.test(line));
-  const selectedLines = (unitLines.length ? unitLines : lines).slice(0, 16);
-  const units = selectedLines.map((line, index) => {
+  const unitLines = lineObjects.filter(line => /採購|請購|詢價|比價|議價|驗收|請款|供應商|評鑑|合約|發票|新人|報到|教育訓練|ISO|稽核|改善|缺失|追蹤|流程|檢查|確認|準備|通知|建立|每月|定期/.test(line.text));
+  const selectedLines = (unitLines.length ? unitLines : lineObjects).slice(0, 16);
+  const units = selectedLines.map((lineItem, index) => {
+    const line = lineItem.text;
     const unitType = inferUnitType(line);
     const triggers = keywordHits(line, ["採購", "請購", "詢價", "比價", "議價", "驗收", "請款", "供應商", "評鑑", "發票", "新人", "報到", "教育訓練", "ISO", "稽核", "改善", "追蹤"]).slice(0, 6);
     return {
@@ -278,8 +378,8 @@ function buildKnowledgeIntelligence(source = {}, extracted = {}) {
       title: titleFromLine(line, `${item.title} ${index + 1}`),
       content: line,
       summary: line.slice(0, 120),
-      sectionReference: `自動擷取段落 ${index + 1}`,
-      pageReference: "",
+      sectionReference: lineItem.sectionReference || `自動擷取段落 ${index + 1}`,
+      pageReference: lineItem.pageReference || "",
       triggers,
       applicableRoles: roleCodes,
       applicableAgents: agents,
@@ -340,7 +440,7 @@ function recommendationTitle(title = "") {
 const KnowledgeIntelligence = {
   async processSource(source = {}, options = {}) {
     const item = normalizedLibraryItem(source);
-    console.warn("Knowledge Process Call Stack Debug", {
+    knowledgeDebugLog("warn", "Knowledge Process Call Stack Debug", {
       functionName: "KnowledgeIntelligence.processSource",
       knowledgeId: item.knowledgeId,
       id: item.id,

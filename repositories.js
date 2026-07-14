@@ -60,7 +60,7 @@ const SupabaseRepository = {
   async patch(table, query, payload) {
     const isKnowledgeSourcesPatch = table === "knowledge_sources";
     if (isKnowledgeSourcesPatch) {
-      console.warn("Knowledge Sources PATCH Actual Call Debug", {
+      knowledgeDebugLog("warn", "Knowledge Sources PATCH Actual Call Debug", {
         table,
         query,
         callStack: new Error("knowledge_sources PATCH call stack").stack,
@@ -70,7 +70,7 @@ const SupabaseRepository = {
     try {
       const result = await this.request(`${table}${query}`, { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(payload) });
       if (isKnowledgeSourcesPatch) {
-        console.warn("Knowledge Sources PATCH Actual Call Success", {
+        knowledgeDebugLog("warn", "Knowledge Sources PATCH Actual Call Success", {
           table,
           query,
           returnedRows: Array.isArray(result) ? result.length : (result ? 1 : 0)
@@ -79,7 +79,7 @@ const SupabaseRepository = {
       return result;
     } catch (error) {
       if (isKnowledgeSourcesPatch) {
-        console.error("Knowledge Sources PATCH Actual Call Failed", {
+        knowledgeDebugLog("error", "Knowledge Sources PATCH Actual Call Failed", {
           table,
           query,
           callStack: new Error("knowledge_sources PATCH failed stack").stack,
@@ -480,7 +480,7 @@ const SupabaseRepository = {
       updated_by: currentUserUuid()
     };
     const query = `?id=eq.${encodeURIComponent(sourceId)}`;
-    console.info("PATCH Payload Debug", {
+    knowledgeDebugLog("info", "PATCH Payload Debug", {
       operation: "PATCH",
       table: "knowledge_sources",
       query: `?id=eq.${sourceId}`,
@@ -502,7 +502,7 @@ const SupabaseRepository = {
     for (let index = 0; index < patchOrder.length; index += 1) {
       const field = patchOrder[index];
       const fieldPayload = { [field]: payload[field], ...metaPayload };
-      console.info("Knowledge PATCH Step Debug", {
+      knowledgeDebugLog("info", "Knowledge PATCH Step Debug", {
         step: index + 1,
         field,
         table: "knowledge_sources",
@@ -511,13 +511,13 @@ const SupabaseRepository = {
       });
       try {
         rows = await this.patch("knowledge_sources", query, fieldPayload);
-        console.info("Knowledge PATCH Step Success", {
+        knowledgeDebugLog("info", "Knowledge PATCH Step Success", {
           step: index + 1,
           field,
           status: "success"
         });
       } catch (error) {
-        console.error("Knowledge PATCH Step Failed", {
+        knowledgeDebugLog("error", "Knowledge PATCH Step Failed", {
           step: index + 1,
           field,
           fieldDebug: knowledgePayloadFieldDebug(payload[field]),
@@ -562,7 +562,7 @@ const SupabaseRepository = {
       status: unit.status || "active"
     }));
     if (!payloads.length) return [];
-    console.info("Knowledge INSERT Payload Debug", {
+    knowledgeDebugLog("info", "Knowledge INSERT Payload Debug", {
       operation: "INSERT",
       table: "knowledge_units",
       rowCount: payloads.length,
@@ -609,7 +609,7 @@ const SupabaseRepository = {
       };
     });
     if (!payloads.length) return [];
-    console.info("Knowledge INSERT Payload Debug", {
+    knowledgeDebugLog("info", "Knowledge INSERT Payload Debug", {
       operation: "INSERT",
       table: "knowledge_recommendation_candidates",
       rowCount: payloads.length,
@@ -649,7 +649,7 @@ const KnowledgeRepository = {
     return SupabaseRepository.signedKnowledgeFileUrl(path, expiresIn);
   },
   updateSourceProcessing(item = {}, patch = {}) {
-    console.warn("Knowledge Process Call Stack Debug", {
+    knowledgeDebugLog("warn", "Knowledge Process Call Stack Debug", {
       functionName: "KnowledgeRepository.updateSourceProcessing",
       knowledgeId: item.knowledgeId,
       id: item.id,

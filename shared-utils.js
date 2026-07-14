@@ -249,6 +249,17 @@ function knowledgePatchPayloadDebug(payload = {}) {
   };
 }
 
+function knowledgeDebugEnabled() {
+  try { return !!KNOWLEDGE_DEBUG_MODE || localStorage.getItem("zhuge_debug_knowledge") === "1"; }
+  catch { return false; }
+}
+
+function knowledgeDebugLog(level = "log", label = "", payload = null) {
+  if (!knowledgeDebugEnabled()) return;
+  const logger = console[level] || console.log;
+  logger.call(console, label, payload);
+}
+
 function legacyInventory() {
   const legacyEntries = readJson("wl_entries", []);
   const legacyProfile = readJson("wl_profile", null);
