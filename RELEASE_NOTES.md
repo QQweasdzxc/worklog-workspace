@@ -1,5 +1,35 @@
 # WorkLog RC3 Release Patch1
 
+## Build 20260714-1536 - P5.3 Sprint 2.3 IA Correction
+
+- 將「我的工作」收斂為使用者已確認的正式工作清單，第一層只顯示：
+  - 已採用工作
+  - 工作名稱
+  - 分類
+  - 啟用狀態
+- 保留 `＋ 新增工作` 與 `🪶 查看 AI 建議（N）` 兩個入口。
+- 將來源、熟悉程度與「採用後我可以」等 Companion Card 內容，完整移至 AI 建議 Workspace。
+- 每一張 Companion Card 現在都代表一則尚未採用的 AI 建議，不再代表正式工作。
+- `✅ 採用` 後才加入「我的工作」，建議卡隨即從 Queue 移除。
+- 本輪只修正資訊架構；不修改 Work Memory、Knowledge、DataService、Supabase 或 KM Suggestion 生成邏輯。
+
+### 🪶 Companion QA
+
+1. 「我的工作」是否保持穩定可信？
+   - 是。只呈現使用者已確認的正式工作，不混入 Mr. KM 的推測與敘事。
+2. AI 建議是否與正式工作清楚分離？
+   - 是。Companion Card 只存在於 AI 建議 Workspace。
+3. 使用者是否保有最後決定權？
+   - 是。建議只有在使用者按下採用後，才會成為「我的工作」。
+4. 是否符合 Product Charter？
+   - 是。Mr. KM 負責提出與說明建議；主人決定哪些內容能成為正式工作。
+
+### 🎯 Mr. KM Perspective
+
+我不能把自己的建議直接當成主人的工作。
+
+現在，主人已確認的工作會安靜地留在「我的工作」；我想到的新建議，則會整理在另一個 Workspace，等主人有空時再決定是否採用。
+
 ## Build 20260714-1525 - P5.3 Sprint 2.3 AI Suggestion Workspace
 
 - 將「我的工作」與「AI 建議」正式分離。

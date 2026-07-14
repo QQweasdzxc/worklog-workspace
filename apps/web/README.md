@@ -52,7 +52,7 @@ Mr. KM 不追求知道全世界。
 - 藏書閣用來教 Mr. KM 學會新的工作，而不是管理檔案。
 - P5.3 Work Memory：文件整理後可經使用者確認加入「我的工作」，讓 KM 建議逐步更貼近工時。
 - P5.3 Smart Merge：Mr. KM 會主動發現相近工作，提出整理建議，再由使用者決定是否接受。
-- P5.3 Companion Card：每一項「我的工作」都會說明 Mr. KM 從哪裡學會、最近何時陪你完成、之後能怎麼幫你。
+- P5.3 IA Correction：「我的工作」只保留已確認工作；Companion Card 僅用來呈現尚待使用者決定的 AI 建議。
 - P5.3 IA Simplification：「我的工作」收斂到設定中的工作管理中心，不再作為重複入口。
 - P5.3 Companion Card UX Refinement：「我的工作」第一層只保留來源與編輯；AI 整理建議只在 Mr. KM 發現有價值時出現。
 - P5.3 AI Suggestion Workspace：「我的工作」只保留已確認工作；Mr. KM 的提案移到獨立 AI 建議 Workspace，由使用者採用後才生效。
