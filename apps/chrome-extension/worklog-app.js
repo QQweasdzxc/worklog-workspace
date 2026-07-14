@@ -1502,9 +1502,33 @@ function workMemoryCategoryFor(name = "") {
   return profile?.role || "一般工作";
 }
 
+function workMemoryFamiliarityScore(count = 0, sourceCount = 0) {
+  return Math.min(5, Math.max(1, Math.ceil((count + sourceCount * 2) / 3)));
+}
+
 function workMemoryFamiliarity(count = 0, sourceCount = 0) {
   const score = Math.min(5, Math.max(1, Math.ceil((count + sourceCount * 2) / 3)));
   return "★★★★★".slice(0, score) + "☆☆☆☆☆".slice(0, 5 - score);
+}
+
+function workMemoryFamiliarityLabel(score = 1) {
+  if (score >= 5) return "非常了解";
+  if (score >= 4) return "已經熟悉";
+  if (score >= 3) return "開始熟悉";
+  return "還在學習";
+}
+
+function workMemoryCompanionLine(item = {}) {
+  const label = workMemoryFamiliarityLabel(item.familiarityScore || 1);
+  if (label === "非常了解") return `這項工作，我已經很有把握了。`;
+  if (label === "已經熟悉") return `如果之後你再做這項工作，我應該能更快幫到你。`;
+  if (label === "開始熟悉") return `最近，我開始越來越了解「${item.name}」。`;
+  return `我還在學「${item.name}」，你每次使用都會讓我更懂一點。`;
+}
+
+function workMemoryFamiliarityBars(score = 1) {
+  const value = Math.min(5, Math.max(1, Number(score || 1)));
+  return "■".repeat(value) + "□".repeat(5 - value);
 }
 
 function workMemoryPairKey(a = "", b = "") {
@@ -1618,6 +1642,7 @@ function workMemoryItems() {
       category: workMemoryCategoryFor(name),
       sources,
       familiarity: workMemoryFamiliarity(usage.count, sources.length),
+      familiarityScore: workMemoryFamiliarityScore(usage.count, sources.length),
       recentUsedAt: usage.latest,
       enabled: true,
       usageCount: usage.count
@@ -1635,9 +1660,11 @@ function workMemoryPage() {
     : `<div class="entry work-memory-merge-notice"><b>🪶 我的工作目前整理得很好。</b><div class="muted">如果之後我發現相近的工作，會先提出整理建議，再由你決定。</div></div>`;
   const mergeCards = mergeSuggestions.length ? `<section class="panel work-memory-smart-merge" id="workMemorySmartMerge" style="margin-top:12px"><div class="panel-head"><div><h3>🪶 我可以幫你整理這些工作</h3><div class="muted">AI 建議，使用者決定。你接受、修改或先保留，我都會記住。</div></div></div>${mergeSuggestions.map((s, index) => `<div class="entry work-memory-merge-card"><div class="entry-main"><b>我發現這兩項工作很相近：</b><div class="work-memory-merge-pair"><span>${escapeHtml(s.a)}</span><span>${escapeHtml(s.b)}</span></div><div class="source-path">相似度：${Math.round(s.score * 100)}%</div><div class="source-path">我建議保留：<b>${escapeHtml(s.keep)}</b></div><small>${escapeHtml(s.description)}</small><div class="source-path">來源：${escapeHtml(s.sources.join("、"))}</div></div><div class="actions compact"><button class="btn green" data-accept-work-merge="${index}">接受建議</button><button class="btn2" data-edit-work-merge="${index}">修改後接受</button><button class="btn2" data-ignore-work-merge="${index}">先保留</button></div></div>`).join("")}</section>` : "";
   const cards = items.length ? items.map(item => {
-    const sourceList = item.sources.length ? item.sources.slice(0, 3).map(source => `<li>${escapeHtml(source)}</li>`).join("") : "<li>手動建立，尚未連結來源文件</li>";
+    const sourceList = item.sources.length ? item.sources.slice(0, 3).map(source => `<li>✓ ${escapeHtml(source)}</li>`).join("") : "<li>✓ 手動建立，尚未連結來源文件</li>";
     const recent = item.recentUsedAt ? fmt(item.recentUsedAt) : "尚未使用";
-    return `<div class="entry work-memory-card"><div class="entry-main"><div class="work-memory-title"><b>${escapeHtml(item.name)}</b><span>${escapeHtml(item.category)}</span></div><small>${escapeHtml(item.description)}</small><div class="source-path">熟悉度：${escapeHtml(item.familiarity)}｜最近使用：${escapeHtml(recent)}｜使用 ${item.usageCount} 次</div><details class="work-memory-sources"><summary>查看工作來源</summary><ul>${sourceList}</ul></details></div><div class="actions compact"><button class="btn2" data-edit-work-memory="${escapeHtml(item.name)}">重新命名</button><button class="btn2" data-view-work-memory-source="${escapeHtml(item.name)}">查看來源</button><button class="btn2 danger" data-disable-work-memory="${escapeHtml(item.name)}">停用</button></div></div>`;
+    const familiarityLabel = workMemoryFamiliarityLabel(item.familiarityScore);
+    const companionLine = workMemoryCompanionLine(item);
+    return `<div class="entry work-memory-card companion-card"><div class="entry-main"><div class="work-memory-title"><b>${escapeHtml(item.name)}</b><span>${escapeHtml(item.category)}</span></div><div class="companion-card-section"><b>🪶 我是從：</b><ul class="knowledge-result-list">${sourceList}</ul><div class="muted">慢慢學會這項工作的。</div></div><div class="companion-card-grid"><div><span>最近一次陪你完成</span><b>${escapeHtml(recent)}</b></div><div><span>熟悉程度</span><b>${escapeHtml(workMemoryFamiliarityBars(item.familiarityScore))}</b><small>${escapeHtml(familiarityLabel)}</small></div></div><div class="companion-card-section"><b>之後我可以：</b><ul class="knowledge-result-list"><li>✓ 推薦相關工時</li><li>✓ 幫你整理相近工作</li><li>✓ 在月底提醒你</li><li>✓ 引用這份經驗協助建立工時</li></ul></div><div class="companion-note">🪶 ${escapeHtml(companionLine)}</div></div><div class="actions compact"><button class="btn2" data-edit-work-memory="${escapeHtml(item.name)}">重新命名</button><button class="btn2" data-view-work-memory-source="${escapeHtml(item.name)}">查看來源</button><button class="btn2 danger" data-disable-work-memory="${escapeHtml(item.name)}">停用</button></div></div>`;
   }).join("") : `<div class="empty"><b>我還沒有記住你的工作</b><div class="muted">你可以先手動新增，或到藏書閣教我一份 SOP，讓我整理出可用於工時建議的工作。</div></div>`;
   return `<section class="panel work-memory-page" style="margin-top:18px"><div class="panel-head"><div><h2>🪶 我的工作</h2><div class="muted">這裡是 Work Memory：我目前理解你會做到、也會用來產生工時建議的工作。</div></div><button class="btn" data-add-work-memory="1">＋ 新增我的工作</button></div><div class="dashboard-grid work-memory-summary"><div class="entry"><b>${items.length}</b><div class="muted">目前記住的工作</div></div><div class="entry"><b>${sourceCount}</b><div class="muted">連結的來源文件</div></div><div class="entry"><b>${items.length ? "學習中" : "等待教學"}</b><div class="muted">Mr. KM 狀態</div></div></div><div class="entry"><b>Mr. KM 幫你整理過</b><div class="muted">合併 ${Number(stats.merged || 0)} 次｜更名 ${Number(stats.renamed || 0)} 次｜新增 ${Number(stats.added || 0)} 次</div></div>${mergeNotice}${mergeCards}<div class="entry"><b>我不只是記住文件，我希望記住的是你的工作。</b><div class="muted">文件會教我工作；我的工作會讓 KM 建議更貼近；KM 建議最後會讓工時更好填。</div></div><div class="library-list">${cards}</div></section>`;
 }
