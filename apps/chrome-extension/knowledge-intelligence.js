@@ -253,7 +253,9 @@ function titleFromLine(line = "", fallback = "Knowledge Unit") {
 }
 
 function buildKnowledgeIntelligence(source = {}, extracted = {}) {
-  const text = String(extracted.text || "").replace(/\s+\n/g, "\n").trim();
+  const rawText = String(extracted.text || "").replace(/\s+\n/g, "\n").trim();
+  const text = sanitizeKnowledgeString(rawText);
+  console.info("Knowledge Intelligence Text Sanitize Debug", knowledgeSanitizationStats(rawText, text));
   if (!text) throw new Error("文件內容為空，無法建立工作知識");
   const item = normalizedLibraryItem(source);
   const roleLabel = knowledgeRoleLabel(item);
@@ -306,7 +308,7 @@ function buildKnowledgeIntelligence(source = {}, extracted = {}) {
     version: item.version || "v1.0"
   }));
   const workItems = [...new Set(candidates.map(x => x.title).filter(Boolean))].slice(0, 10);
-  return {
+  return sanitizeKnowledgeValue({
     extractedText: text.slice(0, 60000),
     summary: {
       documentName: item.title,
@@ -322,7 +324,7 @@ function buildKnowledgeIntelligence(source = {}, extracted = {}) {
     },
     units,
     candidates
-  };
+  });
 }
 
 function recommendationTitle(title = "") {
@@ -338,6 +340,14 @@ function recommendationTitle(title = "") {
 const KnowledgeIntelligence = {
   async processSource(source = {}, options = {}) {
     const item = normalizedLibraryItem(source);
+    console.warn("Knowledge Process Call Stack Debug", {
+      functionName: "KnowledgeIntelligence.processSource",
+      knowledgeId: item.knowledgeId,
+      id: item.id,
+      cloudId: item.cloudId,
+      hasFile: !!options.file,
+      callStack: new Error("KnowledgeIntelligence.processSource stack").stack
+    });
     try {
       toast("藏書閣：等待整理");
       await DataService.updateKnowledgeProcessing(item, { processingStatus: "queued", intelligenceError: null });

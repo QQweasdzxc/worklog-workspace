@@ -584,6 +584,14 @@ const DataService = {
   },
   async updateKnowledgeProcessing(item, patch = {}) {
     const normalized = normalizedLibraryItem(item);
+    console.warn("Knowledge Process Call Stack Debug", {
+      functionName: "DataService.updateKnowledgeProcessing",
+      knowledgeId: normalized.knowledgeId,
+      id: normalized.id,
+      cloudId: normalized.cloudId,
+      patchKeys: Object.keys(patch || {}),
+      callStack: new Error("DataService.updateKnowledgeProcessing stack").stack
+    });
     try {
       if (!hasGoogleOAuthSession() || dataServiceHydrating || migrationRunning) throw new Error("Cloud Sync 尚未就緒");
       dataServiceReady = true;
@@ -607,22 +615,45 @@ const DataService = {
   },
   async saveKnowledgeIntelligenceResult(item, result = {}) {
     const normalized = normalizedLibraryItem(item);
+    const rawExtractedText = result.extractedText || "";
+    const sanitizedExtractedText = sanitizeKnowledgeString(rawExtractedText);
+    const sanitizeStats = knowledgeSanitizationStats(rawExtractedText, sanitizedExtractedText);
+    const sanitizedSummary = sanitizeKnowledgeValue(result.summary || {});
+    const sanitizedUnits = sanitizeKnowledgeValue(result.units || []);
+    const sanitizedCandidates = sanitizeKnowledgeValue(result.candidates || []);
+    console.warn("Knowledge Process Call Stack Debug", {
+      functionName: "DataService.saveKnowledgeIntelligenceResult",
+      knowledgeId: normalized.knowledgeId,
+      id: normalized.id,
+      cloudId: normalized.cloudId,
+      resultKeys: Object.keys(result || {}),
+      callStack: new Error("DataService.saveKnowledgeIntelligenceResult stack").stack
+    });
     try {
       if (!hasGoogleOAuthSession() || dataServiceHydrating || migrationRunning) throw new Error("Cloud Sync 尚未就緒");
       dataServiceReady = true;
       this.setStatus("syncing");
       const processedAt = new Date().toISOString();
+      console.info("Knowledge Intelligence Supabase Write Debug", {
+        operation: "PATCH",
+        table: "knowledge_sources",
+        query: `?id=eq.${normalized.cloudId || normalized.id || ""}`,
+        ...sanitizeStats,
+        intelligenceSummaryKeys: Object.keys(sanitizedSummary || {}),
+        knowledgeUnitsCount: sanitizedUnits.length,
+        recommendationCandidatesCount: sanitizedCandidates.length
+      });
       const source = await KnowledgeRepository.updateSourceProcessing(normalized, {
         processingStatus: "processed",
-        extractedText: result.extractedText || "",
-        intelligenceSummary: result.summary || {},
+        extractedText: sanitizedExtractedText,
+        intelligenceSummary: sanitizedSummary,
         intelligenceError: null,
         processedAt
       });
       const cloudItem = knowledgeFromCloud(source);
-      const savedUnits = await KnowledgeRepository.replaceUnits(cloudItem, result.units || []);
+      const savedUnits = await KnowledgeRepository.replaceUnits(cloudItem, sanitizedUnits);
       const units = (savedUnits || []).map(knowledgeUnitFromCloud);
-      const savedCandidates = await KnowledgeRepository.replaceRecommendationCandidates(cloudItem, result.candidates || [], units);
+      const savedCandidates = await KnowledgeRepository.replaceRecommendationCandidates(cloudItem, sanitizedCandidates, units);
       const candidates = (savedCandidates || []).map(knowledgeRecommendationCandidateFromCloud);
       setLibrary([cloudItem, ...library.filter(x => x.id !== normalized.id && x.cloudId !== cloudItem.cloudId)]);
       knowledgeUnits = [...knowledgeUnits.filter(x => x.knowledgeSourceId !== cloudItem.cloudId), ...units];
@@ -631,7 +662,17 @@ const DataService = {
       this.setStatus("synced");
       return { source: cloudItem, units, candidates };
     } catch (error) {
-      console.error("Save Knowledge Intelligence result failed", { error, supabase: error.supabase || null, item: normalized, result });
+      console.error("Save Knowledge Intelligence result failed", {
+        error,
+        supabase: error.supabase || null,
+        item: normalized,
+        debug: {
+          ...sanitizeStats,
+          intelligenceSummaryKeys: Object.keys(sanitizedSummary || {}),
+          knowledgeUnitsCount: sanitizedUnits.length,
+          recommendationCandidatesCount: sanitizedCandidates.length
+        }
+      });
       if (isKnowledgeNotInitializedError(error)) {
         knowledgeFoundationNotInitialized = true;
         this.setStatus("knowledge_uninitialized", "Knowledge Intelligence 尚未初始化");

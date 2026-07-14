@@ -2200,15 +2200,21 @@ function libraryIntelligenceView(id = null) {
   const summary = item.intelligenceSummary || {};
   const units = knowledgeUnitsForSource(item);
   const candidates = knowledgeCandidatesForSource(item);
+  const isFailed = item.processingStatus === "failed";
+  const isCompleted = ["processed", "verified", "knowledge_built"].includes(item.processingStatus);
+  const resultHeading = isFailed ? "🪶 Mr. KM 整理失敗" : (isCompleted ? "🪶 Mr. KM 已完成整理" : "🪶 Mr. KM 整理結果");
   const list = value => arrayFromInput(value).map(x => `<li>${escapeHtml(x)}</li>`).join("") || "<li>尚未整理</li>";
   const readableSummary = summary.topics?.length
     ? `這份文件主要說明 ${summary.topics.slice(0, 6).join("、")} 等工作內容，後續可作為 Mr. KM 理解工作與產生建議的依據。`
-    : (item.processingStatus === "failed" ? "這份文件整理失敗，請查看錯誤原因後重新整理。" : "這份文件尚未完成整理。");
+    : (isFailed ? "這份文件整理失敗，請查看錯誤原因後重新整理。" : "這份文件尚未完成整理。");
   const processItems = units.filter(unit => ["process", "checklist"].includes(unit.unitType)).map(unit => unit.title);
   const ruleItems = units.filter(unit => ["rule", "exception"].includes(unit.unitType)).map(unit => unit.title);
   const focusItems = [...summary.topics || [], ...processItems.slice(0, 4), ...ruleItems.slice(0, 4)].slice(0, 10);
   const autoMeta = `<div class="entry"><b>我自動判斷</b><div class="source-path">知識類型：${escapeHtml(KNOWLEDGE_SCOPE_LABELS[item.scope] || item.scope || "待確認")}</div><div class="source-path">適用對象：${escapeHtml(item.applicableAgents.join("、") || "待確認")}</div><div class="source-path">適用職務：${escapeHtml(item.relatedRoles.map(roleDisplayName).join("、") || "待確認")}</div><div class="source-path">標籤：${escapeHtml(item.tags.join("、") || "待確認")}</div><div class="source-path">工作模式：${escapeHtml(item.relatedWorkModels.join("、") || "待確認")}</div></div>`;
-  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>🪶 Mr. KM 已完成整理</h2><div class="muted">${escapeHtml(item.knowledgeId)}｜${escapeHtml(knowledgeLearnedLabel(item.processingStatus))}</div></div><button class="btn2" data-library-back="1">返回藏書閣</button></div><div class="entry"><div class="entry-main"><b>${escapeHtml(item.title)}</b><div class="source-path">整理方式：${escapeHtml(knowledgeSupportLevelLabel(summary.supportLevel))}</div>${item.intelligenceError ? `<div class="source-path">錯誤原因：${escapeHtml(item.intelligenceError)}</div>` : ""}</div><div class="actions compact"><button class="btn2" data-reprocess-library="${item.id}">${knowledgeActionLabel(item.processingStatus)}</button></div></div><div class="entry"><b>文件摘要</b><p class="muted">${escapeHtml(readableSummary)}</p></div><div class="profile-grid"><div class="entry"><b>工作流程</b><ul class="knowledge-result-list">${list(processItems)}</ul></div><div class="entry"><b>重要規則</b><ul class="knowledge-result-list">${list(ruleItems)}</ul></div></div><div class="entry"><b>我可以協助的工作</b><ul class="knowledge-result-list">${candidates.length ? candidates.map(candidate => `<li>□ ${escapeHtml(candidate.title)}（約 ${candidate.defaultDuration}h）</li>`).join("") : "<li>尚未整理出可建立工作</li>"}</ul></div><div class="entry"><b>重點整理</b><ul class="knowledge-result-list">${list(focusItems)}</ul></div>${autoMeta}<section class="panel" style="margin-top:12px"><h3>工作知識（${units.length}）</h3>${units.length ? units.map(unit => `<div class="entry"><div class="entry-main"><b>${escapeHtml(unit.title)}</b><div class="muted">${escapeHtml(knowledgeUnitTypeLabel(unit.unitType))}｜${escapeHtml(unit.sectionReference || "")}</div><small>${escapeHtml(unit.summary || unit.content)}</small><div class="library-tag-line">${unit.triggers.map(tag => `<span>${escapeHtml(tag)}</span>`).join("")}</div></div><div class="actions compact"><button class="btn2 danger" data-remove-knowledge-unit="${unit.id}">移除</button></div></div>`).join("") : `<div class="empty">尚未整理出工作知識。</div>`}</section><div class="form-actions"><button class="btn green" data-verify-library="${item.id}">✓ 確認理解正確</button><button class="btn2" data-edit-library="${item.id}">✏️ 調整內容</button></div></section>`;
+  const resultActions = isFailed
+    ? `<button class="btn2" data-reprocess-library="${item.id}">重新整理</button><button class="btn2" data-edit-library="${item.id}">✏️ 調整內容</button>`
+    : `<button class="btn green" data-verify-library="${item.id}">✓ 確認理解正確</button><button class="btn2" data-edit-library="${item.id}">✏️ 調整內容</button>`;
+  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>${escapeHtml(resultHeading)}</h2><div class="muted">${escapeHtml(item.knowledgeId)}｜${escapeHtml(knowledgeLearnedLabel(item.processingStatus))}</div></div><button class="btn2" data-library-back="1">返回藏書閣</button></div><div class="entry"><div class="entry-main"><b>${escapeHtml(item.title)}</b><div class="source-path">整理方式：${escapeHtml(knowledgeSupportLevelLabel(summary.supportLevel))}</div>${item.intelligenceError ? `<div class="source-path">錯誤原因：${escapeHtml(item.intelligenceError)}</div>` : ""}</div><div class="actions compact"><button class="btn2" data-reprocess-library="${item.id}">${knowledgeActionLabel(item.processingStatus)}</button></div></div><div class="entry"><b>文件摘要</b><p class="muted">${escapeHtml(readableSummary)}</p></div><div class="profile-grid"><div class="entry"><b>工作流程</b><ul class="knowledge-result-list">${list(processItems)}</ul></div><div class="entry"><b>重要規則</b><ul class="knowledge-result-list">${list(ruleItems)}</ul></div></div><div class="entry"><b>我可以協助的工作</b><ul class="knowledge-result-list">${candidates.length ? candidates.map(candidate => `<li>□ ${escapeHtml(candidate.title)}（約 ${candidate.defaultDuration}h）</li>`).join("") : "<li>尚未整理出可建立工作</li>"}</ul></div><div class="entry"><b>重點整理</b><ul class="knowledge-result-list">${list(focusItems)}</ul></div>${autoMeta}<section class="panel" style="margin-top:12px"><h3>工作知識（${units.length}）</h3>${units.length ? units.map(unit => `<div class="entry"><div class="entry-main"><b>${escapeHtml(unit.title)}</b><div class="muted">${escapeHtml(knowledgeUnitTypeLabel(unit.unitType))}｜${escapeHtml(unit.sectionReference || "")}</div><small>${escapeHtml(unit.summary || unit.content)}</small><div class="library-tag-line">${unit.triggers.map(tag => `<span>${escapeHtml(tag)}</span>`).join("")}</div></div><div class="actions compact"><button class="btn2 danger" data-remove-knowledge-unit="${unit.id}">移除</button></div></div>`).join("") : `<div class="empty">尚未整理出工作知識。</div>`}</section><div class="form-actions">${resultActions}</div></section>`;
 }
 
 function libraryForm(id = null) {
@@ -2929,6 +2935,13 @@ function bindLibrary() {
     const item = library.find(x => x.id === b.dataset.reprocessLibrary);
     if (!item) return;
     try {
+      console.warn("Knowledge Process Call Stack Debug", {
+        functionName: "bindLibrary[data-reprocess-library].onclick",
+        knowledgeId: item.knowledgeId,
+        id: item.id,
+        cloudId: item.cloudId,
+        callStack: new Error("Knowledge reprocess button stack").stack
+      });
       await KnowledgeIntelligence.processSource(item);
       viewingKnowledgeId = item.id;
       view = "libraryIntelligence";

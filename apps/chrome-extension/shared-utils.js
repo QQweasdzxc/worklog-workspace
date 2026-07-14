@@ -143,6 +143,112 @@ function monthKey(d = selected) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
+function countKnowledgeUnsafeCharacters(value = "") {
+  const text = String(value ?? "");
+  let nullCharacterCount = 0;
+  let controlCharacterCount = 0;
+  let invalidSurrogateCount = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    const code = text.charCodeAt(i);
+    if (code === 0) {
+      nullCharacterCount += 1;
+      continue;
+    }
+    if ((code >= 1 && code <= 8) || code === 11 || code === 12 || (code >= 14 && code <= 31) || code === 127) {
+      controlCharacterCount += 1;
+      continue;
+    }
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = text.charCodeAt(i + 1);
+      if (!(next >= 0xdc00 && next <= 0xdfff)) invalidSurrogateCount += 1;
+      continue;
+    }
+    if (code >= 0xdc00 && code <= 0xdfff) {
+      const prev = text.charCodeAt(i - 1);
+      if (!(prev >= 0xd800 && prev <= 0xdbff)) invalidSurrogateCount += 1;
+    }
+  }
+  return { nullCharacterCount, controlCharacterCount, invalidSurrogateCount };
+}
+
+function sanitizeKnowledgeString(value = "") {
+  const input = String(value ?? "");
+  let output = "";
+  for (let i = 0; i < input.length; i += 1) {
+    const code = input.charCodeAt(i);
+    if (code === 0) continue;
+    if ((code >= 1 && code <= 8) || code === 11 || code === 12 || (code >= 14 && code <= 31) || code === 127) {
+      output += " ";
+      continue;
+    }
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = input.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        output += input[i] + input[i + 1];
+        i += 1;
+      }
+      continue;
+    }
+    if (code >= 0xdc00 && code <= 0xdfff) continue;
+    output += input[i];
+  }
+  return output;
+}
+
+function sanitizeKnowledgeValue(value) {
+  if (typeof value === "string") return sanitizeKnowledgeString(value);
+  if (Array.isArray(value)) return value.map(item => sanitizeKnowledgeValue(item));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, sanitizeKnowledgeValue(item)]));
+  }
+  return value;
+}
+
+function knowledgeSanitizationStats(raw = "", sanitized = "") {
+  const source = String(raw ?? "");
+  const cleaned = String(sanitized ?? "");
+  return {
+    extractedTextLength: source.length,
+    ...countKnowledgeUnsafeCharacters(source),
+    sanitizedTextLength: cleaned.length
+  };
+}
+
+function summarizeKnowledgePayloadForLog(payload) {
+  const summarize = value => {
+    if (typeof value === "string") return { type: "string", length: value.length };
+    if (Array.isArray(value)) return { type: "array", length: value.length };
+    if (value && typeof value === "object") return { type: "object", keys: Object.keys(value), length: Object.keys(value).length };
+    return value;
+  };
+  if (Array.isArray(payload)) return { rows: payload.length, sampleKeys: Object.keys(payload[0] || {}) };
+  if (payload && typeof payload === "object") return Object.fromEntries(Object.entries(payload).map(([key, value]) => [key, summarize(value)]));
+  return summarize(payload);
+}
+
+function knowledgePayloadFieldDebug(value) {
+  const type = Array.isArray(value) ? "array" : (value === null ? "null" : typeof value);
+  const text = typeof value === "string" ? value : JSON.stringify(value ?? null);
+  return {
+    type,
+    length: text.length,
+    itemCount: Array.isArray(value) ? value.length : undefined,
+    keys: value && typeof value === "object" && !Array.isArray(value) ? Object.keys(value) : undefined,
+    ...countKnowledgeUnsafeCharacters(text)
+  };
+}
+
+function knowledgePatchPayloadDebug(payload = {}) {
+  const fieldStats = {};
+  for (const [field, value] of Object.entries(payload || {})) {
+    fieldStats[field] = knowledgePayloadFieldDebug(value);
+  }
+  return {
+    keys: Object.keys(payload || {}),
+    fields: fieldStats
+  };
+}
+
 function legacyInventory() {
   const legacyEntries = readJson("wl_entries", []);
   const legacyProfile = readJson("wl_profile", null);
