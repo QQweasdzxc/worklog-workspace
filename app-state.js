@@ -20,6 +20,7 @@ let knowledgeUnits = [];
 let knowledgeRecommendationCandidates = [];
 let viewingKnowledgeId = null;
 let editingLibraryId = null;
+let editingWorkMemoryName = null;
 let learningKnowledgeDraft = null;
 let editingEntryId = null;
 let captureSeed = null;

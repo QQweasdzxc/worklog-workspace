@@ -504,3 +504,9 @@ RC3 Release Patch1 only. No new features, no version number change, no repositor
 - 當日無足夠空檔時，才接在最後一筆工作之後。
 - 舊版 AI 推理卡曾顯示建議時段；RC3.4.1 起 Mr. KM 建議不再扮演排程助手。
 - 新增 5h 工時快捷鍵。
+# Build 20260714-1715 - P5.5 Work Intelligence UX Optimization
+
+- 修復 Learning Review 返回與確認流程。
+- 新增 Work Memory 單一編輯入口與建立前相似度選擇。
+- Learning Review 採漸進式揭露 Work DNA。
+- Mr. KM 建議顯示總量與剩餘數，不再循環重新編號。

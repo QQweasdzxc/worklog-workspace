@@ -1,5 +1,17 @@
 # WorkLog RC3 Release Patch1
 
+## Build 20260714-1715 - P5.5 Work Intelligence UX Optimization
+
+- 修復 Learning Review「返回藏書閣」與「確認理解」事件路徑。
+- 「我的工作」以單一編輯入口管理名稱、說明、分類、啟用狀態與刪除。
+- 手動新增、AI 建議採用及文件學習確認，在正式加入前統一執行相似度檢查。
+- Learning Review 首層只顯示工作名稱、目的、主要內容與主要系統，完整 Work DNA 改為展開查看。
+- Mr. KM 建議移除循環編號，改為顯示目前筆數、總數及剩餘數量。
+
+### 🎯 Mr. KM Perspective
+
+這一版，我沒有學習更多文件；我把已經理解的內容說得更清楚，也在新增工作前先幫你確認是否重複。你只需要確認與調整，不必替我整理一堆相近工作。
+
 ## Build 20260714-1641 - P5.4 Work Intelligence
 
 - 新增純邏輯模組 `work-intelligence.js`。
