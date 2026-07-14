@@ -1,7 +1,7 @@
 // P5.2A-1 Foundation Split: configuration and static constants.
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260714-1409";
+const BUILD_TIME = "20260714-1421";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const KNOWLEDGE_DEBUG_MODE = (() => {
   try { return new URLSearchParams(location.search).has("debugKnowledge") || localStorage.getItem("zhuge_debug_knowledge") === "1"; }
@@ -25,6 +25,8 @@ const MOBILE_SUMMARY_OPEN_KEY = "zhuge_mobile_summary_open_v1";
 const MOBILE_CALENDAR_OPEN_KEY = "zhuge_mobile_calendar_open_v1";
 const MOBILE_WORKLOG_TAB_KEY = "zhuge_mobile_worklog_tab_v1";
 const AI_TODAY_SUGGESTION_INDEX_KEY = "zhuge_ai_today_suggestion_index_v1";
+const WORK_MEMORY_MERGE_DECISIONS_KEY = "zhuge_work_memory_merge_decisions_v1";
+const WORK_MEMORY_MERGE_STATS_KEY = "zhuge_work_memory_merge_stats_v1";
 const WORKLOG_CHAT_KEY = "zhuge_worklog_chat_v1";
 const WORKLOG_CHAT_PENDING_KEY = "zhuge_worklog_chat_pending_v1";
 const ZHUGE_ASSISTANT_WELCOME_KEY = "zhuge_assistant_welcome_seen_v1";
