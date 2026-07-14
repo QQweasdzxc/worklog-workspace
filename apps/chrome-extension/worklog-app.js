@@ -1486,6 +1486,15 @@ function workMemorySourcesFor(name = "") {
   return [...new Set(sources)].filter(Boolean);
 }
 
+function workMemorySourceLibraryItem(sourceName = "") {
+  const target = String(sourceName || "").trim();
+  if (!target) return null;
+  return library.find(raw => {
+    const item = normalizedLibraryItem(raw);
+    return [item.title, item.filename, item.knowledgeId, item.id, item.cloudId].some(value => String(value || "").trim() === target);
+  }) || null;
+}
+
 function workMemoryUsageFor(name = "") {
   const target = String(name || "").trim();
   const matched = (entries || []).filter(entry => String(entry.title || "").includes(target) || target.includes(String(entry.title || "")));
@@ -1639,7 +1648,7 @@ function workMemoryItems() {
     return {
       name,
       description: notes[name]?.description || `我目前把「${name}」理解為你會記錄到工時中的一項工作。`,
-      category: workMemoryCategoryFor(name),
+      category: notes[name]?.category || workMemoryCategoryFor(name),
       sources,
       familiarity: workMemoryFamiliarity(usage.count, sources.length),
       familiarityScore: workMemoryFamiliarityScore(usage.count, sources.length),
@@ -1656,18 +1665,15 @@ function workMemoryPage(options = {}) {
   const mergeSuggestions = workMemoryMergeSuggestions(3);
   const stats = readWorkMemoryMergeStats();
   const sourceCount = items.reduce((sum, item) => sum + item.sources.length, 0);
-  const mergeNotice = mergeSuggestions.length
-    ? `<div class="entry work-memory-merge-notice"><div class="entry-main"><b>🪶 我發現 ${mergeSuggestions.length} 組工作可能可以整理。</b><div class="muted">你只需要確認，我會記住你的決定。</div></div><div class="actions compact"><button class="btn" data-scroll-smart-merge="1">查看建議</button></div></div>`
-    : `<div class="entry work-memory-merge-notice"><b>🪶 我的工作目前整理得很好。</b><div class="muted">如果之後我發現相近的工作，會先提出整理建議，再由你決定。</div></div>`;
-  const mergeCards = mergeSuggestions.length ? `<section class="panel work-memory-smart-merge" id="workMemorySmartMerge" style="margin-top:12px"><div class="panel-head"><div><h3>🪶 我可以幫你整理這些工作</h3><div class="muted">AI 建議，使用者決定。你接受、修改或先保留，我都會記住。</div></div></div>${mergeSuggestions.map((s, index) => `<div class="entry work-memory-merge-card"><div class="entry-main"><b>我發現這兩項工作很相近：</b><div class="work-memory-merge-pair"><span>${escapeHtml(s.a)}</span><span>${escapeHtml(s.b)}</span></div><div class="source-path">相似度：${Math.round(s.score * 100)}%</div><div class="source-path">我建議保留：<b>${escapeHtml(s.keep)}</b></div><small>${escapeHtml(s.description)}</small><div class="source-path">來源：${escapeHtml(s.sources.join("、"))}</div></div><div class="actions compact"><button class="btn green" data-accept-work-merge="${index}">接受建議</button><button class="btn2" data-edit-work-merge="${index}">修改後接受</button><button class="btn2" data-ignore-work-merge="${index}">先保留</button></div></div>`).join("")}</section>` : "";
+  const mergeCards = mergeSuggestions.length ? `<section class="panel work-memory-smart-merge" id="workMemorySmartMerge" style="margin-top:12px"><div class="panel-head"><div><h3>🪶 AI 建議</h3><div class="muted">我只有在發現可以幫你整理的地方時，才會提出建議；最後仍由你決定。</div></div></div>${mergeSuggestions.map((s, index) => `<div class="entry work-memory-merge-card"><div class="entry-main"><b>我發現這兩項工作很像：</b><div class="work-memory-merge-pair"><span>${escapeHtml(s.a)}</span><span>${escapeHtml(s.b)}</span></div><div class="source-path">相似度：${Math.round(s.score * 100)}%</div><div class="source-path">我建議保留：<b>${escapeHtml(s.keep)}</b></div><small>${escapeHtml(s.description)}</small><div class="source-path">我是根據：${escapeHtml(s.sources.join("、"))}</div></div><div class="actions compact"><button class="btn green" data-accept-work-merge="${index}">接受</button><button class="btn2" data-edit-work-merge="${index}">修改</button><button class="btn2" data-ignore-work-merge="${index}">忽略</button></div></div>`).join("")}</section>` : "";
   const cards = items.length ? items.map(item => {
-    const sourceList = item.sources.length ? item.sources.slice(0, 3).map(source => `<li>✓ ${escapeHtml(source)}</li>`).join("") : "<li>✓ 手動建立，尚未連結來源文件</li>";
+    const sourceList = item.sources.length ? item.sources.slice(0, 3).map(source => `<li><button class="work-memory-source-link" data-work-memory-source-name="${escapeHtml(source)}" data-work-memory-source-work="${escapeHtml(item.name)}">📄 ${escapeHtml(source)}</button></li>`).join("") : "<li><span class=\"work-memory-source-empty\">📄 手動建立，尚未連結來源文件</span></li>";
     const recent = item.recentUsedAt ? fmt(item.recentUsedAt) : "尚未使用";
     const familiarityLabel = workMemoryFamiliarityLabel(item.familiarityScore);
     const companionLine = workMemoryCompanionLine(item);
-    return `<div class="entry work-memory-card companion-card"><div class="entry-main"><div class="work-memory-title"><b>${escapeHtml(item.name)}</b><span>${escapeHtml(item.category)}</span></div><div class="companion-card-section"><b>🪶 我是從：</b><ul class="knowledge-result-list">${sourceList}</ul><div class="muted">慢慢學會這項工作的。</div></div><div class="companion-card-grid"><div><span>最近一次陪你完成</span><b>${escapeHtml(recent)}</b></div><div><span>熟悉程度</span><b>${escapeHtml(workMemoryFamiliarityBars(item.familiarityScore))}</b><small>${escapeHtml(familiarityLabel)}</small></div></div><div class="companion-card-section"><b>之後我可以：</b><ul class="knowledge-result-list"><li>✓ 推薦相關工時</li><li>✓ 幫你整理相近工作</li><li>✓ 在月底提醒你</li><li>✓ 引用這份經驗協助建立工時</li></ul></div><div class="companion-note">🪶 ${escapeHtml(companionLine)}</div></div><div class="actions compact"><button class="btn2" data-edit-work-memory="${escapeHtml(item.name)}">重新命名</button><button class="btn2" data-view-work-memory-source="${escapeHtml(item.name)}">查看來源</button><button class="btn2 danger" data-disable-work-memory="${escapeHtml(item.name)}">停用</button></div></div>`;
+    return `<div class="entry work-memory-card companion-card"><div class="entry-main"><div class="work-memory-title"><b>${escapeHtml(item.name)}</b><span>${escapeHtml(item.category)}</span></div><div class="companion-card-section"><b>🪶 我是從這些資料學會的：</b><ul class="knowledge-result-list work-memory-source-list">${sourceList}</ul><div class="muted">慢慢學會這項工作的。</div></div><div class="companion-card-grid"><div><span>最近一次陪你完成</span><b>${escapeHtml(recent)}</b></div><div><span>熟悉程度</span><b>${escapeHtml(workMemoryFamiliarityBars(item.familiarityScore))}</b><small>${escapeHtml(familiarityLabel)}</small></div></div><div class="companion-card-section"><b>之後我可以：</b><ul class="knowledge-result-list"><li>✓ 推薦工時</li><li>✓ 提醒補工時</li><li>✓ 整理相近工作</li><li>✓ 引用這份經驗協助建立工時</li></ul></div><div class="companion-note">🪶 ${escapeHtml(companionLine)}</div></div><div class="actions compact work-memory-card-actions"><button class="btn2" data-view-work-memory-source="${escapeHtml(item.name)}">📄 來源</button><button class="btn2" data-edit-work-memory="${escapeHtml(item.name)}">✏️ 編輯</button></div></div>`;
   }).join("") : `<div class="empty"><b>我還沒有記住你的工作</b><div class="muted">你可以先手動新增，或到藏書閣教我一份 SOP，讓我整理出可用於工時建議的工作。</div></div>`;
-  const content = `<div class="panel-head"><div><h2>🪶 我的工作</h2><div class="muted">這裡是 Mr. KM 已經學會的工作，也是工時建議的主要來源。</div></div><button class="btn" data-add-work-memory="1">＋ 新增我的工作</button></div><div class="entry"><b>然後呢？</b><div class="muted">加入「我的工作」後，我會開始引用它：KM 建議會更準，工時會更快建立，月底也更容易整理 ECP。</div></div><div class="dashboard-grid work-memory-summary"><div class="entry"><b>${items.length}</b><div class="muted">目前記住的工作</div></div><div class="entry"><b>${sourceCount}</b><div class="muted">連結的來源文件</div></div><div class="entry"><b>${items.length ? "學習中" : "等待教學"}</b><div class="muted">Mr. KM 狀態</div></div></div><div class="entry"><b>Mr. KM 幫你整理過</b><div class="muted">合併 ${Number(stats.merged || 0)} 次｜更名 ${Number(stats.renamed || 0)} 次｜新增 ${Number(stats.added || 0)} 次</div></div>${mergeNotice}${mergeCards}<div class="entry"><b>我不只是記住文件，我希望記住的是你的工作。</b><div class="muted">文件會教我工作；我的工作會讓 KM 建議更貼近；KM 建議最後會讓工時更好填。</div></div><div class="library-list">${cards}</div>`;
+  const content = `<div class="panel-head"><div><h2>🪶 我的工作</h2><div class="muted">這裡是 Mr. KM 已經學會的工作，也是工時建議的主要來源。</div></div><button class="btn" data-add-work-memory="1">＋ 新增我的工作</button></div><div class="entry"><b>然後呢？</b><div class="muted">加入「我的工作」後，我會開始引用它：KM 建議會更準，工時會更快建立，月底也更容易整理 ECP。</div></div><div class="dashboard-grid work-memory-summary"><div class="entry"><b>${items.length}</b><div class="muted">目前記住的工作</div></div><div class="entry"><b>${sourceCount}</b><div class="muted">連結的來源文件</div></div><div class="entry"><b>${items.length ? "學習中" : "等待教學"}</b><div class="muted">Mr. KM 狀態</div></div></div><div class="entry"><b>Mr. KM 幫你整理過</b><div class="muted">合併 ${Number(stats.merged || 0)} 次｜更名 ${Number(stats.renamed || 0)} 次｜新增 ${Number(stats.added || 0)} 次</div></div>${mergeCards}<div class="entry"><b>我不只是記住文件，我希望記住的是你的工作。</b><div class="muted">文件會教我工作；我的工作會讓 KM 建議更貼近；KM 建議最後會讓工時更好填。</div></div><div class="library-list">${cards}</div>`;
   return compact ? `<div class="work-memory-page">${content}</div>` : `<section class="panel work-memory-page" style="margin-top:18px">${content}</section>`;
 }
 
@@ -2974,22 +2980,62 @@ function bindWorkMemory() {
     bumpWorkMemoryMergeStat("added");
     await persistWorkMemory(next, "我已記住這項工作");
   };
+  document.querySelectorAll("[data-work-memory-source-name]").forEach(button => button.onclick = () => {
+    const sourceName = button.dataset.workMemorySourceName || "";
+    const source = workMemorySourceLibraryItem(sourceName);
+    if (!source) {
+      alert(`我目前只能先告訴你這項工作的來源：\n\n${sourceName || "尚未連結來源文件"}`);
+      return;
+    }
+    activeWorkspace = "library";
+    if (!openTabs.includes("library")) openTabs.push("library");
+    rememberWorkspace("library");
+    viewingKnowledgeId = source.id || source.cloudId;
+    view = "libraryIntelligence";
+    saveAll();
+    render();
+  });
   document.querySelectorAll("[data-edit-work-memory]").forEach(button => button.onclick = async () => {
     const oldName = button.dataset.editWorkMemory;
-    const nextName = prompt("要把這項工作改成什麼名稱？", oldName);
-    const clean = String(nextName || "").trim();
-    if (!clean || clean === oldName) return;
-    const next = workModels().map(name => name === oldName ? clean : name);
-    bumpWorkMemoryMergeStat("renamed");
-    await persistWorkMemory([...new Set(next)], "我的工作已重新命名");
+    const notes = readJson(scopedLocalKey("zhuge_work_memory_merge_notes_v1"), {});
+    const current = workMemoryItems().find(item => item.name === oldName) || {};
+    const nextName = prompt("工作名稱", oldName);
+    const cleanName = String(nextName || "").trim();
+    if (!cleanName) return;
+    const nextDescription = prompt("工作說明", notes[oldName]?.description || current.description || "") || "";
+    const nextCategory = prompt("分類", notes[oldName]?.category || current.category || workMemoryCategoryFor(cleanName)) || "";
+    const enabled = confirm("是否啟用這項工作？\n\n按「確定」保留啟用；按「取消」停用。");
+    if (!enabled) {
+      const next = workModels().filter(name => name !== oldName);
+      await persistWorkMemory(next, "我先停用這項工作");
+      return;
+    }
+    const models = workModels().map(name => name === oldName ? cleanName : name);
+    if (cleanName !== oldName) {
+      delete notes[oldName];
+      bumpWorkMemoryMergeStat("renamed");
+    }
+    notes[cleanName] = { ...(notes[cleanName] || {}), description: nextDescription, category: nextCategory, updatedAt: new Date().toISOString() };
+    localStorage.setItem(scopedLocalKey("zhuge_work_memory_merge_notes_v1"), JSON.stringify(notes));
+    await persistWorkMemory([...new Set(models)], "我的工作已更新");
   });
   document.querySelectorAll("[data-view-work-memory-source]").forEach(button => button.onclick = () => {
     const name = button.dataset.viewWorkMemorySource;
     const sources = workMemorySourcesFor(name);
-    alert(sources.length ? `「${name}」目前連結來源：\n\n${sources.join("\n")}` : `「${name}」目前沒有連結來源文件。`);
-  });
-  document.querySelectorAll("[data-scroll-smart-merge]").forEach(button => button.onclick = () => {
-    document.getElementById("workMemorySmartMerge")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (sources.length === 1) {
+      const source = workMemorySourceLibraryItem(sources[0]);
+      if (source) {
+        activeWorkspace = "library";
+        if (!openTabs.includes("library")) openTabs.push("library");
+        rememberWorkspace("library");
+        viewingKnowledgeId = source.id || source.cloudId;
+        view = "libraryIntelligence";
+        saveAll();
+        render();
+        return;
+      }
+    }
+    alert(sources.length ? `「${name}」目前連結來源：\n\n${sources.join("\n")}\n\n你也可以直接點卡片中的來源名稱查看。` : `「${name}」目前沒有連結來源文件。`);
   });
   document.querySelectorAll("[data-accept-work-merge]").forEach(button => button.onclick = async () => {
     await acceptWorkMemoryMergeSuggestion(suggestions[Number(button.dataset.acceptWorkMerge)]);
@@ -3009,12 +3055,6 @@ function bindWorkMemory() {
     bumpWorkMemoryMergeStat("ignored");
     toast("我先保留這兩項工作，之後不會一直提醒");
     render();
-  });
-  document.querySelectorAll("[data-disable-work-memory]").forEach(button => button.onclick = async () => {
-    const name = button.dataset.disableWorkMemory;
-    if (!confirm(`停用「${name}」後，我就不會用它產生工時建議。\n\n確認停用？`)) return;
-    const next = workModels().filter(model => model !== name);
-    await persistWorkMemory(next, "已停用這項工作");
   });
 }
 
