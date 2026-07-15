@@ -27,17 +27,17 @@ function assert(value, message) {
   if (!value) throw new Error(message);
 }
 
-assert(context.suggestionBatchSize(1366) === 8, "Desktop batch must contain 8 suggestions");
-assert(context.suggestionBatchSize(900) === 6, "Tablet batch must contain 6 suggestions");
-assert(context.suggestionBatchSize(390) === 5, "Mobile batch must contain 5 suggestions");
+assert(context.suggestionBatchSize(1366) === 4, "Desktop batch must contain 4 suggestions");
+assert(context.suggestionBatchSize(900) === 4, "Tablet batch must contain 4 suggestions");
+assert(context.suggestionBatchSize(390) === 4, "Mobile batch must contain 4 suggestions");
 
 const first = context.suggestionBatchState(17, 0, 1366);
-const second = context.suggestionBatchState(17, 8, 1366);
-const third = context.suggestionBatchState(17, 16, 1366);
-assert(first.start === 0 && first.end === 8 && first.remaining === 9, "Desktop first batch must be 8 + 9 remaining");
-assert(second.start === 8 && second.end === 16 && second.remaining === 1, "Desktop second batch must be 8 + 1 remaining");
-assert(third.start === 16 && third.end === 17 && third.remaining === 0, "Desktop third batch must contain the final suggestion");
-assert(first.batchCount === 3 && third.batchIndex === 2, "17 suggestions must produce 3 finite desktop batches");
+const fourth = context.suggestionBatchState(17, 12, 1366);
+const fifth = context.suggestionBatchState(17, 16, 1366);
+assert(first.start === 0 && first.end === 4 && first.remaining === 13, "Desktop first batch must be 4 + 13 remaining");
+assert(fourth.start === 12 && fourth.end === 16 && fourth.remaining === 1, "Desktop fourth batch must be 4 + 1 remaining");
+assert(fifth.start === 16 && fifth.end === 17 && fifth.remaining === 0, "Desktop fifth batch must contain the final suggestion");
+assert(first.batchCount === 5 && fifth.batchIndex === 4, "17 suggestions must produce 5 finite batches");
 
 assert(app.includes("function renderSuggestionBatchOnly()"), "Missing partial suggestion renderer");
 assert(app.includes("list.innerHTML = suggestions.slice(state.start, state.end)"), "Batch switch must only replace suggestion list items");
@@ -53,7 +53,7 @@ assert(app.includes("knowledgeReferences.length * 3"), "Suggestion ranking must 
 
 assert(css.includes("--daily-workspace-panel-height:560px"), "Desktop fixed panel height missing");
 assert(css.includes("--daily-workspace-panel-height:540px"), "Tablet fixed panel height missing");
-assert(css.includes("--daily-workspace-panel-height:520px"), "Mobile fixed panel height missing");
 assert(css.includes(".workbench-grid>.calendar-module,.workbench-grid>.today-module,.workbench-grid>.suggestion-module{height:var(--daily-workspace-panel-height)"), "Shared equal-height panel rule missing");
+assert(css.includes("grid-template-columns:repeat(2,minmax(0,1fr))"), "2x2 suggestion tile grid missing");
 
 console.log("P5.7 Suggestion Experience tests: PASS");
