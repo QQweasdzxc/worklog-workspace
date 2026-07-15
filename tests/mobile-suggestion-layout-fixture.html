@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>P5.6 Mobile Suggestion Layout Fixture</title>
+  <link rel="stylesheet" href="../worklog.css">
+</head>
+<body>
+  <main class="wrap">
+    <div class="workbench-grid mobile-tab-time">
+      <div class="mobile-worklog-tabs">
+        <button class="mobile-worklog-tab active">📝 工時</button>
+        <button class="mobile-worklog-tab">📊 摘要</button>
+        <button class="mobile-worklog-tab">🪶 Mr. KM 建議</button>
+      </div>
+      <section class="panel summary-dashboard"><h2>今日摘要</h2></section>
+      <section class="panel module calendar-module"><h2>工時</h2><div class="empty">工時月曆</div></section>
+      <section class="panel mobile-home-action"><button class="btn full">＋ 新增工時</button></section>
+      <section class="panel module today-module"><h2>我的工作</h2><div class="entry">採購案件處理</div></section>
+      <section class="panel module suggestion-module">
+        <div class="suggestion-panel-head"><h2>🪶 今天建議</h2><b>2 項待處理</b><span>目前顯示 2 項</span></div>
+        <div class="ai-suggestion-scan-list">
+          <div class="suggestion-scan-item"><div class="suggestion-scan-body"><h3>費用請款</h3><div class="suggestion-card-meta"><span>📂 來源：費用請款</span><span>⏱ 建議：1h</span></div><div class="actions suggestion-actions"><button class="btn green">加入工時</button><button class="btn2">調整</button></div></div></div>
+          <div class="suggestion-scan-item"><div class="suggestion-scan-body"><h3>供應商聯繫</h3><div class="suggestion-card-meta"><span>📂 來源：供應商聯繫</span><span>⏱ 建議：1h</span></div><div class="actions suggestion-actions"><button class="btn green">加入工時</button><button class="btn2">調整</button></div></div></div>
+        </div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

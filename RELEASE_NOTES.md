@@ -1,5 +1,22 @@
 # WorkLog RC3 Release Patch1
 
+## Build 20260715-0857 - P5.6 Mobile Suggestion Hotfix
+
+- 修正 Mobile 預設「📝 工時」頁將 `.suggestion-module` 隱藏，造成 Mr. KM 建議功能消失的 responsive regression。
+- Mobile 工時頁現在依序顯示：工時月曆、快速新增、我的工作、🪶 Mr. KM 建議。
+- 保留獨立「🪶 Mr. KM 建議」頁籤，作為建議專注檢視，不建立第二份 Suggestion Component。
+- Desktop、Tablet、Mobile 共用相同 `suggestionPanel()` 與正式 Work Memory 資料流。
+- 新增 Mobile Suggestion CSS／render regression test 與 responsive browser fixture。
+- 新增 P6 Personal Work Model Evolution Architecture／Product Design；本輪未開始 P6 Coding、未修改 Supabase Schema。
+
+### Root Cause
+
+RC3.4 Mobile tab CSS 包含 `.mobile-tab-time .suggestion-module { display:none }`。Mobile 每次啟動預設為 `time`，因此 Suggestion Component 雖已 render，仍被 responsive CSS 隱藏。
+
+### 🎯 Mr. KM Perspective
+
+這一版，我不會因為主人改用手機就消失。工時、我的工作與建議會在每日入口保持一致；下一階段，我才會開始學習如何把工作模型整理得更精準。
+
 ## Build 20260714-1746 - P5.6 Work Memory Cloud Foundation + UX Polish
 
 - `user_work_models` 正式保存完整 Work Object：名稱、說明、分類、別名、來源、來源參照、關鍵字、啟用狀態、熟悉度與最近使用時間。

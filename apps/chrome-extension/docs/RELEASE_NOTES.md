@@ -504,6 +504,20 @@ RC3 Release Patch1 only. No new features, no version number change, no repositor
 - 當日無足夠空檔時，才接在最後一筆工作之後。
 - 舊版 AI 推理卡曾顯示建議時段；RC3.4.1 起 Mr. KM 建議不再扮演排程助手。
 - 新增 5h 工時快捷鍵。
+# Build 20260715-0857 - P5.6 Mobile Suggestion Hotfix
+
+- 修正 Mobile 預設工時頁隱藏 Mr. KM Suggestion Panel。
+- Desktop、Tablet、Mobile 現在都會 render 並顯示同一個 Suggestion Component。
+- 新增 responsive regression test 與 Browser viewport QA fixture。
+- 完成 P6 Personal Work Model Evolution Architecture／UX Design，未進行 P6 Coding 或 Schema 修改。
+
+## Responsive QA
+
+- Desktop 1366×900: PASS
+- Tablet 900×1100: PASS
+- iPhone 390×844: PASS
+- Browser Console Error: 0
+
 # Build 20260714-1746 - P5.6 Work Memory Cloud Foundation + UX Polish
 
 - Work Memory 完整欄位 Cloud 化，Supabase `user_work_models` 成為唯一正式來源。
