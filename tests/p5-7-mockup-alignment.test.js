@@ -13,7 +13,7 @@ expect(app, 'readScopedUiFlag(MOBILE_SUMMARY_OPEN_KEY, true)', "first-open expan
 expect(app, 'class="summary-heading-toggle"', "shared Summary collapse control");
 expect(app, 'aria-expanded="${summaryOpen}"', "accessible Summary state");
 expect(app, '📊 工時摘要', "canonical WorkLog Summary heading");
-expect(app, 'return 6;', "six-card suggestion batch");
+expect(app, 'return Number(viewportWidth || 0) <= 767 ? 6 : 8;', "responsive 8/6 suggestion batch");
 expect(app, '<h2>我的工時</h2>', "My WorkLog heading");
 expect(app, '尚未建立工時</b>', "empty WorkLog copy");
 expect(app, '🪶 Mr. KM 建議', "canonical suggestion heading");
@@ -45,6 +45,7 @@ expect(app, '<div class="ai-workspace-reserve" aria-hidden="true"></div>', "rese
 expect(css, '.summary-dashboard.summary-collapsed .summary-grid{display:none}', "Summary collapsed styling");
 expect(css, '.summary-dashboard.summary-open .summary-grid{display:grid}', "Summary expanded styling");
 expect(css, 'grid-template-rows:repeat(3,minmax(0,1fr))', "2x3 suggestion tile styling");
+expect(css, 'grid-template-rows:repeat(4,minmax(96px,1fr))', "desktop 2x4 suggestion tile styling");
 expect(css, '.mobile-week-grid,.mobile-month-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr))', "mobile week/month calendar grids");
 expect(css, '.workspace-worklog .os-topbar{display:none}', "desktop brand moved to sidebar");
 expect(css, 'grid-template-columns:minmax(0,33.5fr) minmax(0,33fr) minmax(0,33.5fr)', "33.5/33/33.5 dashboard balance");

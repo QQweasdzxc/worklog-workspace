@@ -27,16 +27,16 @@ function assert(value, message) {
   if (!value) throw new Error(message);
 }
 
-assert(context.suggestionBatchSize(1366) === 6, "Desktop batch must contain 6 suggestions");
-assert(context.suggestionBatchSize(900) === 6, "Tablet batch must contain 6 suggestions");
+assert(context.suggestionBatchSize(1366) === 8, "Desktop batch must contain 8 suggestions");
+assert(context.suggestionBatchSize(900) === 8, "Tablet batch must contain 8 suggestions");
 assert(context.suggestionBatchSize(390) === 6, "Mobile batch must contain 6 suggestions");
 
 const first = context.suggestionBatchState(17, 0, 1366);
-const second = context.suggestionBatchState(17, 6, 1366);
-const third = context.suggestionBatchState(17, 12, 1366);
-assert(first.start === 0 && first.end === 6 && first.remaining === 11, "Desktop first batch must be 6 + 11 remaining");
-assert(second.start === 6 && second.end === 12 && second.remaining === 5, "Desktop second batch must be 6 + 5 remaining");
-assert(third.start === 12 && third.end === 17 && third.remaining === 0, "Desktop third batch must contain the final 5 suggestions");
+const second = context.suggestionBatchState(17, 8, 1366);
+const third = context.suggestionBatchState(17, 16, 1366);
+assert(first.start === 0 && first.end === 8 && first.remaining === 9, "Desktop first batch must be 8 + 9 remaining");
+assert(second.start === 8 && second.end === 16 && second.remaining === 1, "Desktop second batch must be 8 + 1 remaining");
+assert(third.start === 16 && third.end === 17 && third.remaining === 0, "Desktop third batch must contain the final suggestion");
 assert(first.batchCount === 3 && third.batchIndex === 2, "17 suggestions must produce 3 finite batches");
 
 assert(app.includes("function renderSuggestionBatchOnly()"), "Missing partial suggestion renderer");
@@ -51,9 +51,12 @@ assert(app.includes("weekdayUsage * 8"), "Suggestion ranking must include same-w
 assert(app.includes("model.familiarity"), "Suggestion ranking must include Work Memory familiarity");
 assert(app.includes("knowledgeReferences.length * 3"), "Suggestion ranking must include learned knowledge sources");
 
-assert(css.includes("--daily-workspace-panel-height:560px"), "Desktop fixed panel height missing");
-assert(css.includes("--daily-workspace-panel-height:540px"), "Tablet fixed panel height missing");
+assert(css.includes("--daily-workspace-panel-height:clamp(560px"), "Desktop adaptive panel height missing");
+assert(css.includes("--daily-workspace-panel-height:clamp(540px"), "Tablet adaptive panel height missing");
 assert(css.includes(".workbench-grid>.calendar-module,.workbench-grid>.today-module,.workbench-grid>.suggestion-module{height:var(--daily-workspace-panel-height)"), "Shared equal-height panel rule missing");
-assert(css.includes("grid-template-rows:repeat(3,minmax(0,1fr))"), "2x3 suggestion tile grid missing");
+assert(css.includes("grid-template-rows:repeat(4,minmax(96px,1fr))"), "Desktop 2x4 suggestion tile grid missing");
+assert(css.includes("grid-template-rows:repeat(3,minmax(0,1fr))"), "Mobile 2x3 suggestion tile grid missing");
+assert(css.includes(".panel-scroll-content{flex:1 1 auto;min-height:0;overflow-y:auto"), "Scrollable panel content missing");
+assert(css.includes(".panel-fixed-header,.panel-fixed-footer{flex:0 0 auto}"), "Fixed panel header/footer missing");
 
 console.log("P5.7 Suggestion Experience tests: PASS");

@@ -1801,7 +1801,7 @@ function calendarPanel() {
   const y = base.getFullYear(), m = base.getMonth(), first = new Date(y, m, 1), last = new Date(y, m + 1, 0);
   const selectedInMonth = monthKey(selected) === selectedMonth;
   const monthLabel = `${y}/${String(m + 1).padStart(2, "0")}`;
-  let html = `<div class="panel-head"><h2>${monthLabel}</h2><div class="actions compact"><button class="btn2" data-month-nav="-1">上一月</button><button class="btn2" data-today="1">今天</button><button class="btn2" data-month-nav="1">下一月</button></div></div><div class="cal">${["日", "一", "二", "三", "四", "五", "六"].map(x => `<div class="muted cal-head">${x}</div>`).join("")}`;
+  let html = `<div class="panel-layout"><div class="panel-head panel-fixed-header"><h2>${monthLabel}</h2><div class="actions compact"><button class="btn2" data-month-nav="-1">上一月</button><button class="btn2" data-today="1">今天</button><button class="btn2" data-month-nav="1">下一月</button></div></div><div class="panel-scroll-content calendar-scroll-content"><div class="cal">${["日", "一", "二", "三", "四", "五", "六"].map(x => `<div class="muted cal-head">${x}</div>`).join("")}`;
   for (let i = 0; i < first.getDay(); i++) html += "<div></div>";
   for (let d = 1; d <= last.getDate(); d++) {
     const dk = `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
@@ -1809,7 +1809,7 @@ function calendarPanel() {
     const isToday = dk === key(new Date());
     html += `<div class="day ${isToday ? "today" : ""} ${selectedInMonth && d === selected.getDate() ? "sel" : ""}" data-day="${d}"><b>${d}</b><div class="bar"><div class="fill" style="width:${Math.min(100, h / 8 * 100)}%"></div></div><small>${h ? h + "h" : ""}</small></div>`;
   }
-  html += `</div><div class="month-summary"><b>${monthLabel} 工時</b><span>${hours(monthEntries())}h</span></div><button class="btn full" data-export-month="1">⬇️ 下載 ${monthLabel} ECP 匯入檔</button>`;
+  html += `</div></div><div class="panel-fixed-footer calendar-panel-footer"><div class="month-summary"><b>${monthLabel} 工時</b><span>${hours(monthEntries())}h</span></div><button class="btn full" data-export-month="1">⬇️ 下載 ${monthLabel} ECP 匯入檔</button></div></div>`;
   return html;
 }
 
@@ -1929,11 +1929,11 @@ function todayPanel() {
   const h = hours(list);
   const selectedIsToday = key(selected) === key(new Date());
   const selectedLabel = selectedIsToday ? "今天" : `${selected.getMonth() + 1}/${selected.getDate()}`;
-  return `<div class="panel-head"><h2>我的工時</h2><div class="tag">${selectedLabel}｜${h} / 8h</div></div>${list.length ? list.map(e => `<div class="entry"><div class="entry-main"><b>${escapeHtml(e.title)}</b><div class="muted">${fmt(e.at)}｜${Number(e.hours || 0)}h${e.ecpTask ? `｜🏷 任務` : ""}</div></div><div class="actions compact entry-actions"><button class="btn amber" data-edit-id="${e.id}">編輯</button><button class="btn red" data-del-id="${e.id}">刪除</button></div></div>`).join("") : `<div class="empty today-empty-state"><b>${selectedIsToday ? "今天" : selectedLabel}尚未建立工時</b></div>`}<button class="btn full today-add-bottom" data-action="add">＋ 新增工時</button>`;
+  return `<div class="panel-head panel-fixed-header"><h2>我的工時</h2><div class="tag">${selectedLabel}｜${h} / 8h</div></div><div class="panel-scroll-content today-entry-list">${list.length ? list.map(e => `<div class="entry"><div class="entry-main"><b>${escapeHtml(e.title)}</b><div class="muted">${fmt(e.at)}｜${Number(e.hours || 0)}h${e.ecpTask ? `｜🏷 任務` : ""}</div></div><div class="actions compact entry-actions"><button class="btn amber" data-edit-id="${e.id}">編輯</button><button class="btn red" data-del-id="${e.id}">刪除</button></div></div>`).join("") : `<div class="empty today-empty-state"><b>${selectedIsToday ? "今天" : selectedLabel}尚未建立工時</b></div>`}</div><div class="panel-fixed-footer today-panel-footer"><button class="btn full today-add-bottom" data-action="add">＋ 新增工時</button></div>`;
 }
 
 function suggestionBatchSize(viewportWidth = window.innerWidth) {
-  return 6;
+  return Number(viewportWidth || 0) <= 767 ? 6 : 8;
 }
 
 function suggestionBatchState(total = 0, requestedStart = 0, viewportWidth = window.innerWidth) {
@@ -2008,11 +2008,11 @@ function suggestionCardMarkup(item = {}) {
 
 function suggestionPanel() {
   const suggestions = makeSuggestions();
-  if (!suggestions.length) return `<h2>🪶 Mr. KM 建議</h2><div class="empty"><b>目前沒有建議</b><div class="muted">可能工時已滿，或「我的工作」尚未建立。</div></div>`;
+  if (!suggestions.length) return `<div class="suggestion-panel-head panel-fixed-header"><h2>🪶 Mr. KM 建議</h2></div><div class="panel-scroll-content"><div class="empty"><b>目前沒有建議</b><div class="muted">可能工時已滿，或「我的工作」尚未建立。</div></div></div>`;
   const state = suggestionBatchState(suggestions.length, aiTodaySuggestionIndex);
   aiTodaySuggestionIndex = state.start;
   const batch = suggestions.slice(state.start, state.end);
-  return `<div class="suggestion-panel-head"><h2>🪶 Mr. KM 建議</h2><b data-suggestion-total>${suggestions.length} 項待處理</b><span data-suggestion-batch-status>第 ${state.batchIndex + 1} / ${state.batchCount} 批</span></div><div class="ai-suggestion-scan-list" data-suggestion-batch-list>${batch.map(suggestionCardMarkup).join("")}</div><div class="suggestion-scan-footer"><span class="muted" data-suggestion-remaining>${state.remaining > 0 ? `還有 ${state.remaining} 項` : "✓ 已看完這批建議"}</span><div class="suggestion-batch-actions"><button class="btn2 ${state.batchIndex === 0 ? "is-disabled" : ""}" type="button" data-suggestion-prev-batch aria-disabled="${state.batchIndex === 0}">上一批</button><button class="btn2 ${state.batchIndex >= state.batchCount - 1 ? "is-disabled" : ""}" type="button" data-suggestion-next-batch aria-disabled="${state.batchIndex >= state.batchCount - 1}">下一批</button></div></div>`;
+  return `<div class="suggestion-panel-head panel-fixed-header"><h2>🪶 Mr. KM 建議</h2><b data-suggestion-total>${suggestions.length} 項待處理</b><span data-suggestion-batch-status>第 ${state.batchIndex + 1} / ${state.batchCount} 批</span></div><div class="panel-scroll-content ai-suggestion-scan-list" data-suggestion-batch-list>${batch.map(suggestionCardMarkup).join("")}</div><div class="suggestion-scan-footer panel-fixed-footer"><span class="muted" data-suggestion-remaining>${state.remaining > 0 ? `還有 ${state.remaining} 項` : "✓ 已看完這批建議"}</span><div class="suggestion-batch-actions"><button class="btn2 ${state.batchIndex === 0 ? "is-disabled" : ""}" type="button" data-suggestion-prev-batch aria-disabled="${state.batchIndex === 0}">上一批</button><button class="btn2 ${state.batchIndex >= state.batchCount - 1 ? "is-disabled" : ""}" type="button" data-suggestion-next-batch aria-disabled="${state.batchIndex >= state.batchCount - 1}">下一批</button></div></div>`;
 }
 
 function bindSuggestionCardActions(root = document) {
@@ -2212,7 +2212,7 @@ function aiStatusBar() {
 }
 
 function center() {
-  return `<div class="daily-workspace"><div class="workbench-grid">${todaySummaryPanel()}${mobileWorklogTabs()}<section class="panel module calendar-module" id="mobile-worklog-time"><div class="desktop-calendar">${calendarPanel()}</div><div class="mobile-calendar">${mobileCalendarPanel()}</div></section><section class="panel module today-module">${todayPanel()}</section><section class="panel module suggestion-module" id="mobile-worklog-suggestions">${suggestionPanel()}</section></div>${aiStatusBar()}<div class="ai-workspace-reserve" aria-hidden="true"></div></div>`;
+  return `<div class="daily-workspace"><div class="workbench-grid">${todaySummaryPanel()}${mobileWorklogTabs()}<section class="panel module calendar-module" id="mobile-worklog-time"><div class="desktop-calendar">${calendarPanel()}</div><div class="mobile-calendar">${mobileCalendarPanel()}</div></section><section class="panel module today-module">${todayPanel()}</section><section class="panel module suggestion-module" id="mobile-worklog-suggestions">${suggestionPanel()}</section></div><div class="ai-workspace-reserve" aria-hidden="true"></div>${aiStatusBar()}</div>`;
 }
 
 function workProfileStatusCard() {
