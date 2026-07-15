@@ -58,5 +58,9 @@ assert(css.includes("grid-template-rows:repeat(4,minmax(96px,1fr))"), "Desktop 2
 assert(css.includes("grid-template-rows:repeat(3,minmax(0,1fr))"), "Mobile 2x3 suggestion tile grid missing");
 assert(css.includes(".panel-scroll-content{flex:1 1 auto;min-height:0;overflow-y:auto"), "Scrollable panel content missing");
 assert(css.includes(".panel-fixed-header,.panel-fixed-footer{flex:0 0 auto}"), "Fixed panel header/footer missing");
+assert(app.includes("for (let offset = 0; offset < 42; offset++)"), "Desktop calendar must render a complete six-week grid");
+assert(app.includes("outside-month"), "Adjacent-month calendar days must be visibly muted");
+assert(css.includes("grid-template-rows:auto repeat(6,minmax(47px,1fr))"), "Calendar must use the available panel content height");
+assert(!app.includes('class="ai-workspace-reserve"'), "AI Services must follow the workspace without a flexible spacer");
 
 console.log("P5.7 Suggestion Experience tests: PASS");

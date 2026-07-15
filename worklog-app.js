@@ -1802,12 +1802,16 @@ function calendarPanel() {
   const selectedInMonth = monthKey(selected) === selectedMonth;
   const monthLabel = `${y}/${String(m + 1).padStart(2, "0")}`;
   let html = `<div class="panel-layout"><div class="panel-head panel-fixed-header"><h2>${monthLabel}</h2><div class="actions compact"><button class="btn2" data-month-nav="-1">上一月</button><button class="btn2" data-today="1">今天</button><button class="btn2" data-month-nav="1">下一月</button></div></div><div class="panel-scroll-content calendar-scroll-content"><div class="cal">${["日", "一", "二", "三", "四", "五", "六"].map(x => `<div class="muted cal-head">${x}</div>`).join("")}`;
-  for (let i = 0; i < first.getDay(); i++) html += "<div></div>";
-  for (let d = 1; d <= last.getDate(); d++) {
-    const dk = `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  const leadingDays = first.getDay();
+  for (let offset = 0; offset < 42; offset++) {
+    const cellDate = new Date(y, m, 1 - leadingDays + offset);
+    const d = cellDate.getDate();
+    const inCurrentMonth = cellDate.getMonth() === m;
+    const dk = key(cellDate);
     const h = entries.filter(e => e.date === dk).reduce((s, e) => s + Number(e.hours || 0), 0);
     const isToday = dk === key(new Date());
-    html += `<div class="day ${isToday ? "today" : ""} ${selectedInMonth && d === selected.getDate() ? "sel" : ""}" data-day="${d}"><b>${d}</b><div class="bar"><div class="fill" style="width:${Math.min(100, h / 8 * 100)}%"></div></div><small>${h ? h + "h" : ""}</small></div>`;
+    const selectedDay = inCurrentMonth && selectedInMonth && d === selected.getDate();
+    html += `<div class="day ${inCurrentMonth ? "" : "outside-month"} ${isToday ? "today" : ""} ${selectedDay ? "sel" : ""}"${inCurrentMonth ? ` data-day="${d}"` : ` aria-disabled="true"`}><b>${d}</b><div class="bar"><div class="fill" style="width:${Math.min(100, h / 8 * 100)}%"></div></div><small>${h ? h + "h" : ""}</small></div>`;
   }
   html += `</div></div><div class="panel-fixed-footer calendar-panel-footer"><div class="month-summary"><b>${monthLabel} 工時</b><span>${hours(monthEntries())}h</span></div><button class="btn full" data-export-month="1">⬇️ 下載 ${monthLabel} ECP 匯入檔</button></div></div>`;
   return html;
@@ -2212,7 +2216,7 @@ function aiStatusBar() {
 }
 
 function center() {
-  return `<div class="daily-workspace"><div class="workbench-grid">${todaySummaryPanel()}${mobileWorklogTabs()}<section class="panel module calendar-module" id="mobile-worklog-time"><div class="desktop-calendar">${calendarPanel()}</div><div class="mobile-calendar">${mobileCalendarPanel()}</div></section><section class="panel module today-module">${todayPanel()}</section><section class="panel module suggestion-module" id="mobile-worklog-suggestions">${suggestionPanel()}</section></div><div class="ai-workspace-reserve" aria-hidden="true"></div>${aiStatusBar()}</div>`;
+  return `<div class="daily-workspace"><div class="workbench-grid">${todaySummaryPanel()}${mobileWorklogTabs()}<section class="panel module calendar-module" id="mobile-worklog-time"><div class="desktop-calendar">${calendarPanel()}</div><div class="mobile-calendar">${mobileCalendarPanel()}</div></section><section class="panel module today-module">${todayPanel()}</section><section class="panel module suggestion-module" id="mobile-worklog-suggestions">${suggestionPanel()}</section></div>${aiStatusBar()}</div>`;
 }
 
 function workProfileStatusCard() {

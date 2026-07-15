@@ -40,7 +40,7 @@ expect(app, 'return `<div class="daily-workspace"><div class="workbench-grid">${
 expect(app, '<section class="ai-status-bar" aria-label="AI Services">', "compact AI Services Bar");
 expect(app, '<strong>AI Services</strong>', "AI Services heading");
 expect(app, 'class="ai-service-badge"', "AI Services badges");
-expect(app, '<div class="ai-workspace-reserve" aria-hidden="true"></div>', "reserved future AI workspace");
+if (app.includes('class="ai-workspace-reserve"')) throw new Error("AI Services must follow the three-panel workspace without a flexible spacer");
 
 expect(css, '.summary-dashboard.summary-collapsed .summary-grid{display:none}', "Summary collapsed styling");
 expect(css, '.summary-dashboard.summary-open .summary-grid{display:grid}', "Summary expanded styling");
@@ -50,6 +50,7 @@ expect(css, '.mobile-week-grid,.mobile-month-grid{display:grid;grid-template-col
 expect(css, '.workspace-worklog .os-topbar{display:none}', "desktop brand moved to sidebar");
 expect(css, 'grid-template-columns:minmax(0,33.5fr) minmax(0,33fr) minmax(0,33.5fr)', "33.5/33/33.5 dashboard balance");
 expect(css, '.ai-status-bar{display:flex', "AI Status Bar styling");
+expect(css, 'margin-top:12px', "compact AI Services workspace gap");
 expect(css, '.ai-service-badge{display:inline-flex', "AI Services badge styling");
 expect(css, '.workspace-worklog .developer-version-details{display:none}', "mobile footer hides developer details");
 expect(css, ':root{--font-xs:.75rem;--font-sm:.875rem;--font-md:1rem;--font-lg:1.125rem;--font-xl:1.25rem', "Typography tokens");
