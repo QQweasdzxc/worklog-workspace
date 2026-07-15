@@ -1399,7 +1399,7 @@ function headerWorkIdentityStatus() {
 }
 
 function header() {
-  return `<div class="top"><div class="brand-row"><button class="mini adaptive-menu" data-toggle-sidebar="1">☰</button><div class="brand-stack"><h1>🪶 Zhuge AI OS</h1><span class="brand-companion">by Mr. KM</span></div></div><div class="header-right">${headerWorkIdentityStatus()}${userBadge()}</div></div>`;
+  return `<div class="top"><div class="brand-row"><button class="mini adaptive-menu" data-toggle-sidebar="1">☰</button><div class="brand-stack"><h1><span class="brand-mark" aria-hidden="true">🧠</span> Zhuge AI OS</h1><span class="brand-companion">by Mr. KM</span></div></div><div class="header-right">${headerWorkIdentityStatus()}${userBadge()}</div></div>`;
 }
 
 function authScreen() {
@@ -1503,7 +1503,7 @@ function sidebarSection(title, group) {
 
 function osSidebar() {
   const checked = new Date().toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false });
-  return `<aside class="os-sidebar"><button class="mini sidebar-close" data-close-sidebar="1">×</button>${agentStatusPanel()}${sidebarSection("🏕️ 營帳", "camp")}${sidebarSection("⚙️ 系統", "system")}<div class="developer-build-info"><div id="developerCloudSyncStatus" data-retry-cloud-sync="1"><div>${escapeHtml(cloudSyncLabel())}</div><div>${escapeHtml(cloudSyncDetail())}</div><div>${escapeHtml(conversationSyncLabel())}</div><div>${escapeHtml(conversationSyncDetail())}</div></div><div>${RELEASE_VERSION}</div><div>Build ${BUILD_TIME}</div><div>GitHub Pages：最後檢查 ${checked}</div><div>Source：${DEPLOY_SOURCE}</div></div></aside>`;
+  return `<aside class="os-sidebar"><div class="sidebar-brand"><div class="brand-row"><div class="brand-stack"><h1><span class="brand-mark" aria-hidden="true">🧠</span> Zhuge AI OS</h1><span class="brand-companion">by Mr. KM</span></div></div><button class="mini sidebar-close" data-close-sidebar="1" aria-label="關閉選單">×</button><button class="mini sidebar-menu-mark" type="button" data-toggle-sidebar="1" aria-label="營帳選單">☰</button></div>${agentStatusPanel()}${sidebarSection("🏕️ 營帳", "camp")}${sidebarSection("⚙️ 系統", "system")}<div class="developer-build-info"><div id="developerCloudSyncStatus" data-retry-cloud-sync="1"><div>${escapeHtml(cloudSyncLabel())}</div><div>${escapeHtml(cloudSyncDetail())}</div><div>${escapeHtml(conversationSyncLabel())}</div><div>${escapeHtml(conversationSyncDetail())}</div></div><div>${RELEASE_VERSION}</div><div>Build ${BUILD_TIME}</div><div>GitHub Pages：最後檢查 ${checked}</div><div>Source：${DEPLOY_SOURCE}</div></div></aside>`;
 }
 
 function workspaceTabs() {
@@ -1784,7 +1784,7 @@ function workspaceContent() {
 
 function osShell() {
   normalizeWorkspaceState();
-  return `<div class="os-shell ${sidebarOpen ? "sidebar-open" : ""}"><div class="os-topbar">${header()}</div><div class="os-body">${osSidebar()}<div class="sidebar-backdrop" data-close-sidebar="1"></div><main class="os-main">${workspaceTabs()}<div class="workspace-canvas">${workspaceContent()}</div></main></div>${floatingAssistantWidget()}</div>`;
+  return `<div class="os-shell workspace-${escapeHtml(activeWorkspace)} ${sidebarOpen ? "sidebar-open" : ""}"><div class="os-topbar">${header()}</div><div class="os-body">${osSidebar()}<div class="sidebar-backdrop" data-close-sidebar="1"></div><main class="os-main">${workspaceTabs()}<div class="workspace-canvas">${workspaceContent()}</div></main></div>${floatingAssistantWidget()}</div>`;
 }
 
 function onboardingWorkspace() {
@@ -1886,7 +1886,7 @@ function todaySummaryPanel() {
   const weekProgress = Math.min(100, Math.round(weekDone / 40 * 100));
   const todayProgress = Math.min(100, Math.round(todayDone / 8 * 100));
   const summaryOpen = readScopedUiFlag(MOBILE_SUMMARY_OPEN_KEY, true);
-  return `<section class="panel mobile-summary-module summary-dashboard ${summaryOpen ? "summary-open" : "summary-collapsed"}"><div class="summary-dashboard-head"><button class="summary-heading-toggle" type="button" data-toggle-mobile-summary="1" aria-expanded="${summaryOpen}"><span>${summaryOpen ? "▲" : "▼"} 今日摘要</span><small>📊 工時儀表板</small></button></div><div class="summary-grid"><div class="summary-tile"><span>本月進度</span><b>${monthlyDone} / ${monthlyTarget}h</b><em>${monthProgress}%</em></div><div class="summary-tile"><span>本週進度</span><b>${weekDone} / 40h</b><em>${weekProgress}%</em></div><div class="summary-tile"><span>今日進度</span><b>${todayDone} / 8h</b><em>${todayProgress}%</em></div><div class="summary-tile summary-forecast ${health.className}"><span>達標預測</span><b>${health.label}</b></div></div></section>`;
+  return `<section class="panel mobile-summary-module summary-dashboard ${summaryOpen ? "summary-open" : "summary-collapsed"}"><div class="summary-dashboard-head"><button class="summary-heading-toggle" type="button" data-toggle-mobile-summary="1" aria-expanded="${summaryOpen}"><span>☀️ 今日摘要 <i>（點擊${summaryOpen ? "收合" : "展開"}）</i></span><small>${summaryOpen ? "⌃" : "⌄"}</small></button></div><div class="summary-grid"><div class="summary-tile"><span>本月進度</span><b>${monthlyDone} / ${monthlyTarget}h</b><em>${monthProgress}%</em></div><div class="summary-tile"><span>本週進度</span><b>${weekDone} / 40h</b><em>${weekProgress}%</em></div><div class="summary-tile"><span>今日進度</span><b>${todayDone} / 8h</b><em>${todayProgress}%</em></div><div class="summary-tile summary-forecast ${health.className}"><span>達標預測</span><b>${health.label}</b></div></div></section>`;
 }
 
 function mobileCalendarPanel() {
@@ -1911,7 +1911,7 @@ function mobileCalendarPanel() {
     const weekEnd = addDays(weekStart, 6);
     const weekDays = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
     const range = `${String(weekStart.getMonth() + 1).padStart(2, "0")}/${String(weekStart.getDate()).padStart(2, "0")} ~ ${String(weekEnd.getMonth() + 1).padStart(2, "0")}/${String(weekEnd.getDate()).padStart(2, "0")}`;
-    return `<div class="mobile-calendar-head"><div><h2>工時月曆</h2><span class="muted">${range}</span></div><button class="btn2" data-toggle-mobile-calendar="1">展開月曆</button></div><div class="mobile-week-navigation"><button class="btn2" type="button" data-mobile-week-nav="-1">← 上週</button><button class="btn2" type="button" data-mobile-week-nav="0">本週</button><button class="btn2" type="button" data-mobile-week-nav="1">下週 →</button></div><div class="mobile-week-head">${["一", "二", "三", "四", "五", "六", "日"].map(label => `<span>${label}</span>`).join("")}</div><div class="mobile-week-grid">${weekDays.map(d => dayMarkup(d)).join("")}</div>`;
+    return `<div class="mobile-calendar-head"><div><h2>工時月曆</h2><span class="muted">${y} / ${String(m + 1).padStart(2, "0")}</span></div></div><div class="mobile-week-navigation"><button class="btn2" type="button" data-mobile-week-nav="-1" aria-label="上週">‹</button><button class="btn2 mobile-current-week" type="button" data-mobile-week-nav="0">本週 ${range}</button><button class="btn2" type="button" data-mobile-week-nav="1" aria-label="下週">›</button></div><div class="mobile-week-head">${["一", "二", "三", "四", "五", "六", "日"].map(label => `<span>${label}</span>`).join("")}</div><div class="mobile-week-grid">${weekDays.map(d => dayMarkup(d)).join("")}</div><button class="mobile-calendar-expand" type="button" data-toggle-mobile-calendar="1">⌄ 點擊展開月曆</button>`;
   }
   return `<div class="mobile-calendar-head"><div><h2>工時月曆</h2><span class="muted">${y} / ${String(m + 1).padStart(2, "0")}</span></div><button class="btn2" data-toggle-mobile-calendar="1">收合月曆</button></div><div class="mobile-month-navigation"><button class="btn2" type="button" data-mobile-month-nav="-1">← 上一月</button><button class="btn2" type="button" data-mobile-month-nav="0">本月</button><button class="btn2" type="button" data-mobile-month-nav="1">下一月 →</button></div><div class="mobile-month-scroll"><div class="mobile-week-head">${["日", "一", "二", "三", "四", "五", "六"].map(label => `<span>${label}</span>`).join("")}</div><div class="mobile-month-grid">${days.map(d => dayMarkup(d, d.getMonth() !== m)).join("")}</div></div>`;
 }
@@ -1928,11 +1928,11 @@ function todayPanel() {
   const h = hours(list);
   const selectedIsToday = key(selected) === key(new Date());
   const selectedLabel = selectedIsToday ? "今天" : `${selected.getMonth() + 1}/${selected.getDate()}`;
-  return `<div class="panel-head"><h2>我的工時</h2><div class="tag">${selectedLabel}｜${h} / 8h</div></div>${list.length ? list.map(e => `<div class="entry"><div class="entry-main"><b>${escapeHtml(e.title)}</b><div class="muted">${fmt(e.at)}｜${Number(e.hours || 0)}h${e.ecpTask ? `｜🏷 任務` : ""}</div></div><div class="actions compact entry-actions"><button class="btn amber" data-edit-id="${e.id}">編輯</button><button class="btn red" data-del-id="${e.id}">刪除</button></div></div>`).join("") : `<div class="empty today-empty-state"><b>${selectedIsToday ? "今天" : selectedLabel}尚未建立工時</b><div class="muted">${selectedIsToday ? "今天的工時會出現在這裡。" : "這一天的工時會出現在這裡。可從工時月曆切回今天。"}</div></div>`}<button class="btn full today-add-bottom" data-action="add">＋ 新增工時</button>`;
+  return `<div class="panel-head"><h2>我的工時</h2><div class="tag">${selectedLabel}｜${h} / 8h</div></div>${list.length ? list.map(e => `<div class="entry"><div class="entry-main"><b>${escapeHtml(e.title)}</b><div class="muted">${fmt(e.at)}｜${Number(e.hours || 0)}h${e.ecpTask ? `｜🏷 任務` : ""}</div></div><div class="actions compact entry-actions"><button class="btn amber" data-edit-id="${e.id}">編輯</button><button class="btn red" data-del-id="${e.id}">刪除</button></div></div>`).join("") : `<div class="empty today-empty-state"><b>${selectedIsToday ? "今天" : selectedLabel}尚未建立工時</b></div>`}<button class="btn full today-add-bottom" data-action="add">＋ 新增工時</button>`;
 }
 
 function suggestionBatchSize(viewportWidth = window.innerWidth) {
-  return 4;
+  return 6;
 }
 
 function suggestionBatchState(total = 0, requestedStart = 0, viewportWidth = window.innerWidth) {
@@ -2007,11 +2007,11 @@ function suggestionCardMarkup(item = {}) {
 
 function suggestionPanel() {
   const suggestions = makeSuggestions();
-  if (!suggestions.length) return `<h2>🪶 今天建議</h2><div class="empty"><b>目前沒有建議</b><div class="muted">可能工時已滿，或「我的工作」尚未建立。</div></div>`;
+  if (!suggestions.length) return `<h2>🪶 Mr.KM建議</h2><div class="empty"><b>目前沒有建議</b><div class="muted">可能工時已滿，或「我的工作」尚未建立。</div></div>`;
   const state = suggestionBatchState(suggestions.length, aiTodaySuggestionIndex);
   aiTodaySuggestionIndex = state.start;
   const batch = suggestions.slice(state.start, state.end);
-  return `<div class="suggestion-panel-head"><h2>🪶 今天建議</h2><b data-suggestion-total>${suggestions.length} 項待處理</b><span data-suggestion-batch-status>第 ${state.batchIndex + 1} / ${state.batchCount} 批</span></div><div class="ai-suggestion-scan-list" data-suggestion-batch-list>${batch.map(suggestionCardMarkup).join("")}</div><div class="suggestion-scan-footer"><span class="muted" data-suggestion-remaining>${state.remaining > 0 ? `還有 ${state.remaining} 項` : "✓ 已看完這批建議"}</span><div class="suggestion-batch-actions"><button class="btn2 ${state.batchIndex === 0 ? "is-disabled" : ""}" type="button" data-suggestion-prev-batch aria-disabled="${state.batchIndex === 0}">上一批</button><button class="btn2 ${state.batchIndex >= state.batchCount - 1 ? "is-disabled" : ""}" type="button" data-suggestion-next-batch aria-disabled="${state.batchIndex >= state.batchCount - 1}">下一批</button></div></div>`;
+  return `<div class="suggestion-panel-head"><h2>🪶 Mr.KM建議</h2><b data-suggestion-total>${suggestions.length} 項待處理</b><span data-suggestion-batch-status>第 ${state.batchIndex + 1} / ${state.batchCount} 批</span></div><div class="ai-suggestion-scan-list" data-suggestion-batch-list>${batch.map(suggestionCardMarkup).join("")}</div><div class="suggestion-scan-footer"><span class="muted" data-suggestion-remaining>${state.remaining > 0 ? `還有 ${state.remaining} 項` : "✓ 已看完這批建議"}</span><div class="suggestion-batch-actions"><button class="btn2 ${state.batchIndex === 0 ? "is-disabled" : ""}" type="button" data-suggestion-prev-batch aria-disabled="${state.batchIndex === 0}">上一批</button><button class="btn2 ${state.batchIndex >= state.batchCount - 1 ? "is-disabled" : ""}" type="button" data-suggestion-next-batch aria-disabled="${state.batchIndex >= state.batchCount - 1}">下一批</button></div></div>`;
 }
 
 function bindSuggestionCardActions(root = document) {
@@ -2060,12 +2060,12 @@ function moveSuggestionBatch(direction = 1) {
 }
 
 function mobileWorklogTabs() {
+  const suggestionCount = makeSuggestions().length;
   const tabs = [
-    { id: "time", label: "📝 工時" },
-    { id: "summary", label: "📊 摘要" },
-    { id: "suggestions", label: "🪶 Mr. KM 建議" }
+    { id: "time", label: "工時" },
+    { id: "suggestions", label: `Mr. KM 建議 <span class="mobile-worklog-badge">${suggestionCount}</span>` }
   ];
-  return `<div class="mobile-worklog-tabs">${tabs.map(tab => `<button class="mobile-worklog-tab ${mobileWorklogTab === tab.id ? "active" : ""}" type="button" data-mobile-worklog-tab="${tab.id}">${tab.label}</button>`).join("")}</div>`;
+  return `<nav class="mobile-worklog-tabs" aria-label="工時工作區捷徑">${tabs.map(tab => `<button class="mobile-worklog-tab ${mobileWorklogTab === tab.id ? "active" : ""}" type="button" data-mobile-worklog-tab="${tab.id}">${tab.label}</button>`).join("")}</nav>`;
 }
 
 function renderAssistantCard(card = null) {
@@ -2204,7 +2204,7 @@ function floatingAssistantWidget() {
 }
 
 function center() {
-  return `<div class="workbench-grid">${todaySummaryPanel()}<section class="panel module calendar-module"><div class="desktop-calendar">${calendarPanel()}</div><div class="mobile-calendar">${mobileCalendarPanel()}</div></section><section class="panel module today-module">${todayPanel()}</section><section class="panel module suggestion-module">${suggestionPanel()}</section></div>`;
+  return `<div class="workbench-grid">${todaySummaryPanel()}${mobileWorklogTabs()}<section class="panel module calendar-module" id="mobile-worklog-time"><div class="desktop-calendar">${calendarPanel()}</div><div class="mobile-calendar">${mobileCalendarPanel()}</div></section><section class="panel module today-module">${todayPanel()}</section><section class="panel module suggestion-module" id="mobile-worklog-suggestions">${suggestionPanel()}</section></div>`;
 }
 
 function workProfileStatusCard() {
@@ -3125,7 +3125,9 @@ function bind() {
   });
   document.querySelectorAll("[data-mobile-worklog-tab]").forEach(b => b.onclick = () => {
     mobileWorklogTab = b.dataset.mobileWorklogTab || "time";
-    render();
+    document.querySelectorAll("[data-mobile-worklog-tab]").forEach(tab => tab.classList.toggle("active", tab === b));
+    const target = document.getElementById(mobileWorklogTab === "suggestions" ? "mobile-worklog-suggestions" : "mobile-worklog-time");
+    target?.scrollIntoView({ behavior: "smooth", block: "start" });
   });
   document.querySelectorAll("[data-action=add]").forEach(b => b.onclick = () => { editingEntryId = null; captureSeed = null; activeWorkspace = "worklog"; if (!openTabs.includes("worklog")) openTabs.push("worklog"); rememberWorkspace("worklog"); view = "capture"; saveAll(); render(); });
   const today = document.querySelector("[data-today]"); if (today) today.onclick = async () => { selected = new Date(); await setSelectedMonth(monthKey(selected), selected.getDate()); };

@@ -11,9 +11,10 @@ function expect(source, value, label) {
 }
 
 expect(state, 'let mobileWorklogTab = "time"', "mobile default WorkLog tab");
-expect(app, '<section class="panel module suggestion-module">${suggestionPanel()}</section>', "shared suggestion render");
+expect(app, '<section class="panel module suggestion-module" id="mobile-worklog-suggestions">${suggestionPanel()}</section>', "shared suggestion render");
 expect(app, 'return `<div class="workbench-grid">${todaySummaryPanel()}', "unified mobile/desktop workspace");
-expect(css, 'grid-template-areas:"summary" "calendar" "today" "suggestion"', "mobile suggestion visibility");
+expect(css, 'grid-template-areas:"summary" "mobiletabs" "calendar" "today" "suggestion"', "mobile suggestion visibility");
+expect(app, 'target?.scrollIntoView({ behavior: "smooth", block: "start" })', "mobile tabs navigate without hiding content");
 
 if (app.includes('${mobileWorklogTabs()}${mobileHomeActionPanel()}${todaySummaryPanel()}')) {
   throw new Error("Legacy mobile tab/action shell still controls the daily workspace");

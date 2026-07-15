@@ -2,58 +2,51 @@
 <html lang="zh-TW">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>P5.7 PM Mockup QA</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>P5.7 Final Mockup QA</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="../worklog.css">
   <style>
-    .qa-shell{max-width:1520px;margin:0 auto;padding:18px}.qa-header{margin-bottom:14px}.qa-header .top{background:#1e293b;border:1px solid #334155;border-radius:22px;padding:18px}.qa-calendar-title{display:flex;justify-content:space-between;align-items:center;gap:8px}.qa-calendar-title h2{margin:0}.qa-calendar-month{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;margin-top:12px}.qa-calendar-month .day{min-height:54px}.qa-calendar-month .cal-head{padding:4px}.qa-mobile-calendar{display:none}
-    @media(max-width:767px){.qa-shell{padding:8px}.qa-header .top{padding:12px}.qa-header h1{font-size:20px}.qa-desktop-calendar{display:none}.qa-mobile-calendar{display:block}.workbench-grid>.suggestion-module{margin-bottom:20px}}
+    .qa-calendar-title{display:flex;justify-content:space-between;align-items:center;gap:8px}.qa-calendar-title h2{margin:0}.qa-calendar-month{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;margin-top:12px}.qa-calendar-month .day{min-height:49px}.qa-calendar-month .cal-head{padding:3px}.qa-mobile-calendar{display:none}
+    @media(max-width:767px){.qa-desktop-calendar{display:none}.qa-mobile-calendar{display:block}.workbench-grid>.suggestion-module{margin-bottom:24px}}
   </style>
 </head>
 <body>
-  <main class="qa-shell">
-    <header class="qa-header"><div class="top"><div class="brand-row"><div class="brand-stack"><h1>🪶 Zhuge AI OS</h1><span class="brand-companion">by Mr. KM</span></div></div><div class="work-identity-header-status ready">🟢 工作身分 <small>PM QA</small></div></div></header>
-    <div class="workbench-grid">
-      <section class="panel mobile-summary-module summary-dashboard summary-open" data-summary-panel>
-        <div class="summary-dashboard-head"><button class="summary-heading-toggle" type="button" data-summary-toggle aria-expanded="true"><span>▲ 今日摘要</span><small>📊 工時儀表板</small></button></div>
-        <div class="summary-grid"><div class="summary-tile"><span>本月進度</span><b>56 / 184h</b><em>30%</em></div><div class="summary-tile"><span>本週進度</span><b>12 / 40h</b><em>30%</em></div><div class="summary-tile"><span>今日進度</span><b>2 / 8h</b><em>25%</em></div><div class="summary-tile summary-forecast warn"><span>達標預測</span><b>🟡 稍落後</b></div></div>
-      </section>
-      <section class="panel module calendar-module">
-        <div class="qa-desktop-calendar"><div class="qa-calendar-title"><h2>工時月曆</h2><div class="actions compact"><button class="btn2">上一月</button><button class="btn2">今天</button><button class="btn2">下一月</button></div></div><div class="qa-calendar-month"><div class="muted cal-head">日</div><div class="muted cal-head">一</div><div class="muted cal-head">二</div><div class="muted cal-head">三</div><div class="muted cal-head">四</div><div class="muted cal-head">五</div><div class="muted cal-head">六</div><div></div><div></div><div></div><div class="day"><b>1</b></div><div class="day"><b>2</b></div><div class="day"><b>3</b></div><div class="day"><b>4</b></div><div class="day"><b>5</b></div><div class="day"><b>6</b></div><div class="day"><b>7</b></div><div class="day"><b>8</b></div><div class="day"><b>9</b></div><div class="day"><b>10</b></div><div class="day"><b>11</b></div><div class="day"><b>12</b></div><div class="day today sel"><b>13</b><div class="bar"><div class="fill" style="width:25%"></div></div><small>2h</small></div><div class="day"><b>14</b></div><div class="day"><b>15</b></div><div class="day"><b>16</b></div><div class="day"><b>17</b></div><div class="day"><b>18</b></div><div class="day"><b>19</b></div><div class="day"><b>20</b></div><div class="day"><b>21</b></div><div class="day"><b>22</b></div><div class="day"><b>23</b></div><div class="day"><b>24</b></div><div class="day"><b>25</b></div><div class="day"><b>26</b></div><div class="day"><b>27</b></div><div class="day"><b>28</b></div><div class="day"><b>29</b></div><div class="day"><b>30</b></div><div class="day"><b>31</b></div></div><div class="month-summary"><b>2026 年 07 月工時</b><span>56h</span></div></div>
-        <div class="qa-mobile-calendar" data-mobile-calendar></div>
-      </section>
-      <section class="panel module today-module"><div class="panel-head"><h2>我的工時</h2><div class="tag">今天｜0 / 8h</div></div><div class="empty today-empty-state"><b>今天尚未建立工時</b><div class="muted">今天的工時會出現在這裡。</div></div><button class="btn full today-add-bottom">＋ 新增工時</button></section>
-      <section class="panel module suggestion-module"><div class="suggestion-panel-head"><h2>🪶 Mr. KM 建議</h2><b data-suggestion-total>17 項待處理</b><span data-suggestion-batch-status>第 1 / 5 批</span></div><div class="ai-suggestion-scan-list" data-suggestion-batch-list></div><div class="suggestion-scan-footer"><span class="muted" data-suggestion-remaining>還有 13 項</span><div class="suggestion-batch-actions"><button class="btn2 is-disabled" data-suggestion-prev-batch aria-disabled="true">上一批</button><button class="btn2" data-suggestion-next-batch aria-disabled="false">下一批</button></div></div></section>
+  <div class="os-shell workspace-worklog">
+    <header class="os-topbar"><div class="top"><div class="brand-row"><button class="mini adaptive-menu">☰</button><div class="brand-stack"><h1><span class="brand-mark">🧠</span> Zhuge AI OS</h1><span class="brand-companion">by Mr. KM</span></div></div><div class="header-right"><button class="work-identity-header-status ready"><span>🟢 工作身分</span><small>已完成</small></button></div></div></header>
+    <div class="os-body">
+      <aside class="os-sidebar">
+        <div class="sidebar-brand"><div class="brand-row"><div class="brand-stack"><h1><span class="brand-mark">🧠</span> Zhuge AI OS</h1><span class="brand-companion">by Mr. KM</span></div></div><button class="mini sidebar-menu-mark">☰</button></div>
+        <div class="side-section"><button class="side-item on"><span>🖊️ 工時營帳</span></button><button class="side-item disabled"><span>📈 投資營帳</span></button><button class="side-item disabled"><span>📦 採購營帳</span></button><button class="side-item disabled"><span>👥 HR營帳</span></button><button class="side-item disabled"><span>✈️ 旅遊營帳</span></button></div>
+        <div class="side-section"><h3>系統</h3><button class="side-item"><span>📚 藏書閣</span></button><button class="side-item"><span>🔗 控制台</span></button><button class="side-item"><span>⚙️ 設定</span></button></div>
+        <div class="developer-build-info">🟢 已同步<br>最後同步：2026/07/15 10:00<br>Build P5.7 Final</div>
+      </aside>
+      <main class="os-main"><div class="workspace-canvas">
+        <div class="workbench-grid">
+          <section class="panel mobile-summary-module summary-dashboard summary-open" data-summary-panel>
+            <div class="summary-dashboard-head"><button class="summary-heading-toggle" type="button" data-summary-toggle aria-expanded="true"><span>☀️ 今日摘要 <i>（點擊收合）</i></span><small>⌃</small></button></div>
+            <div class="summary-grid"><div class="summary-tile"><span>本月進度</span><b>55 / 184h</b><em>30%</em></div><div class="summary-tile"><span>本週進度</span><b>4 / 40h</b><em>10%</em></div><div class="summary-tile"><span>今日進度</span><b>0 / 8h</b><em>0%</em></div><div class="summary-tile summary-forecast warn"><span>達標預測</span><b>🟡 稍落後</b></div></div>
+          </section>
+          <nav class="mobile-worklog-tabs"><button class="mobile-worklog-tab active" data-jump="calendar">工時</button><button class="mobile-worklog-tab" data-jump="suggestions">Mr. KM 建議 <span class="mobile-worklog-badge">17</span></button></nav>
+          <section class="panel module calendar-module" id="calendar">
+            <div class="qa-desktop-calendar"><div class="qa-calendar-title"><h2>工時月曆</h2><div class="actions compact"><button class="btn2">上一月</button><button class="btn2">今天</button><button class="btn2">下一月</button></div></div><h3>2026 / 07</h3><div class="qa-calendar-month" data-desktop-month></div><div class="month-summary"><b>本月工時</b><span>55h</span></div><button class="btn full">⇩ 下載 2026/07 ECP 匯入檔</button></div>
+            <div class="qa-mobile-calendar" data-mobile-calendar></div>
+          </section>
+          <section class="panel module today-module"><div class="panel-head"><h2>我的工時</h2><div class="tag">今天｜0 / 8h</div></div><div class="empty today-empty-state"><b>今天尚未建立工時</b></div><button class="btn full today-add-bottom">＋ 新增工時</button></section>
+          <section class="panel module suggestion-module" id="suggestions"><div class="suggestion-panel-head"><h2>🪶 Mr.KM建議</h2><b data-suggestion-total>17 項待處理</b><span data-suggestion-batch-status>第 1 / 3 批</span></div><div class="ai-suggestion-scan-list" data-suggestion-batch-list></div><div class="suggestion-scan-footer"><span class="muted" data-suggestion-remaining>還有 11 項</span><div class="suggestion-batch-actions"><button class="btn2 is-disabled" data-suggestion-prev-batch aria-disabled="true">上一批</button><button class="btn2" data-suggestion-next-batch aria-disabled="false">下一批</button></div></div></section>
+        </div>
+      </div></main>
     </div>
-  </main>
+  </div>
   <script>
-    const suggestions = ["採購案件處理", "供應商聯繫", "Mail處理", "發票請款", "驗收追蹤", "合約整理", "採購分析", "報表更新", "資料維護", "年度綠色採購", "教育訓練", "會議準備", "專案追蹤", "制度更新", "文件歸檔", "跨部門協調", "月結作業"];
-    let batchIndex = 0;
-    let calendarOpen = false;
-    const renderBatch = () => {
-      const size = 4;
-      const count = Math.ceil(suggestions.length / size);
-      batchIndex = Math.min(Math.max(0,batchIndex), count - 1);
-      const start = batchIndex * size;
-      const batch = suggestions.slice(start, start + size);
-      document.querySelector("[data-suggestion-batch-list]").innerHTML = batch.map(title => `<div class="suggestion-scan-item"><div class="suggestion-scan-body"><h3>${title}</h3><div class="suggestion-card-meta"><span>📂 來源：${title}</span><span>⏱ 建議：1h</span></div><details class="suggestion-reason"><summary>ℹ︎ 為什麼推薦？</summary><p>這是你已確認的「我的工作」。</p></details><div class="actions suggestion-actions"><button class="btn green">加入工時</button><button class="btn2">調整</button></div></div></div>`).join("");
-      document.querySelector("[data-suggestion-batch-status]").textContent = `第 ${batchIndex + 1} / ${count} 批`;
-      document.querySelector("[data-suggestion-remaining]").textContent = start + batch.length < suggestions.length ? `還有 ${suggestions.length - start - batch.length} 項` : "✓ 已看完這批建議";
-      const previous = document.querySelector("[data-suggestion-prev-batch]"); const next = document.querySelector("[data-suggestion-next-batch]");
-      previous.setAttribute("aria-disabled",String(batchIndex===0)); next.setAttribute("aria-disabled",String(batchIndex===count-1)); previous.classList.toggle("is-disabled",batchIndex===0); next.classList.toggle("is-disabled",batchIndex===count-1);
-    };
-    const mobileDay = (day,today=false) => `<button class="mobile-day ${today?'today sel':''}"><b>${day}</b><small>${today?'2h':''}</small></button>`;
-    const renderCalendar = () => {
-      const root = document.querySelector("[data-mobile-calendar]");
-      if (!calendarOpen) root.innerHTML = `<div class="mobile-calendar-head"><div><h2>工時月曆</h2><span class="muted">07/13 ~ 07/19</span></div><button class="btn2" data-calendar-toggle>展開月曆</button></div><div class="mobile-week-navigation"><button class="btn2">← 上週</button><button class="btn2">本週</button><button class="btn2">下週 →</button></div><div class="mobile-week-head">${['一','二','三','四','五','六','日'].map(x=>`<span>${x}</span>`).join('')}</div><div class="mobile-week-grid">${[13,14,15,16,17,18,19].map((x,i)=>mobileDay(x,i===0)).join('')}</div>`;
-      else root.innerHTML = `<div class="mobile-calendar-head"><div><h2>工時月曆</h2><span class="muted">2026 / 07</span></div><button class="btn2" data-calendar-toggle>收合月曆</button></div><div class="mobile-month-navigation"><button class="btn2">← 上一月</button><button class="btn2">本月</button><button class="btn2">下一月 →</button></div><div class="mobile-month-scroll"><div class="mobile-week-head">${['日','一','二','三','四','五','六'].map(x=>`<span>${x}</span>`).join('')}</div><div class="mobile-month-grid">${Array.from({length:35},(_,i)=>mobileDay((i+28)%31+1,i===15)).join('')}</div></div>`;
-      root.querySelector("[data-calendar-toggle]").onclick=()=>{calendarOpen=!calendarOpen;renderCalendar();};
-    };
-    document.querySelector("[data-summary-toggle]").onclick=event=>{const panel=document.querySelector("[data-summary-panel]");const open=panel.classList.contains('summary-open');panel.classList.toggle('summary-open',!open);panel.classList.toggle('summary-collapsed',open);event.currentTarget.setAttribute('aria-expanded',String(!open));event.currentTarget.querySelector('span').textContent=`${open?'▼':'▲'} 今日摘要`;};
-    document.querySelector("[data-suggestion-prev-batch]").onclick=event=>{if(event.currentTarget.getAttribute('aria-disabled')==='true')return;batchIndex-=1;renderBatch();};
-    document.querySelector("[data-suggestion-next-batch]").onclick=event=>{if(event.currentTarget.getAttribute('aria-disabled')==='true')return;batchIndex+=1;renderBatch();};
-    renderBatch(); renderCalendar();
+    const suggestions=["採購案件處理","供應商聯繫","Mail處理","發票請款","驗收追蹤","合約整理","採購分析","報表更新","資料維護","年度綠色採購","教育訓練","會議準備","專案追蹤","制度更新","文件歸檔","跨部門協調","月結作業"];
+    let batchIndex=0,calendarOpen=false;
+    const renderBatch=()=>{const size=6,count=Math.ceil(suggestions.length/size),start=batchIndex*size,batch=suggestions.slice(start,start+size);document.querySelector("[data-suggestion-batch-list]").innerHTML=batch.map(title=>`<div class="suggestion-scan-item"><div class="suggestion-scan-body"><h3>📁 ${title}</h3><div class="suggestion-card-meta"><span>📂 來源：${title}</span><span>⏱ 建議：1h</span></div><div class="actions suggestion-actions"><button class="btn green">加入工時</button><button class="btn2">調整</button></div></div></div>`).join("");document.querySelector("[data-suggestion-batch-status]").textContent=`第 ${batchIndex+1} / ${count} 批`;document.querySelector("[data-suggestion-remaining]").textContent=start+batch.length<suggestions.length?`還有 ${suggestions.length-start-batch.length} 項`:"✓ 已看完這批建議";const previous=document.querySelector("[data-suggestion-prev-batch]"),next=document.querySelector("[data-suggestion-next-batch]");previous.setAttribute("aria-disabled",String(batchIndex===0));next.setAttribute("aria-disabled",String(batchIndex===count-1));previous.classList.toggle("is-disabled",batchIndex===0);next.classList.toggle("is-disabled",batchIndex===count-1)};
+    const mobileDay=(day,today=false)=>`<button class="mobile-day ${today?'today sel':''}"><b>${day}</b><small>${today?'3h':''}</small></button>`;
+    const renderCalendar=()=>{const root=document.querySelector("[data-mobile-calendar]");root.innerHTML=calendarOpen?`<div class="mobile-calendar-head"><div><h2>工時月曆</h2><span class="muted">2026 / 07</span></div><button class="btn2" data-calendar-toggle>收合月曆</button></div><div class="mobile-month-navigation"><button class="btn2">← 上一月</button><button class="btn2">本月</button><button class="btn2">下一月 →</button></div><div class="mobile-month-scroll"><div class="mobile-week-head">${['日','一','二','三','四','五','六'].map(x=>`<span>${x}</span>`).join('')}</div><div class="mobile-month-grid">${Array.from({length:35},(_,i)=>mobileDay((i+28)%31+1,i===17)).join('')}</div></div>`:`<div class="mobile-calendar-head"><div><h2>工時月曆</h2><span class="muted">2026 / 07</span></div></div><div class="mobile-week-navigation"><button class="btn2">‹</button><button class="btn2 mobile-current-week">本週 07/13 - 07/19</button><button class="btn2">›</button></div><div class="mobile-week-head">${['日','一','二','三','四','五','六'].map(x=>`<span>${x}</span>`).join('')}</div><div class="mobile-week-grid">${[13,14,15,16,17,18,19].map((x,i)=>mobileDay(x,i===2)).join('')}</div><button class="mobile-calendar-expand" data-calendar-toggle>⌄ 點擊展開月曆</button>`;root.querySelectorAll("[data-calendar-toggle]").forEach(button=>button.onclick=()=>{calendarOpen=!calendarOpen;renderCalendar()})};
+    document.querySelector("[data-desktop-month]").innerHTML=['日','一','二','三','四','五','六'].map(label=>`<div class="muted cal-head">${label}</div>`).join('')+'<div></div><div></div><div></div>'+Array.from({length:31},(_,index)=>`<button class="day ${index===14?'today sel':''}"><b>${index+1}</b>${[0,7,12,13,20,21,22,23,26,29].includes(index)?'<small>3h</small>':''}</button>`).join('');
+    document.querySelector("[data-summary-toggle]").onclick=event=>{const panel=document.querySelector("[data-summary-panel]"),open=panel.classList.contains("summary-open");panel.classList.toggle("summary-open",!open);panel.classList.toggle("summary-collapsed",open);event.currentTarget.setAttribute("aria-expanded",String(!open));event.currentTarget.querySelector("span").innerHTML=`☀️ 今日摘要 <i>（點擊${open?'展開':'收合'}）</i>`;event.currentTarget.querySelector("small").textContent=open?'⌄':'⌃'};
+    document.querySelector("[data-suggestion-prev-batch]").onclick=event=>{if(event.currentTarget.getAttribute("aria-disabled")==="true")return;batchIndex-=1;renderBatch()};document.querySelector("[data-suggestion-next-batch]").onclick=event=>{if(event.currentTarget.getAttribute("aria-disabled")==="true")return;batchIndex+=1;renderBatch()};document.querySelectorAll("[data-jump]").forEach(button=>button.onclick=()=>{document.querySelectorAll("[data-jump]").forEach(item=>item.classList.toggle("active",item===button));document.getElementById(button.dataset.jump).scrollIntoView({behavior:"smooth"})});renderBatch();renderCalendar();
   </script>
 </body>
 </html>
