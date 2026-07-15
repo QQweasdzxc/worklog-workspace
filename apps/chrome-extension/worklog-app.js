@@ -1503,7 +1503,8 @@ function sidebarSection(title, group) {
 
 function osSidebar() {
   const checked = new Date().toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false });
-  return `<aside class="os-sidebar"><div class="sidebar-brand"><div class="brand-row"><div class="brand-stack"><h1><span class="brand-mark" aria-hidden="true">🪶</span> Zhuge AI OS</h1><span class="brand-companion">by Mr. KM</span></div></div><button class="mini sidebar-close" data-close-sidebar="1" aria-label="關閉選單">×</button><button class="mini sidebar-menu-mark" type="button" data-toggle-sidebar="1" aria-label="營帳選單">☰</button></div>${agentStatusPanel()}${sidebarSection("🏕️ 營帳", "camp")}${sidebarSection("⚙️ 系統", "system")}<div class="developer-build-info"><div class="sidebar-sync-summary" id="developerCloudSyncStatus" data-retry-cloud-sync="1"><strong>${escapeHtml(cloudSyncLabel())}</strong><span>${escapeHtml(cloudSyncDetail())}</span></div><div class="sidebar-build-summary">Build：${BUILD_TIME}</div><details class="developer-version-details"><summary>版本資訊 <span aria-hidden="true">›</span></summary><div class="developer-version-content"><div>RC Version：${RELEASE_VERSION}</div><div>${escapeHtml(conversationSyncLabel())}</div><div>${escapeHtml(conversationSyncDetail())}</div><div>GitHub Pages：最後檢查 ${checked}</div><div>Source：${DEPLOY_SOURCE}</div></div></details></div></aside>`;
+  const syncTime = cloudSync.lastSyncedAt ? fmt(cloudSync.lastSyncedAt) : cloudSyncDetail();
+  return `<aside class="os-sidebar"><div class="sidebar-brand"><div class="brand-row"><div class="brand-stack"><h1><span class="brand-mark" aria-hidden="true">🪶</span> Zhuge AI OS</h1><span class="brand-companion">by Mr. KM</span></div></div><button class="mini sidebar-close" data-close-sidebar="1" aria-label="關閉選單">×</button><button class="mini sidebar-menu-mark" type="button" data-toggle-sidebar="1" aria-label="營帳選單">☰</button></div>${agentStatusPanel()}${sidebarSection("🏕️ 營帳", "camp")}${sidebarSection("⚙️ 系統", "system")}<div class="developer-build-info"><div class="sidebar-sync-summary" id="developerCloudSyncStatus" data-retry-cloud-sync="1"><strong>${escapeHtml(cloudSyncLabel())}</strong><span>最後同步</span><time>${escapeHtml(syncTime)}</time></div><div class="sidebar-version-summary"><span>Version</span><strong>v${escapeHtml(VERSION)}</strong></div><details class="developer-version-details"><summary>版本資訊 <span aria-hidden="true">›</span></summary><div class="developer-version-content"><div>Build：${BUILD_TIME}</div><div>RC Version：${RELEASE_VERSION}</div><div>${escapeHtml(conversationSyncLabel())}</div><div>${escapeHtml(conversationSyncDetail())}</div><div>GitHub Pages：最後檢查 ${checked}</div><div>Source：${DEPLOY_SOURCE}</div></div></details></div></aside>`;
 }
 
 function workspaceTabs() {
@@ -2204,10 +2205,10 @@ function floatingAssistantWidget() {
 }
 
 function aiStatusBar() {
-  const googleStatus = session ? "🟢 Google：已串接" : "⚪ Google：尚未串接";
-  const knowledgeStatus = knowledgeFoundationNotInitialized ? "🟡 Knowledge：等待初始化" : "🟢 Knowledge：已完成";
-  const driveStatus = googleConnectionLabel().includes("🟢") ? "🟢 Google Drive：已同步" : "🟡 Google Drive：等待同步";
-  return `<section class="ai-status-bar" aria-label="AI Status"><strong>AI Status</strong><div class="ai-status-items"><span>${escapeHtml(googleStatus)}</span><span>${escapeHtml(knowledgeStatus)}</span><span>${escapeHtml(driveStatus)}</span></div></section>`;
+  const googleStatus = session ? "🟢 Google 已串接" : "⚪ Google 尚未串接";
+  const knowledgeStatus = knowledgeFoundationNotInitialized ? "🟡 Knowledge 等待初始化" : "🟢 Knowledge 已完成";
+  const driveStatus = googleConnectionLabel().includes("🟢") ? "🟢 Google Drive 已同步" : "🟡 Google Drive 等待同步";
+  return `<section class="ai-status-bar" aria-label="AI Services"><strong>AI Services</strong><div class="ai-status-items"><span class="ai-service-badge">${escapeHtml(googleStatus)}</span><span class="ai-service-badge">${escapeHtml(knowledgeStatus)}</span><span class="ai-service-badge">${escapeHtml(driveStatus)}</span></div></section>`;
 }
 
 function center() {
