@@ -2203,8 +2203,15 @@ function floatingAssistantWidget() {
   return `<div class="floating-assistant-widget open">${body}</div>`;
 }
 
+function aiStatusBar() {
+  const googleStatus = session ? "🟢 Google：已串接" : "⚪ Google：尚未串接";
+  const knowledgeStatus = knowledgeFoundationNotInitialized ? "🟡 Knowledge：等待初始化" : "🟢 Knowledge：已完成";
+  const driveStatus = googleConnectionLabel().includes("🟢") ? "🟢 Google Drive：已同步" : "🟡 Google Drive：等待同步";
+  return `<section class="ai-status-bar" aria-label="AI Status"><strong>AI Status</strong><div class="ai-status-items"><span>${escapeHtml(googleStatus)}</span><span>${escapeHtml(knowledgeStatus)}</span><span>${escapeHtml(driveStatus)}</span></div></section>`;
+}
+
 function center() {
-  return `<div class="workbench-grid">${todaySummaryPanel()}${mobileWorklogTabs()}<section class="panel module calendar-module" id="mobile-worklog-time"><div class="desktop-calendar">${calendarPanel()}</div><div class="mobile-calendar">${mobileCalendarPanel()}</div></section><section class="panel module today-module">${todayPanel()}</section><section class="panel module suggestion-module" id="mobile-worklog-suggestions">${suggestionPanel()}</section></div>`;
+  return `<div class="daily-workspace"><div class="workbench-grid">${todaySummaryPanel()}${mobileWorklogTabs()}<section class="panel module calendar-module" id="mobile-worklog-time"><div class="desktop-calendar">${calendarPanel()}</div><div class="mobile-calendar">${mobileCalendarPanel()}</div></section><section class="panel module today-module">${todayPanel()}</section><section class="panel module suggestion-module" id="mobile-worklog-suggestions">${suggestionPanel()}</section></div>${aiStatusBar()}<div class="ai-workspace-reserve" aria-hidden="true"></div></div>`;
 }
 
 function workProfileStatusCard() {
