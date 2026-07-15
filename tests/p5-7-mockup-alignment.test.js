@@ -12,6 +12,7 @@ function expect(source, value, label) {
 expect(app, 'readScopedUiFlag(MOBILE_SUMMARY_OPEN_KEY, true)', "first-open expanded Summary state");
 expect(app, 'class="summary-heading-toggle"', "shared Summary collapse control");
 expect(app, 'aria-expanded="${summaryOpen}"', "accessible Summary state");
+expect(app, '📊 工時摘要', "canonical WorkLog Summary heading");
 expect(app, 'return 6;', "six-card suggestion batch");
 expect(app, '<h2>我的工時</h2>', "My WorkLog heading");
 expect(app, '尚未建立工時</b>', "empty WorkLog copy");
@@ -45,6 +46,8 @@ expect(css, '.mobile-week-grid,.mobile-month-grid{display:grid;grid-template-col
 expect(css, '.workspace-worklog .os-topbar{display:none}', "desktop brand moved to sidebar");
 expect(css, 'grid-template-columns:minmax(0,33.5fr) minmax(0,33fr) minmax(0,33.5fr)', "33.5/33/33.5 dashboard balance");
 expect(css, '.ai-status-bar{display:flex', "AI Status Bar styling");
+expect(css, ':root{--font-xs:.75rem;--font-sm:.875rem;--font-md:1rem;--font-lg:1.125rem;--font-xl:1.25rem', "Typography tokens");
+expect(css, '.workspace-worklog .suggestion-scan-item h3{font-size:var(--font-sm)', "tokenized card title hierarchy");
 expect(css, '.os-topbar .header-right{display:none}', "desktop account controls removed from Header");
 expect(css, '.workspace-worklog .calendar-module{padding:12px}', "compact calendar spacing");
 expect(css, '.ecp-task-item span{white-space:normal', "long Current Active Task wrapping");
