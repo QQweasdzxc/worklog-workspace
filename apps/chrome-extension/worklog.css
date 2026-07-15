@@ -121,7 +121,7 @@ html:has(.standalone-chat-page),body:has(.standalone-chat-page),#app:has(.standa
 .workspace-worklog .os-topbar{display:none}
 .workspace-worklog .workspace-title,.workspace-worklog .workspace-tabs{display:none}
 .workspace-worklog .workspace-canvas{border:0;border-radius:0;background:transparent;padding:0;min-height:0;overflow:visible}
-.workspace-worklog .workbench-grid{margin-top:0;grid-template-columns:minmax(300px,1.15fr) minmax(250px,.84fr) minmax(360px,1.16fr);gap:14px}
+.workspace-worklog .workbench-grid{margin-top:0;grid-template-columns:minmax(0,35fr) minmax(0,30fr) minmax(0,35fr);gap:14px}
 .workspace-worklog .os-body{align-items:stretch}
 .workspace-worklog .os-sidebar{min-height:calc(100vh - 36px);display:flex;flex-direction:column;background:linear-gradient(180deg,#0b1728,#0b1421)}
 .workspace-worklog .agent-panel{display:none}
@@ -130,7 +130,10 @@ html:has(.standalone-chat-page),body:has(.standalone-chat-page),#app:has(.standa
 .brand-mark{display:inline-block;filter:saturate(1.25)}
 .sidebar-brand .brand-companion{margin-left:35px;margin-top:4px;font-size:13px}
 .sidebar-menu-mark{display:inline-flex;flex:0 0 auto;border:0;background:transparent;font-size:18px;padding:5px;color:#94a3b8}
-.workspace-worklog .developer-build-info{margin-top:auto;color:#94a3b8;font-size:11px;padding:12px 6px 4px}
+.workspace-worklog .developer-build-info{margin-top:auto;color:#94a3b8;font-size:11px;padding:12px 6px 4px;line-height:1.5}
+.sidebar-sync-summary{display:grid;gap:2px;cursor:pointer}.sidebar-sync-summary strong{color:#cbd5e1;font-size:12px}.sidebar-sync-summary span,.sidebar-build-summary{display:block}
+.sidebar-build-summary{margin-top:3px;color:#94a3b8}
+.developer-version-details{margin-top:8px;border-top:1px solid rgba(51,65,85,.72);padding-top:7px}.developer-version-details summary{display:flex;align-items:center;justify-content:space-between;gap:8px;color:#bfdbfe;font-weight:850;cursor:pointer;list-style:none}.developer-version-details summary::-webkit-details-marker{display:none}.developer-version-details[open] summary span{transform:rotate(90deg)}.developer-version-details summary span{transition:transform .16s ease}.developer-version-content{display:grid;gap:3px;margin-top:7px;color:#64748b;overflow-wrap:anywhere}
 .workspace-worklog .side-section{background:rgba(10,24,40,.82)}
 .workspace-worklog .side-item{min-height:46px;font-size:15px}
 .workspace-worklog .side-item.on{background:linear-gradient(135deg,#173d83,#17346d);border-color:#3b82f6}
@@ -143,6 +146,7 @@ html:has(.standalone-chat-page),body:has(.standalone-chat-page),#app:has(.standa
 .summary-tile em:after{content:"";position:absolute;left:0;right:0;bottom:0;height:4px;border-radius:999px;background:linear-gradient(90deg,#3b82f6 38%,#26364a 38%)}
 .workbench-grid>.calendar-module,.workbench-grid>.today-module,.workbench-grid>.suggestion-module{height:560px;min-height:560px;max-height:560px;border-radius:17px;background:linear-gradient(160deg,#081827,#0a1422)}
 .calendar-module,.today-module,.suggestion-module{scrollbar-width:thin;scrollbar-color:#334155 transparent}
+.workspace-worklog .calendar-module{padding:12px}.workspace-worklog .calendar-module .panel-head{gap:8px;margin-bottom:10px}.workspace-worklog .calendar-module .actions.compact{gap:5px;flex-wrap:nowrap}.workspace-worklog .calendar-module .actions.compact .btn2{padding:8px 9px;border-radius:10px;font-size:12px}.workspace-worklog .calendar-module .cal{gap:5px}.workspace-worklog .calendar-module .day{min-height:47px;padding:5px;border-radius:10px}
 .today-module{position:relative}.today-module .today-empty-state{display:grid;place-items:center;flex:1;margin:0;border:0;background:transparent;text-align:center;font-size:16px}
 .today-module .today-add-bottom{margin-top:auto;min-height:48px;border-radius:10px;background:linear-gradient(180deg,#4fa2ff,#3489ec)}
 .suggestion-module{padding:14px}
@@ -158,7 +162,7 @@ html:has(.standalone-chat-page),body:has(.standalone-chat-page),#app:has(.standa
 
 @media(min-width:768px) and (max-width:1279px){
   .workspace-worklog .os-body{grid-template-columns:220px minmax(0,1fr)}
-  .workspace-worklog .workbench-grid{grid-template-columns:minmax(250px,1.08fr) minmax(220px,.82fr) minmax(330px,1.16fr);gap:10px}
+  .workspace-worklog .workbench-grid{grid-template-columns:minmax(0,35fr) minmax(0,30fr) minmax(0,35fr);gap:10px}
   .sidebar-brand .brand-stack h1{font-size:17px}
   .workbench-grid>.calendar-module,.workbench-grid>.today-module,.workbench-grid>.suggestion-module{height:540px;min-height:540px;max-height:540px}
 }
@@ -194,4 +198,8 @@ html:has(.standalone-chat-page),body:has(.standalone-chat-page),#app:has(.standa
   .suggestion-scan-footer{font-size:11px}.suggestion-batch-actions .btn2{min-width:64px;min-height:38px;padding:7px 5px;font-size:11px}
   .ecp-task-item{grid-template-columns:1fr;gap:10px}.ecp-task-item .btn2{justify-self:end;min-width:72px}
   html,body,.os-shell,.os-body,.os-main,.workspace-canvas{max-width:100%;overflow-x:hidden}
+}
+
+@media(min-width:768px){
+  .os-topbar .header-right{display:none}
 }

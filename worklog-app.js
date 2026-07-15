@@ -1399,7 +1399,7 @@ function headerWorkIdentityStatus() {
 }
 
 function header() {
-  return `<div class="top"><div class="brand-row"><button class="mini adaptive-menu" data-toggle-sidebar="1">☰</button><div class="brand-stack"><h1><span class="brand-mark" aria-hidden="true">🧠</span> Zhuge AI OS</h1><span class="brand-companion">by Mr. KM</span></div></div><div class="header-right">${headerWorkIdentityStatus()}${userBadge()}</div></div>`;
+  return `<div class="top"><div class="brand-row"><button class="mini adaptive-menu" data-toggle-sidebar="1">☰</button><div class="brand-stack"><h1><span class="brand-mark" aria-hidden="true">🪶</span> Zhuge AI OS</h1><span class="brand-companion">by Mr. KM</span></div></div><div class="header-right">${headerWorkIdentityStatus()}</div></div>`;
 }
 
 function authScreen() {
@@ -1503,7 +1503,7 @@ function sidebarSection(title, group) {
 
 function osSidebar() {
   const checked = new Date().toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false });
-  return `<aside class="os-sidebar"><div class="sidebar-brand"><div class="brand-row"><div class="brand-stack"><h1><span class="brand-mark" aria-hidden="true">🧠</span> Zhuge AI OS</h1><span class="brand-companion">by Mr. KM</span></div></div><button class="mini sidebar-close" data-close-sidebar="1" aria-label="關閉選單">×</button><button class="mini sidebar-menu-mark" type="button" data-toggle-sidebar="1" aria-label="營帳選單">☰</button></div>${agentStatusPanel()}${sidebarSection("🏕️ 營帳", "camp")}${sidebarSection("⚙️ 系統", "system")}<div class="developer-build-info"><div id="developerCloudSyncStatus" data-retry-cloud-sync="1"><div>${escapeHtml(cloudSyncLabel())}</div><div>${escapeHtml(cloudSyncDetail())}</div><div>${escapeHtml(conversationSyncLabel())}</div><div>${escapeHtml(conversationSyncDetail())}</div></div><div>${RELEASE_VERSION}</div><div>Build ${BUILD_TIME}</div><div>GitHub Pages：最後檢查 ${checked}</div><div>Source：${DEPLOY_SOURCE}</div></div></aside>`;
+  return `<aside class="os-sidebar"><div class="sidebar-brand"><div class="brand-row"><div class="brand-stack"><h1><span class="brand-mark" aria-hidden="true">🪶</span> Zhuge AI OS</h1><span class="brand-companion">by Mr. KM</span></div></div><button class="mini sidebar-close" data-close-sidebar="1" aria-label="關閉選單">×</button><button class="mini sidebar-menu-mark" type="button" data-toggle-sidebar="1" aria-label="營帳選單">☰</button></div>${agentStatusPanel()}${sidebarSection("🏕️ 營帳", "camp")}${sidebarSection("⚙️ 系統", "system")}<div class="developer-build-info"><div class="sidebar-sync-summary" id="developerCloudSyncStatus" data-retry-cloud-sync="1"><strong>${escapeHtml(cloudSyncLabel())}</strong><span>${escapeHtml(cloudSyncDetail())}</span></div><div class="sidebar-build-summary">Build：${BUILD_TIME}</div><details class="developer-version-details"><summary>版本資訊 <span aria-hidden="true">›</span></summary><div class="developer-version-content"><div>RC Version：${RELEASE_VERSION}</div><div>${escapeHtml(conversationSyncLabel())}</div><div>${escapeHtml(conversationSyncDetail())}</div><div>GitHub Pages：最後檢查 ${checked}</div><div>Source：${DEPLOY_SOURCE}</div></div></details></div></aside>`;
 }
 
 function workspaceTabs() {
@@ -2007,11 +2007,11 @@ function suggestionCardMarkup(item = {}) {
 
 function suggestionPanel() {
   const suggestions = makeSuggestions();
-  if (!suggestions.length) return `<h2>🪶 Mr.KM建議</h2><div class="empty"><b>目前沒有建議</b><div class="muted">可能工時已滿，或「我的工作」尚未建立。</div></div>`;
+  if (!suggestions.length) return `<h2>🪶 Mr. KM 建議</h2><div class="empty"><b>目前沒有建議</b><div class="muted">可能工時已滿，或「我的工作」尚未建立。</div></div>`;
   const state = suggestionBatchState(suggestions.length, aiTodaySuggestionIndex);
   aiTodaySuggestionIndex = state.start;
   const batch = suggestions.slice(state.start, state.end);
-  return `<div class="suggestion-panel-head"><h2>🪶 Mr.KM建議</h2><b data-suggestion-total>${suggestions.length} 項待處理</b><span data-suggestion-batch-status>第 ${state.batchIndex + 1} / ${state.batchCount} 批</span></div><div class="ai-suggestion-scan-list" data-suggestion-batch-list>${batch.map(suggestionCardMarkup).join("")}</div><div class="suggestion-scan-footer"><span class="muted" data-suggestion-remaining>${state.remaining > 0 ? `還有 ${state.remaining} 項` : "✓ 已看完這批建議"}</span><div class="suggestion-batch-actions"><button class="btn2 ${state.batchIndex === 0 ? "is-disabled" : ""}" type="button" data-suggestion-prev-batch aria-disabled="${state.batchIndex === 0}">上一批</button><button class="btn2 ${state.batchIndex >= state.batchCount - 1 ? "is-disabled" : ""}" type="button" data-suggestion-next-batch aria-disabled="${state.batchIndex >= state.batchCount - 1}">下一批</button></div></div>`;
+  return `<div class="suggestion-panel-head"><h2>🪶 Mr. KM 建議</h2><b data-suggestion-total>${suggestions.length} 項待處理</b><span data-suggestion-batch-status>第 ${state.batchIndex + 1} / ${state.batchCount} 批</span></div><div class="ai-suggestion-scan-list" data-suggestion-batch-list>${batch.map(suggestionCardMarkup).join("")}</div><div class="suggestion-scan-footer"><span class="muted" data-suggestion-remaining>${state.remaining > 0 ? `還有 ${state.remaining} 項` : "✓ 已看完這批建議"}</span><div class="suggestion-batch-actions"><button class="btn2 ${state.batchIndex === 0 ? "is-disabled" : ""}" type="button" data-suggestion-prev-batch aria-disabled="${state.batchIndex === 0}">上一批</button><button class="btn2 ${state.batchIndex >= state.batchCount - 1 ? "is-disabled" : ""}" type="button" data-suggestion-next-batch aria-disabled="${state.batchIndex >= state.batchCount - 1}">下一批</button></div></div>`;
 }
 
 function bindSuggestionCardActions(root = document) {
@@ -2152,7 +2152,7 @@ function assistantNudgeText() {
 
 function assistantWelcomePanel(mode = "floating") {
   const modeClass = mode === "extension" ? "extension-assistant" : (mode === "standalone" ? "standalone-assistant" : "floating-assistant");
-  return `<section class="panel assistant-panel ${modeClass}"><div class="assistant-welcome"><h2>歡迎來到 ZhuGe AI OS</h2><p>我是 Mr. KM。</p><p>我會協助你用一句自然語言建立工時、寫入工時月曆，並在月底匯出 ECP。</p><p>今天先從工作助理開始。</p><button class="btn full" type="button" data-start-assistant="1">開始</button>${mode === "floating" ? `<button class="btn2 full" type="button" data-close-assistant="1">稍後</button>` : ""}</div></section>`;
+  return `<section class="panel assistant-panel ${modeClass}"><div class="assistant-welcome"><h2>🪶 Zhuge AI OS</h2><div class="muted">by Mr. KM</div><p>歡迎，今天也讓我陪你一起完成工作吧。</p><p>我會協助你用一句自然語言建立工時、寫入工時月曆，並在月底匯出 ECP。</p><button class="btn full" type="button" data-start-assistant="1">開始</button>${mode === "floating" ? `<button class="btn2 full" type="button" data-close-assistant="1">稍後</button>` : ""}</div></section>`;
 }
 
 function worklogAssistantPanel(mode = "web") {
@@ -2166,7 +2166,7 @@ function worklogAssistantPanel(mode = "web") {
   const intro = mode === "extension"
     ? `<div class="muted">您可以直接告訴我：今天下午三點到四點開會、明天下午請特休、今天補一小時工時。</div>`
     : `<div class="muted">今天想完成什麼？</div>`;
-  const title = "👤 Mr. KM";
+  const title = "🪶 Mr. KM";
   const modeClass = mode === "extension" ? "extension-assistant" : (mode === "floating" ? "floating-assistant" : (mode === "standalone" ? "standalone-assistant" : "assistant-module"));
   const installAction = mode === "standalone"
     ? (CHROME_EXTENSION_STORE_URL
