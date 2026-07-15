@@ -19,13 +19,36 @@
       <section class="panel mobile-home-action"><button class="btn full">＋ 新增工時</button></section>
       <section class="panel module today-module"><h2>我的工作</h2><div class="entry">採購案件處理</div></section>
       <section class="panel module suggestion-module">
-        <div class="suggestion-panel-head"><h2>🪶 今天建議</h2><b>2 項待處理</b><span>目前顯示 2 項</span></div>
-        <div class="ai-suggestion-scan-list">
-          <div class="suggestion-scan-item"><div class="suggestion-scan-body"><h3>費用請款</h3><div class="suggestion-card-meta"><span>📂 來源：費用請款</span><span>⏱ 建議：1h</span></div><div class="actions suggestion-actions"><button class="btn green">加入工時</button><button class="btn2">調整</button></div></div></div>
-          <div class="suggestion-scan-item"><div class="suggestion-scan-body"><h3>供應商聯繫</h3><div class="suggestion-card-meta"><span>📂 來源：供應商聯繫</span><span>⏱ 建議：1h</span></div><div class="actions suggestion-actions"><button class="btn green">加入工時</button><button class="btn2">調整</button></div></div></div>
-        </div>
+        <div class="suggestion-panel-head"><h2>🪶 今天建議</h2><b data-suggestion-total>17 項待處理</b><span data-suggestion-batch-status>第 1 / 3 批</span></div>
+        <div class="ai-suggestion-scan-list" data-suggestion-batch-list></div>
+        <div class="suggestion-scan-footer"><span class="muted" data-suggestion-remaining>還有 9 項</span><div class="suggestion-batch-actions"><button class="btn2 is-disabled" data-suggestion-prev-batch aria-disabled="true">上一批</button><button class="btn2" data-suggestion-next-batch aria-disabled="false">下一批</button></div></div>
       </section>
     </div>
   </main>
+  <script>
+    const suggestions = ["採購案件管理", "費用請款", "供應商聯繫", "驗收追蹤", "合約整理", "採購分析", "報表更新", "資料維護", "年度綠色採購", "教育訓練", "會議準備", "發票確認", "專案追蹤", "制度更新", "文件歸檔", "跨部門協調", "月結作業"];
+    let batchIndex = 0;
+    const batchSize = () => innerWidth >= 1200 ? 8 : innerWidth >= 768 ? 6 : 5;
+    const renderBatch = () => {
+      const size = batchSize();
+      const count = Math.ceil(suggestions.length / size);
+      batchIndex = Math.min(batchIndex, count - 1);
+      const start = batchIndex * size;
+      const batch = suggestions.slice(start, start + size);
+      document.querySelector("[data-suggestion-batch-list]").innerHTML = batch.map(title => `<div class="suggestion-scan-item"><div class="suggestion-scan-body"><h3>${title}</h3><div class="suggestion-card-meta"><span>📂 來源：${title}</span><span>⏱ 建議：1h</span></div><div class="actions suggestion-actions"><button class="btn green">加入工時</button><button class="btn2">調整</button></div></div></div>`).join("");
+      document.querySelector("[data-suggestion-batch-status]").textContent = `第 ${batchIndex + 1} / ${count} 批`;
+      document.querySelector("[data-suggestion-remaining]").textContent = start + batch.length < suggestions.length ? `還有 ${suggestions.length - start - batch.length} 項` : "✓ 已看完這批建議";
+      const previous = document.querySelector("[data-suggestion-prev-batch]");
+      const next = document.querySelector("[data-suggestion-next-batch]");
+      previous.setAttribute("aria-disabled", String(batchIndex === 0));
+      next.setAttribute("aria-disabled", String(batchIndex === count - 1));
+      previous.classList.toggle("is-disabled", batchIndex === 0);
+      next.classList.toggle("is-disabled", batchIndex === count - 1);
+    };
+    document.querySelector("[data-suggestion-prev-batch]").onclick = event => { if (event.currentTarget.getAttribute("aria-disabled") === "true") return; batchIndex -= 1; renderBatch(); };
+    document.querySelector("[data-suggestion-next-batch]").onclick = event => { if (event.currentTarget.getAttribute("aria-disabled") === "true") return; batchIndex += 1; renderBatch(); };
+    addEventListener("resize", renderBatch);
+    renderBatch();
+  </script>
 </body>
 </html>

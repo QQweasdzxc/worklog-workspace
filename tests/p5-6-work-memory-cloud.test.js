@@ -28,10 +28,11 @@ expect(data, "migrateLegacyWorkMemoryMetadata", "legacy metadata migration");
 expect(data, "localStorage.removeItem(legacyKey)", "legacy formal source retirement");
 expect(data, "this.workModelsState = (workModelsRows || []).map", "Cloud-authoritative state");
 expect(app, "function workMemoryObjects()", "formal Work Object selector");
-expect(app, "📂 來源：${escapeHtml(x.title)}", "suggestion source UX");
+expect(app, "sourceLabel: `📂 來源：${model.name}`", "suggestion source UX");
 expect(app, "ℹ︎ 為什麼推薦？", "explainable detail disclosure");
-expect(app, "✓ 全部看完", "finite suggestion pagination");
-expect(app, "重新開始", "suggestion restart action");
+expect(app, "suggestionBatchState", "responsive suggestion batches");
+expect(app, "data-suggestion-prev-batch", "finite previous-batch action");
+expect(app, "data-suggestion-next-batch", "finite next-batch action");
 
 if (app.includes('scopedLocalKey("zhuge_work_memory_merge_notes_v1")')) {
   throw new Error("Runtime UI still treats legacy Work Memory metadata as a formal source");

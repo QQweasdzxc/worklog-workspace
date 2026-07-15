@@ -1921,41 +1921,134 @@ function todayPanel() {
   return `<div class="panel-head"><h2>我的工作</h2><div class="tag">${selectedLabel}｜${h} / 8h</div></div>${list.length ? list.map(e => `<div class="entry"><div class="entry-main"><b>${escapeHtml(e.title)}</b><div class="muted">${fmt(e.at)}｜${Number(e.hours || 0)}h${e.ecpTask ? `｜🏷 任務` : ""}</div></div><div class="actions compact entry-actions"><button class="btn amber" data-edit-id="${e.id}">編輯</button><button class="btn red" data-del-id="${e.id}">刪除</button></div></div>`).join("") : `<div class="empty"><b>${selectedIsToday ? "今天" : selectedLabel}尚未建立工時</b><div class="muted">${selectedIsToday ? "今天的工作會出現在這裡。昨天或歷史月份可從工時月曆切換查看。" : "這一天的工作會出現在這裡。可從工時月曆切回今天。"}</div></div>`}<button class="btn full today-add-bottom" data-action="add">➕ 新增工時</button>`;
 }
 
+function suggestionBatchSize(viewportWidth = window.innerWidth) {
+  if (Number(viewportWidth || 0) >= 1200) return 8;
+  if (Number(viewportWidth || 0) >= 768) return 6;
+  return 5;
+}
+
+function suggestionBatchState(total = 0, requestedStart = 0, viewportWidth = window.innerWidth) {
+  const size = suggestionBatchSize(viewportWidth);
+  const batchCount = Math.max(1, Math.ceil(Number(total || 0) / size));
+  const requestedBatch = Math.floor(Math.max(0, Number(requestedStart || 0)) / size);
+  const batchIndex = Math.min(requestedBatch, batchCount - 1);
+  const start = batchIndex * size;
+  const end = Math.min(Number(total || 0), start + size);
+  return { size, batchCount, batchIndex, start, end, remaining: Math.max(0, Number(total || 0) - end) };
+}
+
+function suggestionPriority(model = {}) {
+  const title = String(model.name || "");
+  const now = Date.now();
+  const todayWeekday = new Date().getDay();
+  const matchingEntries = entries.filter(entry => {
+    const entryTitle = String(entry.title || "");
+    return entryTitle.includes(title) || title.includes(entryTitle);
+  });
+  const recentUsage = matchingEntries.filter(entry => now - new Date(entry.at || entry.date || 0).getTime() <= 90 * 86400000).length;
+  const weekdayUsage = matchingEntries.filter(entry => new Date(entry.at || entry.date || 0).getDay() === todayWeekday).length;
+  const references = Array.isArray(model.sourceReferences) ? model.sourceReferences : [];
+  const knowledgeReferences = references.filter(reference => String(reference?.type || "").includes("knowledge"));
+  const confidence = references.reduce((highest, reference) => Math.max(highest, Number(reference?.confidence || 0)), 0);
+  const lastUsedTime = new Date(model.lastUsedAt || 0).getTime();
+  const recencyScore = Number.isFinite(lastUsedTime) && lastUsedTime > 0
+    ? Math.max(0, 12 - Math.floor((now - lastUsedTime) / 86400000))
+    : 0;
+  const missingHours = Math.max(0, 8 - hours(dayEntries()));
+  const score = (Number(feedback[title] || 0) * 24)
+    + (recentUsage * 7)
+    + (weekdayUsage * 8)
+    + (Number(model.familiarity || 1) * 4)
+    + (knowledgeReferences.length * 3)
+    + (confidence * 10)
+    + recencyScore
+    + (missingHours > 0 ? 5 : 0);
+  let reason = "這是你已確認的「我的工作」，可直接加入今天工時。";
+  if (weekdayUsage > 0) reason = `你曾在相同星期記錄這項工作 ${weekdayUsage} 次。`;
+  else if (recentUsage > 0) reason = `你最近 90 天曾記錄這項工作 ${recentUsage} 次。`;
+  else if (knowledgeReferences.length > 0) reason = "這項工作來自 Mr. KM 最近學到並經你確認的工作內容。";
+  return { score, reason };
+}
+
 function makeSuggestions() {
   if (!profile) return [];
-  const done = dayEntries().map(e => e.title);
-  let tags = workModels();
-  tags.sort((a, b) => (feedback[b] || 0) - (feedback[a] || 0));
-  const suggestions = [];
-  const sourceLabel = `📂 來源：我的工作${profile?.role ? `（${profile.role}）` : ""}`;
-  for (const tag of tags) {
-    if (done.some(d => d.includes(tag))) continue;
-    const hours = 1;
-    suggestions.push({
-      id: tag,
-      title: tag,
-      note: "",
-      hours,
-      at: `${key()}T09:00`,
-      ecpTask: defaultEcpTaskName(tag),
-      sourceLabel
-    });
-  }
-  return suggestions;
+  const done = dayEntries().map(entry => String(entry.title || ""));
+  return workMemoryObjects()
+    .filter(model => model.isActive && !done.some(title => title.includes(model.name) || model.name.includes(title)))
+    .map(model => {
+      const ranking = suggestionPriority(model);
+      return {
+        id: model.name,
+        title: model.name,
+        note: "",
+        hours: 1,
+        at: `${key()}T09:00`,
+        ecpTask: defaultEcpTaskName(model.name),
+        sourceLabel: `📂 來源：${model.name}`,
+        priority: ranking.score,
+        reason: ranking.reason,
+        sortOrder: model.sortOrder
+      };
+    })
+    .sort((a, b) => b.priority - a.priority || a.sortOrder - b.sortOrder || a.title.localeCompare(b.title, "zh-Hant"));
+}
+
+function suggestionCardMarkup(item = {}) {
+  return `<div class="suggestion-scan-item"><div class="suggestion-scan-body"><h3>${escapeHtml(item.title)}</h3><div class="suggestion-card-meta"><span>${escapeHtml(item.sourceLabel || `📂 來源：${item.title}`)}</span><span>⏱ 建議：${Number(item.hours || 1)}h</span></div><details class="suggestion-reason"><summary>ℹ︎ 為什麼推薦？</summary><p>${escapeHtml(item.reason || "這是你已確認的「我的工作」，可直接加入今天工時。")}</p></details><div class="actions suggestion-actions"><button class="btn green" data-accept="${escapeHtml(item.id)}">加入工時</button><button class="btn2" data-adjust="${escapeHtml(item.id)}">調整</button></div></div></div>`;
 }
 
 function suggestionPanel() {
-  const s = makeSuggestions();
-  if (!s.length) return `<h2>🪶 今天建議</h2><div class="empty"><b>目前沒有建議</b><div class="muted">可能工時已滿，或「我的工作」尚未建立。</div></div>`;
-  const start = Math.min(Math.max(0, aiTodaySuggestionIndex), Math.max(0, s.length - 1));
-  const batchSize = Math.min(5, s.length);
-  const batch = s.slice(start, start + batchSize);
-  const shownTo = start + batch.length;
-  const remaining = Math.max(0, s.length - shownTo);
-  const footer = remaining
-    ? `<div class="suggestion-scan-footer"><span class="muted">還有 ${remaining} 項</span><button class="btn2" type="button" data-suggestion-next-batch="1">查看更多</button></div>`
-    : (s.length > batchSize ? `<div class="suggestion-scan-footer"><span class="muted">✓ 全部看完</span><button class="btn2" type="button" data-suggestion-restart="1">重新開始</button></div>` : "");
-  return `<div class="suggestion-panel-head"><h2>🪶 今天建議</h2><b>${s.length} 項待處理</b><span>目前顯示 ${batch.length} 項</span></div><div class="ai-suggestion-scan-list">${batch.map(x => `<div class="suggestion-scan-item"><div class="suggestion-scan-body"><h3>${escapeHtml(x.title)}</h3><div class="suggestion-card-meta"><span>📂 來源：${escapeHtml(x.title)}</span><span>⏱ 建議：${Number(x.hours || 1)}h</span></div><details class="suggestion-reason"><summary>ℹ︎ 為什麼推薦？</summary><p>${escapeHtml(`這是你已確認的「我的工作」，Mr. KM 會依照這份 Work Memory 協助補齊工時。`)}</p></details><div class="actions suggestion-actions"><button class="btn green" data-accept="${escapeHtml(x.id)}">加入工時</button><button class="btn2" data-adjust="${escapeHtml(x.id)}">調整</button></div></div></div>`).join("")}</div>${footer}`;
+  const suggestions = makeSuggestions();
+  if (!suggestions.length) return `<h2>🪶 今天建議</h2><div class="empty"><b>目前沒有建議</b><div class="muted">可能工時已滿，或「我的工作」尚未建立。</div></div>`;
+  const state = suggestionBatchState(suggestions.length, aiTodaySuggestionIndex);
+  aiTodaySuggestionIndex = state.start;
+  const batch = suggestions.slice(state.start, state.end);
+  return `<div class="suggestion-panel-head"><h2>🪶 今天建議</h2><b data-suggestion-total>${suggestions.length} 項待處理</b><span data-suggestion-batch-status>第 ${state.batchIndex + 1} / ${state.batchCount} 批</span></div><div class="ai-suggestion-scan-list" data-suggestion-batch-list>${batch.map(suggestionCardMarkup).join("")}</div><div class="suggestion-scan-footer"><span class="muted" data-suggestion-remaining>${state.remaining > 0 ? `還有 ${state.remaining} 項` : "✓ 已看完這批建議"}</span><div class="suggestion-batch-actions"><button class="btn2 ${state.batchIndex === 0 ? "is-disabled" : ""}" type="button" data-suggestion-prev-batch aria-disabled="${state.batchIndex === 0}">上一批</button><button class="btn2 ${state.batchIndex >= state.batchCount - 1 ? "is-disabled" : ""}" type="button" data-suggestion-next-batch aria-disabled="${state.batchIndex >= state.batchCount - 1}">下一批</button></div></div>`;
+}
+
+function bindSuggestionCardActions(root = document) {
+  root.querySelectorAll("[data-accept]").forEach(button => button.onclick = () => acceptSuggestion(button.dataset.accept));
+  root.querySelectorAll("[data-adjust]").forEach(button => button.onclick = () => adjustSuggestion(button.dataset.adjust));
+}
+
+function renderSuggestionBatchOnly() {
+  const panel = document.querySelector(".suggestion-module");
+  const list = panel?.querySelector("[data-suggestion-batch-list]");
+  if (!panel || !list) return;
+  const suggestions = makeSuggestions();
+  const state = suggestionBatchState(suggestions.length, aiTodaySuggestionIndex);
+  const panelScrollTop = panel.scrollTop;
+  const listScrollTop = list.scrollTop;
+  aiTodaySuggestionIndex = state.start;
+  localStorage.setItem(AI_TODAY_SUGGESTION_INDEX_KEY, String(aiTodaySuggestionIndex));
+  list.innerHTML = suggestions.slice(state.start, state.end).map(suggestionCardMarkup).join("");
+  const total = panel.querySelector("[data-suggestion-total]");
+  const status = panel.querySelector("[data-suggestion-batch-status]");
+  const remaining = panel.querySelector("[data-suggestion-remaining]");
+  const previous = panel.querySelector("[data-suggestion-prev-batch]");
+  const next = panel.querySelector("[data-suggestion-next-batch]");
+  if (total) total.textContent = `${suggestions.length} 項待處理`;
+  if (status) status.textContent = `第 ${state.batchIndex + 1} / ${state.batchCount} 批`;
+  if (remaining) remaining.textContent = state.remaining > 0 ? `還有 ${state.remaining} 項` : "✓ 已看完這批建議";
+  if (previous) {
+    previous.setAttribute("aria-disabled", String(state.batchIndex === 0));
+    previous.classList.toggle("is-disabled", state.batchIndex === 0);
+  }
+  if (next) {
+    next.setAttribute("aria-disabled", String(state.batchIndex >= state.batchCount - 1));
+    next.classList.toggle("is-disabled", state.batchIndex >= state.batchCount - 1);
+  }
+  bindSuggestionCardActions(list);
+  panel.scrollTop = panelScrollTop;
+  list.scrollTop = listScrollTop;
+}
+
+function moveSuggestionBatch(direction = 1) {
+  const suggestions = makeSuggestions();
+  const state = suggestionBatchState(suggestions.length, aiTodaySuggestionIndex);
+  const nextBatch = Math.min(state.batchCount - 1, Math.max(0, state.batchIndex + Number(direction || 0)));
+  aiTodaySuggestionIndex = nextBatch * state.size;
+  renderSuggestionBatchOnly();
 }
 
 function mobileWorklogTabs() {
@@ -3016,27 +3109,14 @@ function bind() {
   document.querySelectorAll("[data-action=add]").forEach(b => b.onclick = () => { editingEntryId = null; captureSeed = null; activeWorkspace = "worklog"; if (!openTabs.includes("worklog")) openTabs.push("worklog"); rememberWorkspace("worklog"); view = "capture"; saveAll(); render(); });
   const today = document.querySelector("[data-today]"); if (today) today.onclick = async () => { selected = new Date(); await setSelectedMonth(monthKey(selected), selected.getDate()); };
   const exportBtn = document.querySelector("[data-export-month]"); if (exportBtn) exportBtn.onclick = () => exportEcpImportFile();
-  document.querySelectorAll("[data-accept]").forEach(b => b.onclick = () => acceptSuggestion(b.dataset.accept));
-  document.querySelectorAll("[data-adjust]").forEach(b => b.onclick = () => adjustSuggestion(b.dataset.adjust));
-  document.querySelectorAll("[data-suggestion-prev]").forEach(b => b.onclick = () => {
-    aiTodaySuggestionIndex -= 1;
-    localStorage.setItem(AI_TODAY_SUGGESTION_INDEX_KEY, String(aiTodaySuggestionIndex));
-    render();
+  bindSuggestionCardActions(document);
+  document.querySelectorAll("[data-suggestion-prev-batch]").forEach(button => button.onclick = () => {
+    if (button.getAttribute("aria-disabled") === "true") return;
+    moveSuggestionBatch(-1);
   });
-  document.querySelectorAll("[data-suggestion-next]").forEach(b => b.onclick = () => {
-    aiTodaySuggestionIndex += 1;
-    localStorage.setItem(AI_TODAY_SUGGESTION_INDEX_KEY, String(aiTodaySuggestionIndex));
-    render();
-  });
-  document.querySelectorAll("[data-suggestion-next-batch]").forEach(b => b.onclick = () => {
-    aiTodaySuggestionIndex += 5;
-    localStorage.setItem(AI_TODAY_SUGGESTION_INDEX_KEY, String(aiTodaySuggestionIndex));
-    render();
-  });
-  document.querySelectorAll("[data-suggestion-restart]").forEach(b => b.onclick = () => {
-    aiTodaySuggestionIndex = 0;
-    localStorage.setItem(AI_TODAY_SUGGESTION_INDEX_KEY, "0");
-    render();
+  document.querySelectorAll("[data-suggestion-next-batch]").forEach(button => button.onclick = () => {
+    if (button.getAttribute("aria-disabled") === "true") return;
+    moveSuggestionBatch(1);
   });
   document.querySelectorAll("[data-del-id]").forEach(b => b.onclick = async () => {
     const removed = entries.find(e => e.id === b.dataset.delId);
@@ -4142,6 +4222,17 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") refreshConversationFromCloud(true);
 });
 window.addEventListener("pageshow", () => refreshConversationFromCloud(true));
+
+lastSuggestionBatchSize = suggestionBatchSize();
+window.addEventListener("resize", () => {
+  clearTimeout(suggestionBatchResizeTimer);
+  suggestionBatchResizeTimer = setTimeout(() => {
+    const nextSize = suggestionBatchSize();
+    if (nextSize === lastSuggestionBatchSize) return;
+    lastSuggestionBatchSize = nextSize;
+    renderSuggestionBatchOnly();
+  }, 120);
+});
 
 window.addEventListener("beforeunload", event => {
   if (autoSaveInFlight || autoSaveDirtyScopes.size || cloudSync.status === "syncing" || cloudSync.status === "pending") {
