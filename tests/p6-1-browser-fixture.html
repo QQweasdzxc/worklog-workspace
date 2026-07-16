@@ -2,13 +2,12 @@
 <html lang="zh-TW">
   <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-    <title>Mr. KM Chat</title>
+    <title>P6.1 Browser Runtime Fixture</title>
     <link rel="icon" href="data:,">
-    <link rel="stylesheet" href="../worklog.css?v=20260716-2137">
   </head>
   <body>
     <div id="app"></div>
+    <pre id="p61Runtime">pending</pre>
     <script src="../app-config.js?v=20260716-2137"></script>
     <script src="../shared-utils.js?v=20260716-2137"></script>
     <script src="../app-state.js?v=20260716-2137"></script>
@@ -21,5 +20,14 @@
     <script src="../knowledge-engine.js?v=20260716-2137"></script>
     <script src="../google-drive-service.js?v=20260716-2137"></script>
     <script src="../worklog-app.js?v=20260716-2137"></script>
+    <script>
+      document.getElementById("p61Runtime").textContent = JSON.stringify({
+        build: BUILD_TIME,
+        knowledgeEngine: typeof KnowledgeEngine,
+        driveService: typeof GoogleDriveService,
+        indexFunction: typeof indexGoogleDriveFolder,
+        authorized: GoogleDriveService.isAuthorized()
+      });
+    </script>
   </body>
 </html>
