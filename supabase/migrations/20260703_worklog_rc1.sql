@@ -1,3 +1,0 @@
--- WorkLog RC1 migration
--- The migration for worklog_source_events and RC1 RPCs has been applied in Supabase.
--- Keep this file for GitHub repository tracking.

@@ -1,12 +1,17 @@
 // P5.2A-1 Foundation Split: configuration and static constants.
 const VERSION = "1.0.0-rc3.1-sp3";
 const RELEASE_VERSION = "RC3.3";
-const BUILD_TIME = "20260716-1802";
+const BUILD_TIME = "20260716-2137";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const KNOWLEDGE_DEBUG_MODE = (() => {
   try { return new URLSearchParams(location.search).has("debugKnowledge") || localStorage.getItem("zhuge_debug_knowledge") === "1"; }
   catch { return false; }
 })();
+const DRIVE_DEBUG_MODE = (() => {
+  try { return new URLSearchParams(location.search).has("debugDrive") || localStorage.getItem("zhuge_debug_drive") === "1"; }
+  catch { return false; }
+})();
+const GOOGLE_DRIVE_OAUTH_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
 const PDFJS_LIB_URL = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.269/build/pdf.mjs";
 const PDFJS_WORKER_URL = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.269/build/pdf.worker.mjs";
 const root = document.getElementById("app");
