@@ -28,6 +28,7 @@ function assert(value, message) {
 const context = {
   profile: { workHours: "09:00~18:00", lunch: "12:00~13:00" },
   entries: [],
+  LUNCH_STATES: { NORMAL: "NORMAL", COVERED: "COVERED", DELAYED: "DELAYED", UNKNOWN: "UNKNOWN" },
   selected: new Date(2026, 6, 16),
   Math,
   Number,
@@ -50,13 +51,18 @@ vm.createContext(context);
   "timeFromMinutes",
   "profileWorkSchedule",
   "entryStartMinutes",
+  "entryEndMinutes",
   "mergeTimeIntervals",
+  "workIntervalsForDate",
+  "determineLunchState",
+  "timeResolutionContext",
   "availableStartMinutes",
   "dateFromWorkKey",
   "nextWorkdayKey",
   "earliestAvailableWorkTime",
   "assistantRelativeTimeSignal",
   "roundedCurrentMinutes",
+  "finalizeTimeResolution",
   "resolveWorklogTime"
 ].forEach(name => vm.runInContext(functionSource(name), context));
 

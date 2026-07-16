@@ -737,23 +737,92 @@ function mergeTimeIntervals(intervals = []) {
   return merged;
 }
 
+const LUNCH_STATES = Object.freeze({
+  NORMAL: "NORMAL",
+  COVERED: "COVERED",
+  DELAYED: "DELAYED",
+  UNKNOWN: "UNKNOWN"
+});
+
+function workIntervalsForDate(dateKey = key(), excludeId = null, reserved = []) {
+  const persisted = entries
+    .filter(entry => entry.date === dateKey && entry.id !== excludeId && entry.status !== "deleted")
+    .map(entry => ({
+      start: entryStartMinutes(entry),
+      end: entryEndMinutes(entry),
+      source: "worklog"
+    }));
+  const planned = (Array.isArray(reserved) ? reserved : [])
+    .map(interval => ({
+      start: Number(interval?.start),
+      end: Number(interval?.end),
+      source: interval?.source || "reserved"
+    }))
+    .filter(interval => Number.isFinite(interval.start) && Number.isFinite(interval.end) && interval.end > interval.start);
+  return [...persisted, ...planned];
+}
+
+function determineLunchState(intervals = [], schedule = profileWorkSchedule()) {
+  const lunchStart = Number(schedule?.lunchStart);
+  const lunchEnd = Number(schedule?.lunchEnd);
+  if (!Number.isFinite(lunchStart) || !Number.isFinite(lunchEnd) || lunchEnd <= lunchStart) {
+    return { state: LUNCH_STATES.UNKNOWN, window: null, nominalWindow: null };
+  }
+  const nominalWindow = { start: lunchStart, end: lunchEnd };
+  const merged = mergeTimeIntervals(intervals);
+  if (merged.some(interval => interval.start <= lunchStart && interval.end >= lunchEnd)) {
+    return { state: LUNCH_STATES.COVERED, window: null, nominalWindow };
+  }
+  const overlapping = merged.filter(interval => interval.start < lunchEnd && interval.end > lunchStart);
+  if (overlapping.length) {
+    const lunchDuration = lunchEnd - lunchStart;
+    const delayedStart = Math.max(lunchStart, ...overlapping.map(interval => interval.end));
+    return {
+      state: LUNCH_STATES.DELAYED,
+      window: { start: delayedStart, end: delayedStart + lunchDuration },
+      nominalWindow
+    };
+  }
+  return { state: LUNCH_STATES.NORMAL, window: nominalWindow, nominalWindow };
+}
+
+function timeResolutionContext(dateKey = key(), excludeId = null, reserved = []) {
+  const schedule = profileWorkSchedule();
+  const intervals = workIntervalsForDate(dateKey, excludeId, reserved);
+  const lunch = determineLunchState(intervals, schedule);
+  const persistedMinutes = entries
+    .filter(entry => entry.date === dateKey && entry.id !== excludeId && entry.status !== "deleted")
+    .reduce((sum, entry) => sum + Math.max(0, Math.round(Number(entry.hours || 0) * 60)), 0);
+  const reservedMinutes = (Array.isArray(reserved) ? reserved : [])
+    .reduce((sum, interval) => sum + Math.max(0, Number(interval?.end || 0) - Number(interval?.start || 0)), 0);
+  const workedMinutes = persistedMinutes + reservedMinutes;
+  return {
+    dateKey,
+    schedule,
+    intervals,
+    mergedIntervals: mergeTimeIntervals(intervals),
+    lunchState: lunch.state,
+    lunchWindow: lunch.window,
+    nominalLunchWindow: lunch.nominalWindow,
+    workedMinutes,
+    completedEightHours: workedMinutes >= 8 * 60
+  };
+}
+
 function availableStartMinutes(dateKey = key(), durationHours = 1, excludeId = null, reserved = []) {
-  const s = profileWorkSchedule();
+  const context = timeResolutionContext(dateKey, excludeId, reserved);
+  const s = context.schedule;
   const duration = Math.max(1, Math.round(Number(durationHours || 1) * 60));
-  const occupied = entries
-    .filter(e => e.date === dateKey && e.id !== excludeId && e.status !== "deleted")
-    .map(e => {
-      const start = entryStartMinutes(e);
-      return { start, end: start + Math.round(Number(e.hours || 0) * 60) };
-    });
-  occupied.push(...reserved.map(x => ({ start: x.start, end: x.end })));
-  const merged = mergeTimeIntervals(occupied);
+  const merged = context.mergedIntervals;
+  if (context.completedEightHours) return null;
   // Once today's latest entry has crossed the workday boundary, the next automatic
   // suggestion starts on the next workday instead of back-filling an earlier gap.
   if (merged.some(interval => interval.end > s.workEnd)) return null;
   const normalizeAutomaticCandidate = value => {
     const candidate = Math.max(Number(value || 0), s.workStart);
-    return candidate >= s.lunchStart && candidate < s.lunchEnd ? s.lunchEnd : candidate;
+    const lunchWindow = context.lunchWindow;
+    if (!lunchWindow || context.lunchState === LUNCH_STATES.COVERED) return candidate;
+    return candidate >= lunchWindow.start && candidate < lunchWindow.end ? lunchWindow.end : candidate;
   };
 
   let candidate = normalizeAutomaticCandidate(s.workStart);
@@ -795,6 +864,24 @@ function earliestAvailableWorkTime(dateKey = key(), durationHours = 1, excludeId
   return { dateKey: candidateDate, minutes: schedule.workStart, at: `${candidateDate}T${timeFromMinutes(schedule.workStart)}` };
 }
 
+function finalizeTimeResolution(result = {}, hours = 1, excludeId = null, reserved = []) {
+  const dateKey = result.dateKey || String(result.at || "").slice(0, 10) || key();
+  const start = minutesFromTime(String(result.at || "").slice(11, 16) || "09:00");
+  const duration = Math.max(1, Math.round(Number(hours || 1) * 60));
+  const before = timeResolutionContext(dateKey, excludeId, reserved);
+  const after = timeResolutionContext(dateKey, excludeId, [
+    ...(Array.isArray(reserved) ? reserved : []),
+    { start, end: start + duration, source: "candidate" }
+  ]);
+  return {
+    ...result,
+    dateKey,
+    previousLunchState: before.lunchState,
+    lunchState: after.lunchState,
+    completedEightHours: before.completedEightHours
+  };
+}
+
 function assistantRelativeTimeSignal(raw = "") {
   const text = String(raw || "");
   if (/才完成|剛完成|剛剛完成|剛做完|剛結束|才做完/.test(text)) return "just_completed";
@@ -807,15 +894,17 @@ function roundedCurrentMinutes(now = new Date()) {
 }
 
 function resolveWorklogTime({ raw = "", dateKey = key(), hours = 1, explicitAt = "", now = new Date(), excludeId = null, reserved = [] } = {}) {
-  if (explicitAt) return { at: explicitAt, dateKey: String(explicitAt).slice(0, 10), reason: "explicit" };
+  if (explicitAt) {
+    return finalizeTimeResolution({ at: explicitAt, dateKey: String(explicitAt).slice(0, 10), reason: "explicit" }, hours, excludeId, reserved);
+  }
   const relative = assistantRelativeTimeSignal(raw);
   if (relative) {
     const durationMinutes = Math.max(1, Math.round(Number(hours || 1) * 60));
     const current = roundedCurrentMinutes(now);
     const start = relative === "just_completed" ? Math.max(0, current - durationMinutes) : current;
-    return { at: `${dateKey}T${timeFromMinutes(start)}`, dateKey, reason: relative };
+    return finalizeTimeResolution({ at: `${dateKey}T${timeFromMinutes(start)}`, dateKey, reason: relative }, hours, excludeId, reserved);
   }
-  return { ...earliestAvailableWorkTime(dateKey, hours, excludeId, reserved), reason: "earliest_gap" };
+  return finalizeTimeResolution({ ...earliestAvailableWorkTime(dateKey, hours, excludeId, reserved), reason: "earliest_gap" }, hours, excludeId, reserved);
 }
 
 function nextAvailableStart(dateKey = key(), durationHours = 1, excludeId = null, reserved = []) {
@@ -3768,8 +3857,16 @@ function bindWorkMemory() {
 
 
 function createEntry(input = {}) {
-  const at = input.at || nextAvailableStart(input.date || key(), input.hours || 1, input.id || null);
-  const date = input.date || String(at).slice(0, 10);
+  const requestedDate = input.date || String(input.at || "").slice(0, 10) || key();
+  const resolved = resolveWorklogTime({
+    raw: input.raw || "",
+    dateKey: requestedDate,
+    hours: input.hours || 1,
+    explicitAt: input.at || "",
+    excludeId: input.id || null
+  });
+  const at = resolved.at;
+  const date = String(at || requestedDate).slice(0, 10);
   const entryType = normalizeEntryType(input.entryType || input.type || "work");
   return {
     id: input.id || uid(),

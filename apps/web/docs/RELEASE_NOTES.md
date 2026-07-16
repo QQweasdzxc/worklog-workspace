@@ -1,5 +1,30 @@
 # WorkLog RC3 Release Patch1
 
+## Build 20260716-1655 - P5.7.2 Time Resolution Engine v2
+
+- 新增正式 Lunch State：`NORMAL`、`COVERED`、`DELAYED`、`UNKNOWN`。
+- Time Resolution Context 會先整理當日工時、判斷午休狀態與 8 小時完成狀態，再尋找下一個可用時間。
+- `09:00～12:00` 後自動從 `13:00` 開始；`09:00～14:00` 已覆蓋午休，下一筆直接從 `14:00` 開始。
+- 明確指定 `11:30 + 2h` 會保留為 `11:30～13:30` 並將結果標記為 `COVERED`，不拆段。
+- 午休僅部分被工作占用時標記為 `DELAYED`，完整午休會順延至重疊工作結束後。
+- 明確指定 `17:30 + 1h` 仍可建立至 `18:30`；下一筆自動工時從下一工作日 `09:00` 開始。
+- Chat、Mr. KM 建議、手動新增及所有 `createEntry()` 路徑統一使用同一套 Time Resolution Engine。
+- 完成 8 小時後，下一筆自動建議會移至下一工作日；使用者明確指定的加班時間仍不受阻擋。
+- 未修改 UI、Supabase Schema、DataService、Work Memory 或 P6 功能。
+
+### QA
+
+- NORMAL／COVERED／DELAYED／UNKNOWN 狀態模型：PASS。
+- 09～12 → 13～14：PASS。
+- 09～14 → 14～15，Lunch State = COVERED：PASS。
+- 11:30 + 2h → 11:30～13:30，Lunch State = COVERED：PASS。
+- 17:30 + 1h → 17:30～18:30；下一筆隔日 09:00：PASS。
+- P5.5～P5.7.2 完整自動回歸測試：PASS。
+
+### 🎯 Mr. KM Perspective
+
+這一版，我不再只看固定的十二點到一點，而會先理解主人今天的午休是否正常、被工作覆蓋或已經延後，再用同一套規則協助所有入口建立工時。
+
 ## Build 20260716-1606 - P5.7.1 Final Time Display & Suggestion Rule
 
 - 「我的工時」同日紀錄改為只顯示開始與結束時間，例如 `09:00～10:00｜1h`；非整點分鐘會照實保留。

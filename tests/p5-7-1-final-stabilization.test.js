@@ -30,6 +30,7 @@ const context = {
   entries: [],
   BUSINESS_TIME_ZONE: "Asia/Taipei",
   BUSINESS_UTC_OFFSET: "+08:00",
+  LUNCH_STATES: { NORMAL: "NORMAL", COVERED: "COVERED", DELAYED: "DELAYED", UNKNOWN: "UNKNOWN" },
   Math,
   Number,
   Date,
@@ -54,12 +55,16 @@ vm.createContext(context);
   "entryStartMinutes",
   "entryEndMinutes",
   "mergeTimeIntervals",
+  "workIntervalsForDate",
+  "determineLunchState",
+  "timeResolutionContext",
   "availableStartMinutes",
   "dateFromWorkKey",
   "nextWorkdayKey",
   "earliestAvailableWorkTime",
   "assistantRelativeTimeSignal",
   "roundedCurrentMinutes",
+  "finalizeTimeResolution",
   "resolveWorklogTime"
 ].forEach(name => vm.runInContext(functionSource(name), context));
 
