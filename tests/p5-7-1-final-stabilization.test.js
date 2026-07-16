@@ -28,6 +28,8 @@ function assert(value, message) {
 const context = {
   profile: { workHours: "09:00~18:00", lunch: "12:00~13:00" },
   entries: [],
+  BUSINESS_TIME_ZONE: "Asia/Taipei",
+  BUSINESS_UTC_OFFSET: "+08:00",
   Math,
   Number,
   Date,
@@ -42,6 +44,9 @@ const context = {
 };
 vm.createContext(context);
 [
+  "parseTaipeiBusinessDateTime",
+  "taipeiDateTimeParts",
+  "formatWorklogTimeRange",
   "formatHumanDuration",
   "minutesFromTime",
   "timeFromMinutes",
@@ -62,6 +67,9 @@ assert(context.formatHumanDuration(0.5) === "30m", "30 minutes must be readable"
 assert(context.formatHumanDuration(1) === "1h", "Whole hours must be readable");
 assert(context.formatHumanDuration(1.5) === "1h 30m", "Half hours must not be decimal");
 assert(context.formatHumanDuration(1.67) === "1h 40m", "Decimal averages must be converted to minutes");
+assert(context.formatWorklogTimeRange({ at: "2026-07-25T09:00", hours: 1 }) === "09:00～10:00", "Same-day WorkLog must show only its time range");
+assert(context.formatWorklogTimeRange({ at: "2026-07-25T10:32", hours: 1 }) === "10:32～11:32", "Non-hour start must preserve exact minutes");
+assert(context.formatWorklogTimeRange({ at: "2026-07-25T17:30", hours: 16 }) === "7/25 17:30～7/26 09:30", "Cross-day WorkLog must show both dates");
 
 const explicit = context.resolveWorklogTime({ dateKey: "2026-07-16", hours: 1, explicitAt: "2026-07-16T17:30" });
 assert(explicit.at === "2026-07-16T17:30" && explicit.reason === "explicit", "Explicit time must win");
@@ -84,7 +92,15 @@ assert(context.availableStartMinutes("2026-07-16", 2) === 660, "A WorkLog may cr
 context.entries = [{ id: "overtime", date: "2026-07-16", at: "2026-07-16T17:30", hours: 1, status: "completed" }];
 assert(context.resolveWorklogTime({ dateKey: "2026-07-16", hours: 1 }).at === "2026-07-17T09:00", "After overtime, next automatic WorkLog must use next workday 09:00");
 
-assert(app.includes("⏱ 建議：${formatHumanDuration(item.hours || 1)}"), "Suggestion duration must be human readable");
+const makeSuggestions = functionSource("makeSuggestions");
+const suggestionCardMarkup = functionSource("suggestionCardMarkup");
+const acceptSuggestion = functionSource("acceptSuggestion");
+const adjustSuggestion = functionSource("adjustSuggestion");
+assert(makeSuggestions.includes("hours: 1") && makeSuggestions.includes("hours: 1 }).at"), "General suggestions must always resolve with a one-hour duration");
+assert(!makeSuggestions.includes("metrics.averageHours"), "Historical average duration must not override a general suggestion");
+assert(!suggestionCardMarkup.includes("建議：") && !suggestionCardMarkup.includes("formatHumanDuration"), "Suggestion card must not display redundant duration text");
+assert(acceptSuggestion.includes("const defaultHours = 1") && acceptSuggestion.includes("hours: defaultHours"), "Add WorkLog must persist the one-hour default");
+assert(adjustSuggestion.includes("const defaultHours = 1") && adjustSuggestion.includes("hours: defaultHours"), "Adjust flow must start at one hour and remain editable");
 assert(app.includes("showCreatedWorklogToast(saved)"), "Direct create must show actionable toast");
 assert(app.includes("data-toast-undo") && app.includes("data-toast-edit"), "Created toast must offer undo and edit");
 assert(app.includes("worklogTimeConflicts(item)"), "Fast path must fall back on time conflict");

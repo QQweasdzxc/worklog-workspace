@@ -238,9 +238,8 @@ function toast(t) {
 function showCreatedWorklogToast(item = {}) {
   const e = document.createElement("div");
   e.className = "toast worklog-created-toast";
-  const start = String(item.at || "").slice(11, 16);
-  const end = timeFromMinutes(entryEndMinutes(item));
-  e.innerHTML = `<div><strong>✅ 已建立工時</strong><span>${escapeHtml(start)}~${escapeHtml(end)}｜${escapeHtml(formatHumanDuration(item.hours))}</span></div><div class="toast-actions"><button type="button" data-toast-undo>復原</button><button type="button" data-toast-edit>編輯</button></div>`;
+  const timeRange = formatWorklogTimeRange(item);
+  e.innerHTML = `<div><strong>✅ 已建立工時</strong><span>${escapeHtml(timeRange)}｜${escapeHtml(formatHumanDuration(item.hours))}</span></div><div class="toast-actions"><button type="button" data-toast-undo>復原</button><button type="button" data-toast-edit>編輯</button></div>`;
   document.body.appendChild(e);
   let dismissed = false;
   const close = () => {
@@ -327,6 +326,22 @@ async function setSelectedMonth(month, day = 1) {
 function fmt(dt) {
   const p = taipeiDateTimeParts(dt);
   return `${p.year}/${p.month}/${p.day} ${p.hour}:${p.minute}`;
+}
+
+function formatWorklogTimeRange(entry = {}) {
+  const start = parseTaipeiBusinessDateTime(entry.at);
+  const end = new Date(start.getTime() + Math.max(0, Math.round(Number(entry.hours || 0) * 60)) * 60000);
+  const startParts = taipeiDateTimeParts(start);
+  const endParts = taipeiDateTimeParts(end);
+  const startClock = `${startParts.hour}:${startParts.minute}`;
+  const endClock = `${endParts.hour}:${endParts.minute}`;
+  const sameDay = startParts.year === endParts.year
+    && startParts.month === endParts.month
+    && startParts.day === endParts.day;
+  if (sameDay) return `${startClock}～${endClock}`;
+  const startDate = `${Number(startParts.month)}/${Number(startParts.day)}`;
+  const endDate = `${Number(endParts.month)}/${Number(endParts.day)}`;
+  return `${startDate} ${startClock}～${endDate} ${endClock}`;
 }
 
 function dayEntries() {
@@ -2221,7 +2236,7 @@ function todayPanel() {
   const h = hours(list);
   const selectedIsToday = key(selected) === key(new Date());
   const selectedLabel = selectedIsToday ? "今天" : `${selected.getMonth() + 1}/${selected.getDate()}`;
-  return `<div class="panel-head panel-fixed-header"><h2>我的工時</h2><div class="tag">${selectedLabel}｜${formatHumanDuration(h)} / 8h</div></div><div class="panel-scroll-content today-entry-list">${list.length ? list.map(e => `<div class="entry"><div class="entry-main"><b>${escapeHtml(e.title)}</b><div class="muted">${fmt(e.at)}｜${formatHumanDuration(e.hours)}${e.ecpTask ? `｜🏷 任務` : ""}</div></div><div class="actions compact entry-actions"><button class="btn amber" data-edit-id="${e.id}">編輯</button><button class="btn red" data-del-id="${e.id}">刪除</button></div></div>`).join("") : `<div class="empty today-empty-state"><b>${selectedIsToday ? "今天" : selectedLabel}尚未建立工時</b></div>`}</div><div class="panel-fixed-footer today-panel-footer"><button class="btn full today-add-bottom" data-action="add">＋ 新增工時</button></div>`;
+  return `<div class="panel-head panel-fixed-header"><h2>我的工時</h2><div class="tag">${selectedLabel}｜${formatHumanDuration(h)} / 8h</div></div><div class="panel-scroll-content today-entry-list">${list.length ? list.map(e => `<div class="entry"><div class="entry-main"><b>${escapeHtml(e.title)}</b><div class="muted">${escapeHtml(formatWorklogTimeRange(e))}｜${formatHumanDuration(e.hours)}${e.ecpTask ? `｜🏷 任務` : ""}</div></div><div class="actions compact entry-actions"><button class="btn amber" data-edit-id="${e.id}">編輯</button><button class="btn red" data-del-id="${e.id}">刪除</button></div></div>`).join("") : `<div class="empty today-empty-state"><b>${selectedIsToday ? "今天" : selectedLabel}尚未建立工時</b></div>`}</div><div class="panel-fixed-footer today-panel-footer"><button class="btn full today-add-bottom" data-action="add">＋ 新增工時</button></div>`;
 }
 
 function suggestionBatchSize(viewportWidth = window.innerWidth) {
@@ -2296,14 +2311,13 @@ function makeSuggestions() {
     .filter(model => model.isActive)
     .map(model => {
       const ranking = suggestionPriority(model);
-      const metrics = suggestionMetricsFor(model);
       const learnedConfidence = (model.sourceReferences || []).reduce((highest, reference) => Math.max(highest, Number(reference?.confidence || 0)), 0);
       return {
         id: model.name,
         title: model.name,
         note: "",
-        hours: metrics.averageHours || 1,
-        at: resolveWorklogTime({ dateKey: key(), hours: metrics.averageHours || 1 }).at,
+        hours: 1,
+        at: resolveWorklogTime({ dateKey: key(), hours: 1 }).at,
         ecpTask: defaultEcpTaskName(model.name),
         sourceLabel: `📂 來源：${model.name}`,
         priority: ranking.score,
@@ -2316,7 +2330,7 @@ function makeSuggestions() {
 }
 
 function suggestionCardMarkup(item = {}) {
-  return `<div class="suggestion-scan-item"><div class="suggestion-scan-body"><h3>${escapeHtml(item.title)}</h3><div class="suggestion-card-meta"><span>${escapeHtml(item.sourceLabel || `📂 來源：${item.title}`)}</span><span>⏱ 建議：${formatHumanDuration(item.hours || 1)}</span></div><details class="suggestion-reason"><summary>ℹ︎ 為什麼推薦？</summary><p>${escapeHtml(item.reason || "這是你已確認的「我的工作」，可直接加入今天工時。")}</p></details><div class="actions suggestion-actions"><button class="btn green" data-accept="${escapeHtml(item.id)}">加入工時</button><button class="btn2" data-adjust="${escapeHtml(item.id)}">調整</button></div></div></div>`;
+  return `<div class="suggestion-scan-item"><div class="suggestion-scan-body"><h3>${escapeHtml(item.title)}</h3><div class="suggestion-card-meta"><span>${escapeHtml(item.sourceLabel || `📂 來源：${item.title}`)}</span></div><details class="suggestion-reason"><summary>ℹ︎ 為什麼推薦？</summary><p>${escapeHtml(item.reason || "這是你已確認的「我的工作」，可直接加入今天工時。")}</p></details><div class="actions suggestion-actions"><button class="btn green" data-accept="${escapeHtml(item.id)}">加入工時</button><button class="btn2" data-adjust="${escapeHtml(item.id)}">調整</button></div></div></div>`;
 }
 
 function suggestionPanel() {
@@ -3786,20 +3800,21 @@ async function persistEntry(item, options = {}) {
 async function acceptSuggestion(id) {
   const s = makeSuggestions().find(x => x.id === id);
   if (!s) return;
-  const resolved = resolveWorklogTime({ dateKey: key(), hours: s.hours || 1 });
+  const defaultHours = 1;
+  const resolved = resolveWorklogTime({ dateKey: key(), hours: defaultHours });
   const item = createEntry({
     date: resolved.dateKey,
     at: resolved.at,
     title: s.title,
     note: s.note,
     ecpTask: s.ecpTask,
-    hours: s.hours,
+    hours: defaultHours,
     source: "ai-card"
   });
   const requiresConfirmation = resolved.reason !== "earliest_gap"
     || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(String(resolved.at || ""))
-    || !Number.isFinite(Number(s.hours))
-    || Number(s.hours) <= 0
+    || !Number.isFinite(defaultHours)
+    || defaultHours <= 0
     || Number(s.confidence ?? 0.85) < 0.65
     || worklogTimeConflicts(item)
     || Boolean(validateEntry(item));
@@ -3827,9 +3842,10 @@ async function acceptSuggestion(id) {
 function adjustSuggestion(id) {
   const s = makeSuggestions().find(x => x.id === id);
   if (!s) return;
-  const resolved = resolveWorklogTime({ dateKey: key(), hours: s.hours || 1 });
+  const defaultHours = 1;
+  const resolved = resolveWorklogTime({ dateKey: key(), hours: defaultHours });
   editingEntryId = null;
-  captureSeed = { ...s, at: resolved.at, timeResolution: resolved.reason, source: "ai-card", suggestionId: s.id, wasAdjusted: true };
+  captureSeed = { ...s, hours: defaultHours, at: resolved.at, timeResolution: resolved.reason, source: "ai-card", suggestionId: s.id, wasAdjusted: true };
   activeWorkspace = "worklog";
   if (!openTabs.includes("worklog")) openTabs.push("worklog");
   rememberWorkspace("worklog");
