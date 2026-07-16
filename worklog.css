@@ -117,6 +117,11 @@ html:has(.standalone-chat-page),body:has(.standalone-chat-page),#app:has(.standa
   .suggestion-scan-footer{display:flex;flex-direction:row;align-items:center;justify-content:space-between;gap:8px}.suggestion-batch-actions{display:grid;grid-template-columns:1fr 1fr;width:auto}.suggestion-batch-actions .btn2{min-width:70px;padding:9px 6px}
 }
 
+/* P5.7.1 actionable creation feedback. */
+.worklog-created-toast{display:flex;align-items:center;gap:16px;min-width:min(92vw,380px);justify-content:space-between;padding:12px 14px}
+.worklog-created-toast>div:first-child{display:grid;gap:2px}.worklog-created-toast span{color:#cbd5e1;font-size:var(--font-sm)}
+.toast-actions{display:flex;gap:7px}.toast-actions button{border:1px solid #475569;border-radius:9px;background:#172554;color:#f8fafc;padding:7px 10px;font:inherit;font-size:var(--font-xs);font-weight:850;cursor:pointer}
+
 /* P5.7 final design spec: CTO mockup is the only layout source. */
 .workspace-worklog .os-topbar{display:none}
 .workspace-worklog .workspace-title,.workspace-worklog .workspace-tabs{display:none}
@@ -239,4 +244,23 @@ html:has(.standalone-chat-page),body:has(.standalone-chat-page),#app:has(.standa
   .workspace-worklog .suggestion-scan-item h3{font-size:.8125rem}
   .workspace-worklog .suggestion-card-meta{font-size:.6875rem}
   .workspace-worklog .suggestion-scan-item .suggestion-actions .btn,.workspace-worklog .suggestion-scan-item .suggestion-actions .btn2{font-size:.6875rem}
+}
+
+/* P5.7.1 final responsive overrides. Keep these last to separate dashboard and app flow. */
+.today-module .today-entry-list{display:flex;flex-direction:column;gap:10px;align-items:stretch;align-content:normal}
+.today-module .today-entry-list>.entry{position:relative;display:flex;flex:0 0 auto;flex-shrink:0;height:auto;min-height:0;margin:0;align-items:flex-start}
+.today-module .today-entry-list>.entry .entry-main{flex:1 1 auto;min-width:0}
+
+@media(min-width:768px){
+  .today-module .today-entry-list{flex:1 1 auto;min-height:0;overflow-y:auto}
+  .today-module .today-panel-footer{flex:0 0 auto;margin-top:auto}
+}
+
+@media(max-width:767px){
+  .workbench-grid>.today-module{height:auto!important;min-height:0!important;max-height:none!important;overflow:visible!important;display:flex;flex-direction:column}
+  .today-module .today-entry-list{flex:0 0 auto;min-height:0;overflow:visible;padding-right:0}
+  .today-module .today-entry-list>.entry{display:block;width:100%;height:auto;min-height:0;position:relative;flex-shrink:0}
+  .today-module .today-panel-footer{position:static;flex:0 0 auto;margin-top:10px;background:transparent}
+  .today-module .today-add-bottom{display:block!important;position:static;width:100%;margin:0;min-height:48px}
+  .worklog-created-toast{bottom:max(12px,env(safe-area-inset-bottom));min-width:calc(100vw - 24px);gap:10px}
 }

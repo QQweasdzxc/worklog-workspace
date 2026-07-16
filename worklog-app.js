@@ -192,6 +192,18 @@ function validateEntry(item) {
   return "";
 }
 
+function worklogTimeConflicts(item = {}) {
+  const date = String(item.date || item.at || "").slice(0, 10);
+  const start = entryStartMinutes(item);
+  const end = start + Math.max(1, Math.round(Number(item.hours || 0) * 60));
+  return entries.some(entry => {
+    if (entry.id === item.id || entry.status === "deleted" || entry.date !== date) return false;
+    const existingStart = entryStartMinutes(entry);
+    const existingEnd = entryEndMinutes(entry);
+    return start < existingEnd && end > existingStart;
+  });
+}
+
 function saveAll(options = {}) {
   saveLocalSnapshot();
 }
@@ -221,6 +233,48 @@ function toast(t) {
   document.body.appendChild(e);
   setTimeout(() => e.classList.add("show"), 10);
   setTimeout(() => { e.classList.remove("show"); setTimeout(() => e.remove(), 220); }, 1800);
+}
+
+function showCreatedWorklogToast(item = {}) {
+  const e = document.createElement("div");
+  e.className = "toast worklog-created-toast";
+  const start = String(item.at || "").slice(11, 16);
+  const end = timeFromMinutes(entryEndMinutes(item));
+  e.innerHTML = `<div><strong>✅ 已建立工時</strong><span>${escapeHtml(start)}~${escapeHtml(end)}｜${escapeHtml(formatHumanDuration(item.hours))}</span></div><div class="toast-actions"><button type="button" data-toast-undo>復原</button><button type="button" data-toast-edit>編輯</button></div>`;
+  document.body.appendChild(e);
+  let dismissed = false;
+  const close = () => {
+    if (dismissed) return;
+    dismissed = true;
+    e.classList.remove("show");
+    setTimeout(() => e.remove(), 220);
+  };
+  e.querySelector("[data-toast-undo]").onclick = async () => {
+    try {
+      await DataService.deleteEntry(item);
+      recordSuggestionMetric(item.title, "deleted", item);
+      saveAll({ skipSync: true });
+      close();
+      render();
+      toast("已復原這筆工時");
+    } catch (error) {
+      console.error("Undo suggestion WorkLog failed", { error, item });
+      toast("復原失敗，請稍後再試");
+    }
+  };
+  e.querySelector("[data-toast-edit]").onclick = () => {
+    editingEntryId = item.id;
+    captureSeed = null;
+    activeWorkspace = "worklog";
+    if (!openTabs.includes("worklog")) openTabs.push("worklog");
+    rememberWorkspace("worklog");
+    view = "capture";
+    saveAll();
+    close();
+    render();
+  };
+  setTimeout(() => e.classList.add("show"), 10);
+  setTimeout(close, 8000);
 }
 
 const BUSINESS_TIME_ZONE = "Asia/Taipei";
@@ -296,6 +350,15 @@ function hours(list = dayEntries()) {
   return list.reduce((s, e) => s + Number(e.hours || 0), 0);
 }
 
+function formatHumanDuration(value = 0) {
+  const totalMinutes = Math.max(0, Math.round(Number(value || 0) * 60));
+  const wholeHours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (!wholeHours) return `${minutes}m`;
+  if (!minutes) return `${wholeHours}h`;
+  return `${wholeHours}h ${minutes}m`;
+}
+
 function tagsForRole(role) {
   return roleTagMap[role] || defaultTags;
 }
@@ -358,6 +421,9 @@ function systemReference(model = {}, type = "") {
 
 function suggestionMetricsFor(model = {}) {
   const value = systemReference(model, "suggestion_metrics") || {};
+  const usageEvents = Array.isArray(value.usageEvents) ? value.usageEvents.filter(event => event?.at && event?.type).slice(-180) : [];
+  const now = Date.now();
+  const recentAddedCount = days => usageEvents.filter(event => event.type === "added" && now - new Date(event.at).getTime() <= days * 86400000).length;
   return {
     suggestionCount: Number(value.suggestionCount || 0),
     addedCount: Number(value.addedCount || 0),
@@ -366,7 +432,10 @@ function suggestionMetricsFor(model = {}) {
     lastUsedAt: value.lastUsedAt || model.lastUsedAt || "",
     averageHours: Number(value.averageHours || 0),
     commonTimes: value.commonTimes && typeof value.commonTimes === "object" ? value.commonTimes : {},
-    presentedDates: Array.isArray(value.presentedDates) ? value.presentedDates : []
+    presentedDates: Array.isArray(value.presentedDates) ? value.presentedDates : [],
+    usageEvents,
+    recent7Days: Number(value.recent7Days ?? recentAddedCount(7)),
+    recent30Days: Number(value.recent30Days ?? recentAddedCount(30))
   };
 }
 
@@ -391,6 +460,7 @@ function recordSuggestionMetric(modelName = "", event = "suggested", entry = nul
   const today = key(new Date());
   if (event === "suggested" && current.presentedDates.includes(today)) return;
   const next = { ...current };
+  const eventAt = new Date().toISOString();
   if (event === "suggested") {
     next.suggestionCount += 1;
     next.presentedDates = [...current.presentedDates.slice(-29), today];
@@ -398,7 +468,10 @@ function recordSuggestionMetric(modelName = "", event = "suggested", entry = nul
   if (event === "added") next.addedCount += 1;
   if (event === "edited") next.editedCount += 1;
   if (event === "deleted") next.deletedCount += 1;
-  if (["added", "edited", "deleted"].includes(event)) next.lastUsedAt = new Date().toISOString();
+  if (["added", "edited", "deleted"].includes(event)) next.lastUsedAt = eventAt;
+  if (["suggested", "added", "edited", "deleted"].includes(event)) {
+    next.usageEvents = [...current.usageEvents, { type: event, at: eventAt, hours: Number(entry?.hours || 0), time: String(entry?.at || "").slice(11, 16) }].slice(-180);
+  }
   if (event === "added" && entry) {
     const previousTotal = current.averageHours * current.addedCount;
     next.averageHours = Math.round(((previousTotal + Number(entry.hours || 0)) / Math.max(1, next.addedCount)) * 100) / 100;
@@ -410,6 +483,10 @@ function recordSuggestionMetric(modelName = "", event = "suggested", entry = nul
     const commonTime = String(entry.at || "").slice(11, 16);
     if (commonTime) next.commonTimes = { ...current.commonTimes, [commonTime]: Number(current.commonTimes[commonTime] || 0) + 1 };
   }
+  const addedEvents = next.usageEvents.filter(item => item.type === "added");
+  const now = Date.now();
+  next.recent7Days = addedEvents.filter(item => now - new Date(item.at).getTime() <= 7 * 86400000).length;
+  next.recent30Days = addedEvents.filter(item => now - new Date(item.at).getTime() <= 30 * 86400000).length;
   next.usageFrequency = next.suggestionCount ? Math.round(next.addedCount / next.suggestionCount * 1000) / 1000 : 0;
   model.lastUsedAt = next.lastUsedAt || model.lastUsedAt;
   const roleProfile = roleProfileFor(model);
@@ -1064,7 +1141,7 @@ function assistantUnknownResponse() {
 function formatEntryLine(entry) {
   const start = String(entry.at || "").slice(11, 16) || "--:--";
   const end = timeFromMinutes(entryEndMinutes(entry));
-  return `${start}–${end}（${Number(entry.hours || 0)}h） ${entry.title || "未命名工時"}`;
+  return `${start}–${end}（${formatHumanDuration(entry.hours)}） ${entry.title || "未命名工時"}`;
 }
 
 function worklogContextAnswer(scope = "today") {
@@ -1079,9 +1156,9 @@ function worklogContextAnswer(scope = "today") {
   }
   const lines = list.map(e => `• ${formatEntryLine(e)}`).join("\n");
   const next = remaining > 0
-    ? `${scopeLabel}距離 ${target} 小時還有 ${remaining} 小時。\n\n要不要一起回想${scope === "week" ? "這週" : "今天"}還有哪些工作需要補齊？`
+    ? `${scopeLabel}距離 ${formatHumanDuration(target)}還有 ${formatHumanDuration(remaining)}。\n\n要不要一起回想${scope === "week" ? "這週" : "今天"}還有哪些工作需要補齊？`
     : `${scopeLabel}已達到 ${target} 小時。若還有需要補充的紀錄，我也可以繼續幫您整理。`;
-  return `我幫您看了一下，${scopeLabel}目前已登記 ${done} 小時：\n\n${lines}\n\n${next}`;
+  return `我幫您看了一下，${scopeLabel}目前已登記 ${formatHumanDuration(done)}：\n\n${lines}\n\n${next}`;
 }
 
 function todayWorkListAnswer() {
@@ -1092,7 +1169,7 @@ function todayWorkListAnswer() {
   const lines = list.map(e => `• ${formatEntryLine(e)}`).join("\n");
   const done = hours(list);
   const remaining = Math.max(0, Math.round((8 - done) * 10) / 10);
-  return `今天目前我看到：\n\n${lines}\n\n共 ${done} 小時。${remaining > 0 ? `\n\n距離今天 8 小時還有 ${remaining} 小時。需要我陪您一起回想剩下的工作嗎？` : "\n\n今天工時已經達標了。若還有其他紀錄，也可以繼續補上。"}`;
+  return `今天目前我看到：\n\n${lines}\n\n共 ${formatHumanDuration(done)}。${remaining > 0 ? `\n\n距離今天 8 小時還有 ${formatHumanDuration(remaining)}。需要我陪您一起回想剩下的工作嗎？` : "\n\n今天工時已經達標了。若還有其他紀錄，也可以繼續補上。"}`;
 }
 
 function parseConversationIntent(text = "") {
@@ -1539,7 +1616,7 @@ async function executeWorklogCommand(intent) {
     const item = createEntry({ ...last, hours: intent.hours, id: last.id, cloudId: last.cloudId });
     const error = validateEntry(item); if (error) return assistantResult(error);
     await persistEntry(item, { requireCloud: true });
-    return assistantResult(`已將最後一筆「${last.title}」調整為 ${intent.hours}h。`);
+    return assistantResult(`已將最後一筆「${last.title}」調整為 ${formatHumanDuration(intent.hours)}。`);
   }
   if (intent.type === "unsupported_delete") return assistantResult("刪除工時目前請指定「刪除最後一筆」，或先到我的工作列表操作。");
   if (intent.type === "unsupported_update") return assistantResult("修改工時目前請指定「修改最後一筆為 X 小時」，或先到我的工作列表操作。");
@@ -1970,7 +2047,7 @@ function aiSuggestionWorkspace() {
     const familiarityLabel = workMemoryFamiliarityLabel(familiarityScore);
     const recent = usage.latest ? fmt(usage.latest) : "尚未使用";
     const sourceList = sources.length ? sources.map(source => `<li><button class="work-memory-source-link" data-work-memory-source-name="${escapeHtml(source)}" data-work-memory-source-work="${escapeHtml(item.title)}">📄 ${escapeHtml(source)}</button></li>`).join("") : `<li><span class="work-memory-source-empty">尚未連結來源資料</span></li>`;
-    return `<div class="entry ai-suggestion-workspace-card companion-card"><div class="entry-main"><div class="work-memory-title"><b>${escapeHtml(item.title)}</b><span>${item.type === "merge" ? "整理建議" : "新增建議"}</span></div><div class="companion-card-section"><b>🪶 我為什麼建議？</b><p class="muted">${escapeHtml(item.reason)}</p></div><div class="companion-card-section"><b>建議內容</b><div class="source-path">${escapeHtml(item.suggestion)}</div>${item.defaultDuration ? `<small>預設工時：約 ${escapeHtml(item.defaultDuration)}h</small>` : ""}</div><div class="companion-card-section"><b>🪶 我是從這些資料學會的：</b><ul class="knowledge-result-list work-memory-source-list">${sourceList}</ul></div><div class="companion-card-grid"><div><span>最近一次陪你完成</span><b>${escapeHtml(recent)}</b></div><div><span>熟悉程度</span><b>${escapeHtml(workMemoryFamiliarityBars(familiarityScore))}</b><small>${escapeHtml(familiarityLabel)}</small></div></div><div class="companion-card-section"><b>採用後，我可以：</b><ul class="knowledge-result-list"><li>✓ 推薦相關工時</li><li>✓ 提醒補工時</li><li>✓ 整理相近工作</li><li>✓ 引用這份經驗協助建立工時</li></ul></div></div><div class="actions compact ai-suggestion-actions"><button class="btn2" data-edit-ai-suggestion="${escapeHtml(item.key)}">✏️ 編輯</button><button class="btn2" data-merge-ai-suggestion="${escapeHtml(item.key)}">🔀 合併</button><button class="btn green" data-adopt-ai-suggestion="${escapeHtml(item.key)}">✅ 採用</button><button class="btn2" data-ignore-ai-suggestion="${escapeHtml(item.key)}">🙈 忽略</button></div></div>`;
+    return `<div class="entry ai-suggestion-workspace-card companion-card"><div class="entry-main"><div class="work-memory-title"><b>${escapeHtml(item.title)}</b><span>${item.type === "merge" ? "整理建議" : "新增建議"}</span></div><div class="companion-card-section"><b>🪶 我為什麼建議？</b><p class="muted">${escapeHtml(item.reason)}</p></div><div class="companion-card-section"><b>建議內容</b><div class="source-path">${escapeHtml(item.suggestion)}</div>${item.defaultDuration ? `<small>預設工時：約 ${escapeHtml(formatHumanDuration(item.defaultDuration))}</small>` : ""}</div><div class="companion-card-section"><b>🪶 我是從這些資料學會的：</b><ul class="knowledge-result-list work-memory-source-list">${sourceList}</ul></div><div class="companion-card-grid"><div><span>最近一次陪你完成</span><b>${escapeHtml(recent)}</b></div><div><span>熟悉程度</span><b>${escapeHtml(workMemoryFamiliarityBars(familiarityScore))}</b><small>${escapeHtml(familiarityLabel)}</small></div></div><div class="companion-card-section"><b>採用後，我可以：</b><ul class="knowledge-result-list"><li>✓ 推薦相關工時</li><li>✓ 提醒補工時</li><li>✓ 整理相近工作</li><li>✓ 引用這份經驗協助建立工時</li></ul></div></div><div class="actions compact ai-suggestion-actions"><button class="btn2" data-edit-ai-suggestion="${escapeHtml(item.key)}">✏️ 編輯</button><button class="btn2" data-merge-ai-suggestion="${escapeHtml(item.key)}">🔀 合併</button><button class="btn green" data-adopt-ai-suggestion="${escapeHtml(item.key)}">✅ 採用</button><button class="btn2" data-ignore-ai-suggestion="${escapeHtml(item.key)}">🙈 忽略</button></div></div>`;
   }).join("") : `<div class="empty"><b>目前沒有新的 AI 建議</b><div class="muted">如果之後我從文件、歷史工時或相近工作裡發現值得整理的地方，會在這裡提出建議。</div></div>`;
   return `<section class="panel work-memory-ai-suggestions" style="margin-top:18px"><div class="panel-head"><div><h2>🪶 AI 建議</h2><div class="muted">這裡是我的提案，不是正式工作。只有你採用後，才會加入「我的工作」。</div></div><button class="btn2" data-open-workspace="settings">返回我的工作</button></div><div class="entry"><b>AI 建議，使用者決定</b><div class="muted">我可以提出、整理、合併或提醒；真正決定是否採用的人永遠是你。</div></div><div class="library-list">${cards}</div></section>`;
 }
@@ -2022,9 +2099,9 @@ function calendarPanel() {
     const h = entries.filter(e => e.date === dk).reduce((s, e) => s + Number(e.hours || 0), 0);
     const isToday = dk === key(new Date());
     const selectedDay = inCurrentMonth && selectedInMonth && d === selected.getDate();
-    html += `<div class="day ${inCurrentMonth ? "" : "outside-month"} ${isToday ? "today" : ""} ${selectedDay ? "sel" : ""}"${inCurrentMonth ? ` data-day="${d}"` : ` aria-disabled="true"`}><b>${d}</b><div class="bar"><div class="fill" style="width:${Math.min(100, h / 8 * 100)}%"></div></div><small>${h ? h + "h" : ""}</small></div>`;
+    html += `<div class="day ${inCurrentMonth ? "" : "outside-month"} ${isToday ? "today" : ""} ${selectedDay ? "sel" : ""}"${inCurrentMonth ? ` data-day="${d}"` : ` aria-disabled="true"`}><b>${d}</b><div class="bar"><div class="fill" style="width:${Math.min(100, h / 8 * 100)}%"></div></div><small>${h ? formatHumanDuration(h) : ""}</small></div>`;
   }
-  html += `</div></div><div class="panel-fixed-footer calendar-panel-footer"><div class="month-summary"><b>${monthLabel} 工時</b><span>${hours(monthEntries())}h</span></div><button class="btn full" data-export-month="1">⬇️ 下載 ${monthLabel} ECP 匯入檔</button></div></div>`;
+  html += `</div></div><div class="panel-fixed-footer calendar-panel-footer"><div class="month-summary"><b>${monthLabel} 工時</b><span>${formatHumanDuration(hours(monthEntries()))}</span></div><button class="btn full" data-export-month="1">⬇️ 下載 ${monthLabel} ECP 匯入檔</button></div></div>`;
   return html;
 }
 
@@ -2102,7 +2179,7 @@ function todaySummaryPanel() {
   const weekProgress = Math.min(100, Math.round(weekDone / 40 * 100));
   const todayProgress = Math.min(100, Math.round(todayDone / 8 * 100));
   const summaryOpen = readScopedUiFlag(MOBILE_SUMMARY_OPEN_KEY, true);
-  return `<section class="panel mobile-summary-module summary-dashboard ${summaryOpen ? "summary-open" : "summary-collapsed"}"><div class="summary-dashboard-head"><button class="summary-heading-toggle" type="button" data-toggle-mobile-summary="1" aria-expanded="${summaryOpen}"><span>📊 工時摘要 <i>（點擊${summaryOpen ? "收合" : "展開"}）</i></span><small>${summaryOpen ? "⌃" : "⌄"}</small></button></div><div class="summary-grid"><div class="summary-tile"><span>本月進度</span><b>${monthlyDone} / ${monthlyTarget}h</b><em>${monthProgress}%</em></div><div class="summary-tile"><span>本週進度</span><b>${weekDone} / 40h</b><em>${weekProgress}%</em></div><div class="summary-tile"><span>今日進度</span><b>${todayDone} / 8h</b><em>${todayProgress}%</em></div><div class="summary-tile summary-forecast ${health.className}"><span>達標預測</span><b>${health.label}</b></div></div></section>`;
+  return `<section class="panel mobile-summary-module summary-dashboard ${summaryOpen ? "summary-open" : "summary-collapsed"}"><div class="summary-dashboard-head"><button class="summary-heading-toggle" type="button" data-toggle-mobile-summary="1" aria-expanded="${summaryOpen}"><span>📊 工時摘要 <i>（點擊${summaryOpen ? "收合" : "展開"}）</i></span><small>${summaryOpen ? "⌃" : "⌄"}</small></button></div><div class="summary-grid"><div class="summary-tile"><span>本月進度</span><b>${formatHumanDuration(monthlyDone)} / ${formatHumanDuration(monthlyTarget)}</b><em>${monthProgress}%</em></div><div class="summary-tile"><span>本週進度</span><b>${formatHumanDuration(weekDone)} / 40h</b><em>${weekProgress}%</em></div><div class="summary-tile"><span>今日進度</span><b>${formatHumanDuration(todayDone)} / 8h</b><em>${todayProgress}%</em></div><div class="summary-tile summary-forecast ${health.className}"><span>達標預測</span><b>${health.label}</b></div></div></section>`;
 }
 
 function mobileCalendarPanel() {
@@ -2120,7 +2197,7 @@ function mobileCalendarPanel() {
     const h = hours(entriesForDate(d));
     const isToday = key(d) === key(today);
     const isSelected = key(d) === key(selected);
-    return `<button class="mobile-day ${isToday ? "today" : ""} ${isSelected ? "sel" : ""} ${out ? "out" : ""}" data-mobile-date="${key(d)}"><b>${d.getDate()}</b><small>${h ? h + "h" : ""}</small></button>`;
+    return `<button class="mobile-day ${isToday ? "today" : ""} ${isSelected ? "sel" : ""} ${out ? "out" : ""}" data-mobile-date="${key(d)}"><b>${d.getDate()}</b><small>${h ? formatHumanDuration(h) : ""}</small></button>`;
   };
   if (!isOpen) {
     const weekStart = startOfWeek(selected);
@@ -2135,8 +2212,8 @@ function mobileCalendarPanel() {
 function mobileHomeActionPanel() {
   const todayDone = hours(entriesForDate(new Date()));
   const remaining = Math.max(0, Math.round((8 - todayDone) * 10) / 10);
-  const message = remaining > 0 ? `💬 今天還有 ${remaining}h 尚未記錄` : "💬 今天工時已完成 ✅";
-  return `<section class="panel mobile-home-action"><button class="btn full" data-action="add">＋ 新增工時</button><div class="mobile-today-metrics"><div><span>今日工時</span><b>${todayDone} / 8h</b></div><div><span>剩餘工時</span><b>${remaining}h</b></div></div><div class="muted">${message}</div></section>`;
+  const message = remaining > 0 ? `💬 今天還有 ${formatHumanDuration(remaining)} 尚未記錄` : "💬 今天工時已完成 ✅";
+  return `<section class="panel mobile-home-action"><button class="btn full" data-action="add">＋ 新增工時</button><div class="mobile-today-metrics"><div><span>今日工時</span><b>${formatHumanDuration(todayDone)} / 8h</b></div><div><span>剩餘工時</span><b>${formatHumanDuration(remaining)}</b></div></div><div class="muted">${message}</div></section>`;
 }
 
 function todayPanel() {
@@ -2144,7 +2221,7 @@ function todayPanel() {
   const h = hours(list);
   const selectedIsToday = key(selected) === key(new Date());
   const selectedLabel = selectedIsToday ? "今天" : `${selected.getMonth() + 1}/${selected.getDate()}`;
-  return `<div class="panel-head panel-fixed-header"><h2>我的工時</h2><div class="tag">${selectedLabel}｜${h} / 8h</div></div><div class="panel-scroll-content today-entry-list">${list.length ? list.map(e => `<div class="entry"><div class="entry-main"><b>${escapeHtml(e.title)}</b><div class="muted">${fmt(e.at)}｜${Number(e.hours || 0)}h${e.ecpTask ? `｜🏷 任務` : ""}</div></div><div class="actions compact entry-actions"><button class="btn amber" data-edit-id="${e.id}">編輯</button><button class="btn red" data-del-id="${e.id}">刪除</button></div></div>`).join("") : `<div class="empty today-empty-state"><b>${selectedIsToday ? "今天" : selectedLabel}尚未建立工時</b></div>`}</div><div class="panel-fixed-footer today-panel-footer"><button class="btn full today-add-bottom" data-action="add">＋ 新增工時</button></div>`;
+  return `<div class="panel-head panel-fixed-header"><h2>我的工時</h2><div class="tag">${selectedLabel}｜${formatHumanDuration(h)} / 8h</div></div><div class="panel-scroll-content today-entry-list">${list.length ? list.map(e => `<div class="entry"><div class="entry-main"><b>${escapeHtml(e.title)}</b><div class="muted">${fmt(e.at)}｜${formatHumanDuration(e.hours)}${e.ecpTask ? `｜🏷 任務` : ""}</div></div><div class="actions compact entry-actions"><button class="btn amber" data-edit-id="${e.id}">編輯</button><button class="btn red" data-del-id="${e.id}">刪除</button></div></div>`).join("") : `<div class="empty today-empty-state"><b>${selectedIsToday ? "今天" : selectedLabel}尚未建立工時</b></div>`}</div><div class="panel-fixed-footer today-panel-footer"><button class="btn full today-add-bottom" data-action="add">＋ 新增工時</button></div>`;
 }
 
 function suggestionBatchSize(viewportWidth = window.innerWidth) {
@@ -2195,6 +2272,8 @@ function suggestionPriority(model = {}) {
     + (metrics.addedCount * 10)
     + (metrics.editedCount * 2)
     - (metrics.deletedCount * 5)
+    + (metrics.recent7Days * 8)
+    + (metrics.recent30Days * 3)
     + (usageFrequency * 18)
     + commonTimeScore
     + (primaryRoleMatch * 10)
@@ -2218,6 +2297,7 @@ function makeSuggestions() {
     .map(model => {
       const ranking = suggestionPriority(model);
       const metrics = suggestionMetricsFor(model);
+      const learnedConfidence = (model.sourceReferences || []).reduce((highest, reference) => Math.max(highest, Number(reference?.confidence || 0)), 0);
       return {
         id: model.name,
         title: model.name,
@@ -2228,6 +2308,7 @@ function makeSuggestions() {
         sourceLabel: `📂 來源：${model.name}`,
         priority: ranking.score,
         reason: ranking.reason,
+        confidence: learnedConfidence > 0 ? learnedConfidence : 0.85,
         sortOrder: model.sortOrder
       };
     })
@@ -2235,7 +2316,7 @@ function makeSuggestions() {
 }
 
 function suggestionCardMarkup(item = {}) {
-  return `<div class="suggestion-scan-item"><div class="suggestion-scan-body"><h3>${escapeHtml(item.title)}</h3><div class="suggestion-card-meta"><span>${escapeHtml(item.sourceLabel || `📂 來源：${item.title}`)}</span><span>⏱ 建議：${Number(item.hours || 1)}h</span></div><details class="suggestion-reason"><summary>ℹ︎ 為什麼推薦？</summary><p>${escapeHtml(item.reason || "這是你已確認的「我的工作」，可直接加入今天工時。")}</p></details><div class="actions suggestion-actions"><button class="btn green" data-accept="${escapeHtml(item.id)}">加入工時</button><button class="btn2" data-adjust="${escapeHtml(item.id)}">調整</button></div></div></div>`;
+  return `<div class="suggestion-scan-item"><div class="suggestion-scan-body"><h3>${escapeHtml(item.title)}</h3><div class="suggestion-card-meta"><span>${escapeHtml(item.sourceLabel || `📂 來源：${item.title}`)}</span><span>⏱ 建議：${formatHumanDuration(item.hours || 1)}</span></div><details class="suggestion-reason"><summary>ℹ︎ 為什麼推薦？</summary><p>${escapeHtml(item.reason || "這是你已確認的「我的工作」，可直接加入今天工時。")}</p></details><div class="actions suggestion-actions"><button class="btn green" data-accept="${escapeHtml(item.id)}">加入工時</button><button class="btn2" data-adjust="${escapeHtml(item.id)}">調整</button></div></div></div>`;
 }
 
 function suggestionPanel() {
@@ -2311,15 +2392,15 @@ function renderAssistantCard(card = null) {
   }
   if (card.type === "confirm_entry") {
     const p = card.payload || {};
-    return `<div class="assistant-command-card"><div class="assistant-card-title">請確認這筆工時</div><div class="assistant-card-grid"><span>日期</span><b>${escapeHtml(p.date || "")}</b><span>時間</span><b>${escapeHtml(p.start || "")}–${escapeHtml(p.end || "")}</b><span>工時</span><b>${escapeHtml(String(p.hours || ""))}h</b><span>描述</span><b>${escapeHtml(p.title || "")}</b><span>分類</span><b>${escapeHtml(p.category || "一般工作")}</b><span>性質</span><b>${escapeHtml(p.nature || "一般工作")}</b></div><div class="assistant-card-actions"><button class="btn green" type="button" data-assistant-confirm-entry="1">確認建立</button><button class="btn2" type="button" data-assistant-cancel-command="1">取消</button></div></div>`;
+    return `<div class="assistant-command-card"><div class="assistant-card-title">請確認這筆工時</div><div class="assistant-card-grid"><span>日期</span><b>${escapeHtml(p.date || "")}</b><span>時間</span><b>${escapeHtml(p.start || "")}–${escapeHtml(p.end || "")}</b><span>工時</span><b>${escapeHtml(formatHumanDuration(p.hours))}</b><span>描述</span><b>${escapeHtml(p.title || "")}</b><span>分類</span><b>${escapeHtml(p.category || "一般工作")}</b><span>性質</span><b>${escapeHtml(p.nature || "一般工作")}</b></div><div class="assistant-card-actions"><button class="btn green" type="button" data-assistant-confirm-entry="1">確認建立</button><button class="btn2" type="button" data-assistant-cancel-command="1">取消</button></div></div>`;
   }
   if (card.type === "duration_prompt") {
     const title = card.intent === "leave" ? "請選擇請假時間" : "請選擇預計時間";
-    return `<div class="assistant-command-card"><div class="assistant-card-title">${escapeHtml(title)}</div><div class="assistant-duration-row">${[0.5, 1, 1.5, 2].map(h => `<button class="btn2" type="button" data-assistant-duration="${h}">${h === 0.5 ? "30m" : h + "h"}</button>`).join("")}<button class="btn2" type="button" data-assistant-custom-duration="1">自訂</button></div></div>`;
+    return `<div class="assistant-command-card"><div class="assistant-card-title">${escapeHtml(title)}</div><div class="assistant-duration-row">${[0.5, 1, 1.5, 2].map(h => `<button class="btn2" type="button" data-assistant-duration="${h}">${formatHumanDuration(h)}</button>`).join("")}<button class="btn2" type="button" data-assistant-custom-duration="1">自訂</button></div></div>`;
   }
   if (card.type === "entry_created") {
     const p = card.payload || {};
-    return `<div class="assistant-command-card assistant-created-card"><div class="assistant-card-title">✅ 已建立工時</div><div class="assistant-card-grid"><span>描述</span><b>${escapeHtml(p.title || "")}</b><span>日期</span><b>${escapeHtml(p.date || "")}</b><span>時間</span><b>${escapeHtml(p.start || "")}–${escapeHtml(p.end || "")}</b><span>工時</span><b>${escapeHtml(String(p.hours || ""))}h</b></div></div>`;
+    return `<div class="assistant-command-card assistant-created-card"><div class="assistant-card-title">✅ 已建立工時</div><div class="assistant-card-grid"><span>描述</span><b>${escapeHtml(p.title || "")}</b><span>日期</span><b>${escapeHtml(p.date || "")}</b><span>時間</span><b>${escapeHtml(p.start || "")}–${escapeHtml(p.end || "")}</b><span>工時</span><b>${escapeHtml(formatHumanDuration(p.hours))}</b></div></div>`;
   }
   if (card.type === "task_draft") {
     const p = card.payload || {};
@@ -2331,11 +2412,11 @@ function renderAssistantCard(card = null) {
   }
   if (card.type === "confirm_calendar") {
     const p = card.payload || {};
-    return `<div class="assistant-command-card"><div class="assistant-card-title">請確認這筆工時</div><div class="assistant-card-grid"><span>日期</span><b>${escapeHtml(p.date || "")}</b><span>時間</span><b>${escapeHtml(p.start || "")}–${escapeHtml(p.end || "")}</b><span>工時</span><b>${escapeHtml(String(p.hours || ""))}h</b><span>內容</span><b>${escapeHtml(p.title || "")}</b></div><div class="assistant-card-actions"><button class="btn green" type="button" data-assistant-confirm-calendar="1">確認建立</button><button class="btn2" type="button" data-assistant-cancel-command="1">取消</button></div></div>`;
+    return `<div class="assistant-command-card"><div class="assistant-card-title">請確認這筆工時</div><div class="assistant-card-grid"><span>日期</span><b>${escapeHtml(p.date || "")}</b><span>時間</span><b>${escapeHtml(p.start || "")}–${escapeHtml(p.end || "")}</b><span>工時</span><b>${escapeHtml(formatHumanDuration(p.hours))}</b><span>內容</span><b>${escapeHtml(p.title || "")}</b></div><div class="assistant-card-actions"><button class="btn green" type="button" data-assistant-confirm-calendar="1">確認建立</button><button class="btn2" type="button" data-assistant-cancel-command="1">取消</button></div></div>`;
   }
   if (card.type === "calendar_created") {
     const p = card.payload || {};
-    return `<div class="assistant-command-card assistant-created-card"><div class="assistant-card-title">✅ 已建立工時</div><div class="assistant-card-grid"><span>內容</span><b>${escapeHtml(p.title || "")}</b><span>日期</span><b>${escapeHtml(p.date || "")}</b><span>時間</span><b>${escapeHtml(p.start || "")}–${escapeHtml(p.end || "")}</b><span>工時</span><b>${escapeHtml(String(p.hours || ""))}h</b></div></div>`;
+    return `<div class="assistant-command-card assistant-created-card"><div class="assistant-card-title">✅ 已建立工時</div><div class="assistant-card-grid"><span>內容</span><b>${escapeHtml(p.title || "")}</b><span>日期</span><b>${escapeHtml(p.date || "")}</b><span>時間</span><b>${escapeHtml(p.start || "")}–${escapeHtml(p.end || "")}</b><span>工時</span><b>${escapeHtml(formatHumanDuration(p.hours))}</b></div></div>`;
   }
   if (card.type === "work_profile_confirm") {
     const p = normalizeWorkProfile(card.payload || {}, profile);
@@ -2383,7 +2464,7 @@ function assistantNudgeText() {
   const remaining = Math.max(0, Math.round((8 - done) * 10) / 10);
   if (!profile) return "💬 Mr. KM";
   if (remaining <= 0) return "💬 今天工時已完成 ✅";
-  return `💬 今天還有 ${remaining}h 尚未紀錄`;
+  return `💬 今天還有 ${formatHumanDuration(remaining)} 尚未紀錄`;
 }
 
 function assistantWelcomePanel(mode = "floating") {
@@ -2478,7 +2559,7 @@ function capture(editId = null, seed = null) {
   const ecpTask = e ? (e.ecpTask || "") : (seed ? seed.ecpTask || defaultEcpTaskName(seed.title) : defaultEcpTaskName(title));
   const isSuggestion = Boolean(seed?.suggestionId || seed?.source === "ai-card");
   const startAt = e?.at || seed?.at || captureDefaultStart(seed?.hours || 1);
-  return `<section class="panel capture-panel" style="margin-top:18px"><div class="panel-head"><div><h2>${e ? "編輯工時" : isSuggestion ? "確認加入工時" : "➕ 快速紀錄"}</h2>${isSuggestion ? `<div class="muted">Mr. KM 已建議可用時間；確認後才會正式寫入工時月曆。</div>` : ""}</div></div><div class="form capture-form"><label>日期 / 開始時間</label><input class="input" id="dt" type="datetime-local" value="${startAt}"><label>工作描述（必填）</label><input class="input" id="title" value="${escapeHtml(title)}" placeholder="例如：採購案件處理、特休" autocomplete="off">${descriptionSuggestionChips(title)}<label>ECP 任務（選填）</label><select id="ecpTaskSelect" class="input">${ecpTaskOptions(ecpTask)}</select><div class="work-model-add ecp-task-quick-add" id="ecpTaskQuickAdd" style="display:none"><input class="input" id="newEcpTaskCapture" placeholder="新增 ECP 任務，例如：採購案件處理"><button class="btn2" data-add-capture-ecp-task="1" type="button">＋ 新增</button></div><label>工時</label><div class="row hours">${[0.5, 1, 1.5, 2, 3, 4, 5, 8].map(h => `<button class="btn2 hour ${Number(seed?.hours || e?.hours || 1) === h ? "selected" : ""}" data-h="${h}">${h === 0.5 ? "30m" : h + "h"}</button>`).join("")}</div><label>備註（選填）</label><input class="input" id="note" value="${escapeHtml(note)}" placeholder="補充說明，不參與 ECP 匯出"><div class="form-actions capture-actions"><button class="btn2" data-capture-cancel="1">取消</button><button class="btn" id="saveEntry">${isSuggestion ? "確認建立" : "儲存"}</button></div></div></section>`;
+  return `<section class="panel capture-panel" style="margin-top:18px"><div class="panel-head"><div><h2>${e ? "編輯工時" : isSuggestion ? "確認加入工時" : "➕ 快速紀錄"}</h2>${isSuggestion ? `<div class="muted">這筆建議需要確認時間或內容，確認後才會正式寫入工時月曆。</div>` : ""}</div></div><div class="form capture-form"><label>日期 / 開始時間</label><input class="input" id="dt" type="datetime-local" value="${startAt}"><label>工作描述（必填）</label><input class="input" id="title" value="${escapeHtml(title)}" placeholder="例如：採購案件處理、特休" autocomplete="off">${descriptionSuggestionChips(title)}<label>ECP 任務（選填）</label><select id="ecpTaskSelect" class="input">${ecpTaskOptions(ecpTask)}</select><div class="work-model-add ecp-task-quick-add" id="ecpTaskQuickAdd" style="display:none"><input class="input" id="newEcpTaskCapture" placeholder="新增 ECP 任務，例如：採購案件處理"><button class="btn2" data-add-capture-ecp-task="1" type="button">＋ 新增</button></div><label>工時</label><div class="row hours">${[0.5, 1, 1.5, 2, 3, 4, 5, 8].map(h => `<button class="btn2 hour ${Number(seed?.hours || e?.hours || 1) === h ? "selected" : ""}" data-h="${h}">${formatHumanDuration(h)}</button>`).join("")}</div><label>備註（選填）</label><input class="input" id="note" value="${escapeHtml(note)}" placeholder="補充說明，不參與 ECP 匯出"><div class="form-actions capture-actions"><button class="btn2" data-capture-cancel="1">取消</button><button class="btn" id="saveEntry">${isSuggestion ? "確認建立" : "儲存"}</button></div></div></section>`;
 }
 
 function sync() {
@@ -3706,6 +3787,33 @@ async function acceptSuggestion(id) {
   const s = makeSuggestions().find(x => x.id === id);
   if (!s) return;
   const resolved = resolveWorklogTime({ dateKey: key(), hours: s.hours || 1 });
+  const item = createEntry({
+    date: resolved.dateKey,
+    at: resolved.at,
+    title: s.title,
+    note: s.note,
+    ecpTask: s.ecpTask,
+    hours: s.hours,
+    source: "ai-card"
+  });
+  const requiresConfirmation = resolved.reason !== "earliest_gap"
+    || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(String(resolved.at || ""))
+    || !Number.isFinite(Number(s.hours))
+    || Number(s.hours) <= 0
+    || Number(s.confidence ?? 0.85) < 0.65
+    || worklogTimeConflicts(item)
+    || Boolean(validateEntry(item));
+  if (!requiresConfirmation) {
+    const saved = await persistEntry(item);
+    if (!saved) return;
+    recordSuggestionMetric(s.id, "added", saved);
+    feedback[s.id] = (feedback[s.id] || 0) + 1;
+    saveAll({ skipSync: true });
+    view = "center";
+    render();
+    showCreatedWorklogToast(saved);
+    return;
+  }
   editingEntryId = null;
   captureSeed = { ...s, at: resolved.at, timeResolution: resolved.reason, source: "ai-card", suggestionId: s.id, confirmationOnly: true };
   activeWorkspace = "worklog";

@@ -1,5 +1,26 @@
 # WorkLog RC3 Release Patch1
 
+## Build 20260716-1536 - P5.7.1 Final Stabilization / UI Freeze
+
+- 工時顯示全面改為人類閱讀格式；歷史平均 `1.67h` 會顯示為 `1h 40m`。
+- Mr. KM 建議在日期、時數、信心與時段皆可靠時直接建立工時，並顯示可「復原／編輯」的完成提示。
+- 時間衝突、資料不完整或低信心時仍保留確認畫面，不會冒險直接寫入。
+- 建議卡維持可重複使用；加入工時後不移除，排序會持續學習最近 7 天／30 天、平均工時與常見時間。
+- Desktop 保持固定 Header／Scrollable Content／固定 Footer；Mobile 改為自然高度與整頁捲動。
+- WorkLog Card 改為正常 Flex Column Flow，卡片高度自動、禁止重疊或按鈕被裁切。
+- Supabase Schema、DataService 正式流程、Work Memory 與 AI Logic 邊界未變更。
+
+### QA
+
+- Human Duration：30m／1h／1h 30m／1h 40m／2h PASS。
+- Time Resolution：明確時間／剛剛／現在／才完成／最早空缺／午休／跨午休／超過 18:00／下一工作日 09:00 PASS。
+- WorkLog List：Desktop 內部 Scroll、Mobile 自然延伸、Card 不重疊 PASS。
+- P5.5～P5.7.1 自動回歸測試：PASS。
+
+### 🎯 Mr. KM Perspective
+
+這一版，我不再把平均工時顯示成難懂的小數，也不會讓主人為每一張可靠建議多做一次確認。一般情況我會直接完成，遇到不確定時才請主人決定；同一份建議仍可重複使用，我也會持續記住近期使用方式。
+
 ## Build 20260716-1349 - P5.7 Final Patch / UI Freeze
 
 - 我的工時改為固定 Header、可捲動清單與固定 Footer；新增工時按鈕不再被內容推移，空資料提示改為緊湊狀態。

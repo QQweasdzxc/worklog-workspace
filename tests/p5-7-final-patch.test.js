@@ -89,13 +89,17 @@ assert(following.at === "2026-07-17T09:00", "After an overtime-ending day, autom
 const makeSuggestions = functionSource("makeSuggestions");
 assert(!makeSuggestions.includes("done.some"), "Used suggestions must remain reusable");
 const acceptSuggestion = functionSource("acceptSuggestion");
-assert(acceptSuggestion.includes("confirmationOnly: true"), "Suggestion CTA must open confirmation instead of directly saving");
-assert(!acceptSuggestion.includes("persistEntry("), "Suggestion CTA must not persist before confirmation");
+assert(acceptSuggestion.includes("requiresConfirmation"), "Suggestion CTA must distinguish normal and exceptional paths");
+assert(acceptSuggestion.includes("persistEntry(item)"), "Normal suggestion CTA must create WorkLog directly");
+assert(acceptSuggestion.includes("confirmationOnly: true"), "Exceptional suggestions must retain confirmation fallback");
+assert(acceptSuggestion.includes("showCreatedWorklogToast(saved)"), "Fast create must expose undo/edit feedback");
 assert(app.includes("suggestionCount") && app.includes("addedCount") && app.includes("editedCount") && app.includes("deletedCount"), "Suggestion usage metrics are incomplete");
 assert(app.includes("averageHours") && app.includes("commonTimes") && app.includes("usageFrequency"), "Suggestion learning signals are incomplete");
+assert(app.includes("recent7Days") && app.includes("recent30Days") && app.includes("usageEvents"), "Recent suggestion learning windows are incomplete");
 assert(app.includes("Primary Role") && app.includes("Secondary Role"), "Work DNA role hierarchy is missing");
 assert(app.includes('["日", "一", "二", "三", "四", "五", "六"]'), "Calendar weekday order must remain Sunday through Saturday");
 assert(css.includes(".today-module .today-entry-list{display:flex;flex-direction:column"), "WorkLog list must own remaining flex height");
 assert(css.includes(".panel-fixed-header,.panel-fixed-footer{flex:0 0 auto}"), "Panel headers and footers must stay fixed");
+assert(css.includes(".workbench-grid>.today-module{height:auto!important;min-height:0!important;max-height:none!important"), "Mobile WorkLog panel must use natural height");
 
 console.log("P5.7 Final Patch tests: PASS");
