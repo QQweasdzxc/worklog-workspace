@@ -28,7 +28,7 @@ const context = {
   profile: { workHours: "09:00~18:00", lunch: "12:00~13:00" },
   entries: [],
   selected: new Date(2026, 6, 16),
-  LUNCH_STATES: { NORMAL: "NORMAL", COVERED: "COVERED", DELAYED: "DELAYED", UNKNOWN: "UNKNOWN" },
+  LUNCH_STATES: { NORMAL: "NORMAL", DELAYED: "DELAYED", WAIVED: "WAIVED", UNKNOWN: "UNKNOWN" },
   Math,
   Number,
   Date,
@@ -52,6 +52,7 @@ vm.createContext(context);
   "mergeTimeIntervals",
   "workIntervalsForDate",
   "determineLunchState",
+  "workScheduleContext",
   "timeResolutionContext",
   "availableStartMinutes",
   "dateFromWorkKey",
@@ -70,18 +71,19 @@ context.entries = [{ id: "morning", date: "2026-07-16", at: "2026-07-16T09:00", 
 assert(context.timeResolutionContext("2026-07-16").lunchState === "NORMAL", "09:00-12:00 must retain NORMAL lunch state");
 assert(context.resolveWorklogTime({ dateKey: "2026-07-16", hours: 1 }).at === "2026-07-16T13:00", "NORMAL lunch must skip 12:00-13:00");
 
-// Case 2: work already spans the nominal lunch, so no second lunch is inserted.
-context.entries = [{ id: "covered", date: "2026-07-16", at: "2026-07-16T09:00", hours: 5, status: "completed" }];
-assert(context.timeResolutionContext("2026-07-16").lunchState === "COVERED", "09:00-14:00 must cover lunch");
-const coveredNext = context.resolveWorklogTime({ dateKey: "2026-07-16", hours: 1 });
-assert(coveredNext.at === "2026-07-16T14:00", "COVERED lunch must continue at 14:00");
-assert(coveredNext.previousLunchState === "COVERED", "Resolution must expose the current covered state");
+// v2.1 supersedes COVERED: work spanning lunch delays a full one-hour break.
+context.entries = [{ id: "delayed", date: "2026-07-16", at: "2026-07-16T09:00", hours: 5, status: "completed" }];
+assert(context.timeResolutionContext("2026-07-16").lunchState === "DELAYED", "09:00-14:00 must delay lunch");
+const delayedNext = context.resolveWorklogTime({ dateKey: "2026-07-16", hours: 1 });
+assert(delayedNext.at === "2026-07-16T15:00", "Deferred lunch must reserve 14:00-15:00");
+assert(delayedNext.previousLunchState === "DELAYED", "Resolution must expose the current delayed state");
 
-// Case 3: an explicit two-hour entry may cross lunch and makes the resulting state covered.
+// Case 3: an explicit two-hour entry may cross lunch and delays lunch without moving the explicit work.
 context.entries = [];
 const crossLunch = context.resolveWorklogTime({ dateKey: "2026-07-16", hours: 2, explicitAt: "2026-07-16T11:30" });
 assert(crossLunch.at === "2026-07-16T11:30", "Explicit cross-lunch start must remain unchanged");
-assert(crossLunch.lunchState === "COVERED", "11:30-13:30 must result in COVERED lunch state");
+assert(crossLunch.lunchState === "DELAYED", "11:30-13:30 must result in DELAYED lunch state");
+assert(crossLunch.lunchWindow.start === 13 * 60 + 30 && crossLunch.lunchWindow.end === 14 * 60 + 30, "Cross-lunch work must defer lunch to 13:30-14:30");
 
 // DELAYED: partial lunch overlap reserves a full delayed lunch after the overlapping work.
 context.entries = [{ id: "delayed", date: "2026-07-16", at: "2026-07-16T09:00", hours: 3.5, status: "completed" }];
@@ -98,6 +100,7 @@ assert(context.resolveWorklogTime({ dateKey: "2026-07-16", hours: 1 }).at === "2
 // Completing eight hours also advances future automatic work without blocking explicit overtime.
 context.entries = [{ id: "full-day", date: "2026-07-16", at: "2026-07-16T09:00", hours: 8, status: "completed" }];
 assert(context.timeResolutionContext("2026-07-16").completedEightHours === true, "Eight-hour completion must be part of engine context");
+assert(context.timeResolutionContext("2026-07-16").lunchState === "WAIVED", "A completed eight-hour day must waive lunch scheduling");
 assert(context.resolveWorklogTime({ dateKey: "2026-07-16", hours: 1 }).at === "2026-07-17T09:00", "Automatic work after eight hours must move to next workday");
 
 const createEntry = functionSource("createEntry");

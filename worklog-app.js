@@ -739,8 +739,8 @@ function mergeTimeIntervals(intervals = []) {
 
 const LUNCH_STATES = Object.freeze({
   NORMAL: "NORMAL",
-  COVERED: "COVERED",
   DELAYED: "DELAYED",
+  WAIVED: "WAIVED",
   UNKNOWN: "UNKNOWN"
 });
 
@@ -762,40 +762,40 @@ function workIntervalsForDate(dateKey = key(), excludeId = null, reserved = []) 
   return [...persisted, ...planned];
 }
 
-function determineLunchState(intervals = [], schedule = profileWorkSchedule()) {
+function determineLunchState(intervals = [], schedule = profileWorkSchedule(), options = {}) {
   const lunchStart = Number(schedule?.lunchStart);
   const lunchEnd = Number(schedule?.lunchEnd);
   if (!Number.isFinite(lunchStart) || !Number.isFinite(lunchEnd) || lunchEnd <= lunchStart) {
     return { state: LUNCH_STATES.UNKNOWN, window: null, nominalWindow: null };
   }
   const nominalWindow = { start: lunchStart, end: lunchEnd };
+  if (options.completedEightHours) {
+    return { state: LUNCH_STATES.WAIVED, window: null, nominalWindow };
+  }
   const merged = mergeTimeIntervals(intervals);
-  if (merged.some(interval => interval.start <= lunchStart && interval.end >= lunchEnd)) {
-    return { state: LUNCH_STATES.COVERED, window: null, nominalWindow };
+  const lunchDuration = lunchEnd - lunchStart;
+  let window = { ...nominalWindow };
+  let delayed = false;
+  for (let attempt = 0; attempt <= merged.length; attempt += 1) {
+    const overlap = merged.find(interval => interval.start < window.end && interval.end > window.start);
+    if (!overlap) break;
+    window = { start: overlap.end, end: overlap.end + lunchDuration };
+    delayed = true;
   }
-  const overlapping = merged.filter(interval => interval.start < lunchEnd && interval.end > lunchStart);
-  if (overlapping.length) {
-    const lunchDuration = lunchEnd - lunchStart;
-    const delayedStart = Math.max(lunchStart, ...overlapping.map(interval => interval.end));
-    return {
-      state: LUNCH_STATES.DELAYED,
-      window: { start: delayedStart, end: delayedStart + lunchDuration },
-      nominalWindow
-    };
-  }
-  return { state: LUNCH_STATES.NORMAL, window: nominalWindow, nominalWindow };
+  return { state: delayed ? LUNCH_STATES.DELAYED : LUNCH_STATES.NORMAL, window, nominalWindow };
 }
 
-function timeResolutionContext(dateKey = key(), excludeId = null, reserved = []) {
+function workScheduleContext(dateKey = key(), excludeId = null, reserved = []) {
   const schedule = profileWorkSchedule();
   const intervals = workIntervalsForDate(dateKey, excludeId, reserved);
-  const lunch = determineLunchState(intervals, schedule);
   const persistedMinutes = entries
     .filter(entry => entry.date === dateKey && entry.id !== excludeId && entry.status !== "deleted")
     .reduce((sum, entry) => sum + Math.max(0, Math.round(Number(entry.hours || 0) * 60)), 0);
   const reservedMinutes = (Array.isArray(reserved) ? reserved : [])
     .reduce((sum, interval) => sum + Math.max(0, Number(interval?.end || 0) - Number(interval?.start || 0)), 0);
   const workedMinutes = persistedMinutes + reservedMinutes;
+  const completedEightHours = workedMinutes >= 8 * 60;
+  const lunch = determineLunchState(intervals, schedule, { completedEightHours });
   return {
     dateKey,
     schedule,
@@ -805,8 +805,12 @@ function timeResolutionContext(dateKey = key(), excludeId = null, reserved = [])
     lunchWindow: lunch.window,
     nominalLunchWindow: lunch.nominalWindow,
     workedMinutes,
-    completedEightHours: workedMinutes >= 8 * 60
+    completedEightHours
   };
+}
+
+function timeResolutionContext(dateKey = key(), excludeId = null, reserved = []) {
+  return workScheduleContext(dateKey, excludeId, reserved);
 }
 
 function availableStartMinutes(dateKey = key(), durationHours = 1, excludeId = null, reserved = []) {
@@ -821,7 +825,7 @@ function availableStartMinutes(dateKey = key(), durationHours = 1, excludeId = n
   const normalizeAutomaticCandidate = value => {
     const candidate = Math.max(Number(value || 0), s.workStart);
     const lunchWindow = context.lunchWindow;
-    if (!lunchWindow || context.lunchState === LUNCH_STATES.COVERED) return candidate;
+    if (!lunchWindow) return candidate;
     return candidate >= lunchWindow.start && candidate < lunchWindow.end ? lunchWindow.end : candidate;
   };
 
@@ -877,8 +881,11 @@ function finalizeTimeResolution(result = {}, hours = 1, excludeId = null, reserv
     ...result,
     dateKey,
     previousLunchState: before.lunchState,
+    previousLunchWindow: before.lunchWindow,
     lunchState: after.lunchState,
-    completedEightHours: before.completedEightHours
+    lunchWindow: after.lunchWindow,
+    previousCompletedEightHours: before.completedEightHours,
+    completedEightHours: after.completedEightHours
   };
 }
 

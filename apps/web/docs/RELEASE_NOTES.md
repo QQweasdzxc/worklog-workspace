@@ -1,5 +1,32 @@
 # WorkLog RC3 Release Patch1
 
+## Build 20260716-1802 - P5.7.3 Work Schedule Engine v2.1
+
+- Time Resolution Engine 正式收斂為 Work Schedule Engine，統一處理上班時間、正常午休、延後午休、8 小時完成、加班與跨日排程。
+- 自動排程不再將跨午休工作視為「午休消失」；只要當日未滿 8 小時，Engine 就保留完整一小時午休。
+- `09:00～12:00` 後保留 `12:00～13:00`，下一筆從 `13:00` 開始。
+- `09:00～13:00／14:00／15:00／16:00` 會將午休分別順延至 `13:00／14:00／15:00／16:00` 後一小時，下一筆從午休結束後開始。
+- `09:00～17:00` 已完成 8 小時，Lunch State 改為 `WAIVED`，不再安排當日午休或同日自動時段。
+- 使用者明確指定的時間永遠保留；若指定時間再次占用延後午休，Engine 會繼續順延午休，而不移動使用者的工時。
+- Lunch 只存在於排程 Context，不會建立為 WorkLog Entry。
+- 保留 `timeResolutionContext()` 相容入口，正式委派給 `workScheduleContext()`，供 Chat、建議卡、手動新增與未來 P6 能力共用。
+- 未修改 UI、Supabase Schema、DataService、Work Memory 或 P6 功能。
+
+### QA
+
+- 09～12 → Lunch 12～13 → 下一筆 13～14：PASS。
+- 09～13 → Lunch 13～14 → 下一筆 14～15：PASS。
+- 09～14 → Lunch 14～15 → 下一筆 15～16：PASS。
+- 09～15 → Lunch 15～16 → 下一筆 16～17：PASS。
+- 09～16 → Lunch 16～17 → 下一筆 17～18：PASS。
+- 09～17 → 8h 完成／Lunch WAIVED／不再安排同日空檔：PASS。
+- 明確時間不移動、延後午休可再次順延：PASS。
+- P5.5～P5.7.3 完整自動回歸測試：PASS。
+
+### 🎯 Mr. KM Perspective
+
+這一版，我知道主人忙到跨過午休，不代表午休應該消失。我會把完整的一小時往後保留；只有主人今天已完成八小時，我才不再安排午休或新的同日工作。
+
 ## Build 20260716-1655 - P5.7.2 Time Resolution Engine v2
 
 - 新增正式 Lunch State：`NORMAL`、`COVERED`、`DELAYED`、`UNKNOWN`。
