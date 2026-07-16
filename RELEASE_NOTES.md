@@ -1,5 +1,31 @@
 # WorkLog RC3 Release Patch1
 
+## Build 20260716-1349 - P5.7 Final Patch / UI Freeze
+
+- 我的工時改為固定 Header、可捲動清單與固定 Footer；新增工時按鈕不再被內容推移，空資料提示改為緊湊狀態。
+- Mr. KM 建議維持可重複使用；加入工時不再讓建議消失。
+- 「加入工時」改為先解析建議時間並進入確認畫面，只有按下「確認建立」才寫入 WorkLog。
+- 建議使用訊號納入 Cloud Work Memory：建議、加入、調整、刪除次數、最近使用、平均工時、常見時間與使用頻率。
+- Chat 與建議卡共用 Time Resolution Engine：明確時間優先，其次為剛剛／現在，無時間才找最早空缺。
+- 自動找空缺會避開 12:00–13:00；使用者明確指定跨午休或超過 18:00 時不拆分、不阻擋。
+- 當今日最後一筆超過 18:00，下一筆自動建議從下一工作日 09:00 開始。
+- Chat 會推論工作分類、標籤與性質；信心不足時先向使用者確認。
+- Work DNA 顯示 Primary Role、Secondary Role 與比例；建議排序納入角色權重和使用訊號。
+- Tablet 改為兩欄工作區加全寬建議區，避免三欄過度壓縮；Mobile 與 Desktop 保留既有功能。
+- 月曆星期順序統一為日、一、二、三、四、五、六。
+
+### QA
+
+- WorkLog CRUD／排序／清單 Scroll：PASS
+- Time Resolution（明確、剛剛、現在、無時間、午休、跨午休、加班、隔日 09:00）：PASS
+- P5.5～P5.7 既有自動回歸測試：PASS
+- JavaScript syntax／Root-Web-Extension 一致性：PASS
+- Supabase Schema：未修改；使用權重沿用 `user_work_models.source_references` JSONB。
+
+### 🎯 Mr. KM Perspective
+
+這一版，我不會把建議當成一次性的待辦。你可以重複使用同一項工作，我會記住你何時採用、通常花多久，也會先提出合適時間，再等你確認後才正式建立工時。
+
 ## Build 20260715-0857 - P5.6 Mobile Suggestion Hotfix
 
 - 修正 Mobile 預設「📝 工時」頁將 `.suggestion-module` 隱藏，造成 Mr. KM 建議功能消失的 responsive regression。

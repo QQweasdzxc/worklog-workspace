@@ -310,6 +310,17 @@ function normalizeWorkMemoryObject(value = {}, index = 0, existing = null) {
   const sourceReferences = Array.isArray(sourceReferencesRaw)
     ? sourceReferencesRaw.filter(Boolean).map(reference => typeof reference === "string" ? { label: reference } : reference)
     : [];
+  if (!sourceReferences.some(reference => reference?.type === "role_profile")) {
+    const runtimeRole = typeof profile !== "undefined" ? profile?.role : "";
+    const primaryRole = String(raw.primaryRole || base.primaryRole || runtimeRole || "採購");
+    const secondaryRole = String(raw.secondaryRole || raw.category || base.category || "一般工作");
+    sourceReferences.push({
+      type: "role_profile",
+      primaryRole,
+      secondaryRoles: secondaryRole && secondaryRole !== primaryRole ? [{ role: secondaryRole, ratio: 0.3 }] : [],
+      primaryRatio: secondaryRole && secondaryRole !== primaryRole ? 0.7 : 1
+    });
+  }
   return {
     id: raw.id || raw.cloudId || base.id || base.cloudId || "",
     cloudId: raw.cloudId || raw.id || base.cloudId || base.id || "",
@@ -339,6 +350,88 @@ function workMemoryObjects() {
 
 function workModels() {
   return [...new Set(workMemoryObjects().filter(item => item.isActive).map(item => item.name))];
+}
+
+function systemReference(model = {}, type = "") {
+  return (model.sourceReferences || []).find(reference => reference?.type === type) || null;
+}
+
+function suggestionMetricsFor(model = {}) {
+  const value = systemReference(model, "suggestion_metrics") || {};
+  return {
+    suggestionCount: Number(value.suggestionCount || 0),
+    addedCount: Number(value.addedCount || 0),
+    editedCount: Number(value.editedCount || 0),
+    deletedCount: Number(value.deletedCount || 0),
+    lastUsedAt: value.lastUsedAt || model.lastUsedAt || "",
+    averageHours: Number(value.averageHours || 0),
+    commonTimes: value.commonTimes && typeof value.commonTimes === "object" ? value.commonTimes : {},
+    presentedDates: Array.isArray(value.presentedDates) ? value.presentedDates : []
+  };
+}
+
+function roleProfileFor(model = {}) {
+  const value = systemReference(model, "role_profile") || {};
+  const primaryRole = String(value.primaryRole || profile?.role || "採購");
+  const secondaryRoles = Array.isArray(value.secondaryRoles) ? value.secondaryRoles : [];
+  return {
+    primaryRole,
+    primaryRatio: Number(value.primaryRatio ?? (secondaryRoles.length ? 0.7 : 1)),
+    secondaryRoles,
+    usageByRole: value.usageByRole && typeof value.usageByRole === "object" ? value.usageByRole : { [primaryRole]: 1 }
+  };
+}
+
+function recordSuggestionMetric(modelName = "", event = "suggested", entry = null) {
+  const models = workMemoryObjects();
+  const index = models.findIndex(model => model.name === String(modelName || ""));
+  if (index < 0) return;
+  const model = { ...models[index] };
+  const current = suggestionMetricsFor(model);
+  const today = key(new Date());
+  if (event === "suggested" && current.presentedDates.includes(today)) return;
+  const next = { ...current };
+  if (event === "suggested") {
+    next.suggestionCount += 1;
+    next.presentedDates = [...current.presentedDates.slice(-29), today];
+  }
+  if (event === "added") next.addedCount += 1;
+  if (event === "edited") next.editedCount += 1;
+  if (event === "deleted") next.deletedCount += 1;
+  if (["added", "edited", "deleted"].includes(event)) next.lastUsedAt = new Date().toISOString();
+  if (event === "added" && entry) {
+    const previousTotal = current.averageHours * current.addedCount;
+    next.averageHours = Math.round(((previousTotal + Number(entry.hours || 0)) / Math.max(1, next.addedCount)) * 100) / 100;
+    const commonTime = String(entry.at || "").slice(11, 16);
+    if (commonTime) next.commonTimes = { ...current.commonTimes, [commonTime]: Number(current.commonTimes[commonTime] || 0) + 1 };
+  }
+  if (event === "edited" && entry && next.addedCount > 0) {
+    next.averageHours = Math.round(((current.averageHours * Math.max(0, next.addedCount - 1) + Number(entry.hours || 0)) / next.addedCount) * 100) / 100;
+    const commonTime = String(entry.at || "").slice(11, 16);
+    if (commonTime) next.commonTimes = { ...current.commonTimes, [commonTime]: Number(current.commonTimes[commonTime] || 0) + 1 };
+  }
+  next.usageFrequency = next.suggestionCount ? Math.round(next.addedCount / next.suggestionCount * 1000) / 1000 : 0;
+  model.lastUsedAt = next.lastUsedAt || model.lastUsedAt;
+  const roleProfile = roleProfileFor(model);
+  if (event === "added") {
+    const learnedRole = model.category && model.category !== "一般工作" ? model.category : roleProfile.primaryRole;
+    roleProfile.usageByRole = { ...roleProfile.usageByRole, [learnedRole]: Number(roleProfile.usageByRole[learnedRole] || 0) + 1 };
+    const total = Math.max(1, Object.values(roleProfile.usageByRole).reduce((sum, count) => sum + Number(count || 0), 0));
+    roleProfile.primaryRatio = Math.round(Number(roleProfile.usageByRole[roleProfile.primaryRole] || 0) / total * 1000) / 1000;
+    roleProfile.secondaryRoles = Object.entries(roleProfile.usageByRole)
+      .filter(([role]) => role !== roleProfile.primaryRole)
+      .map(([role, count]) => ({ role, ratio: Math.round(Number(count || 0) / total * 1000) / 1000 }))
+      .sort((a, b) => b.ratio - a.ratio);
+  }
+  model.sourceReferences = [
+    ...(model.sourceReferences || []).filter(reference => !["suggestion_metrics", "role_profile"].includes(reference?.type)),
+    { type: "suggestion_metrics", ...next },
+    { type: "role_profile", ...roleProfile }
+  ];
+  models[index] = model;
+  setWorkModels(models);
+  saveAll({ skipSync: true });
+  DataService.queueAutoSave("workModels");
 }
 
 function setWorkModels(models = []) {
@@ -535,9 +628,8 @@ function requiresOvertimeConfirmation(entry) {
 }
 
 function confirmOvertimeEntry(entry) {
-  if (!requiresOvertimeConfirmation(entry)) return true;
-  const s = profileWorkSchedule();
-  return confirm(`此筆工時預計結束於 ${timeFromMinutes(entryEndMinutes(entry))}，已超過下班時間 ${timeFromMinutes(s.workEnd)}。是否仍要儲存？`);
+  // Overtime is valid WorkLog data. Explicit and user-confirmed times must not be blocked.
+  return true;
 }
 
 function mergeTimeIntervals(intervals = []) {
@@ -564,27 +656,78 @@ function availableStartMinutes(dateKey = key(), durationHours = 1, excludeId = n
     });
   occupied.push(...reserved.map(x => ({ start: x.start, end: x.end })));
   const merged = mergeTimeIntervals(occupied);
+  // Once today's latest entry has crossed the workday boundary, the next automatic
+  // suggestion starts on the next workday instead of back-filling an earlier gap.
+  if (merged.some(interval => interval.end > s.workEnd)) return null;
+  const normalizeAutomaticCandidate = value => {
+    const candidate = Math.max(Number(value || 0), s.workStart);
+    return candidate >= s.lunchStart && candidate < s.lunchEnd ? s.lunchEnd : candidate;
+  };
 
-  let candidate = s.workStart;
+  let candidate = normalizeAutomaticCandidate(s.workStart);
   for (const interval of merged) {
     if (interval.end <= candidate) continue;
     if (interval.start > candidate) {
       if (candidate + duration <= Math.min(interval.start, s.workEnd)) return candidate;
-      candidate = interval.end;
+      candidate = normalizeAutomaticCandidate(interval.end);
     } else if (interval.end > candidate) {
-      candidate = interval.end;
+      candidate = normalizeAutomaticCandidate(interval.end);
     }
     if (candidate >= s.workEnd) break;
   }
   if (candidate + duration <= s.workEnd) return candidate;
+  return null;
+}
 
-  const lastEnd = occupied.reduce((max, interval) => Math.max(max, interval.end), s.workStart);
-  return normalizeStartMinutes(lastEnd, durationHours);
+function dateFromWorkKey(dateKey = key()) {
+  const match = String(dateKey || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return new Date();
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12, 0, 0, 0);
+}
+
+function nextWorkdayKey(dateKey = key()) {
+  const next = dateFromWorkKey(dateKey);
+  do next.setDate(next.getDate() + 1);
+  while (next.getDay() === 0 || next.getDay() === 6);
+  return key(next);
+}
+
+function earliestAvailableWorkTime(dateKey = key(), durationHours = 1, excludeId = null, reserved = []) {
+  let candidateDate = dateKey;
+  for (let attempt = 0; attempt < 15; attempt += 1) {
+    const start = availableStartMinutes(candidateDate, durationHours, excludeId, attempt === 0 ? reserved : []);
+    if (start != null) return { dateKey: candidateDate, minutes: start, at: `${candidateDate}T${timeFromMinutes(start)}` };
+    candidateDate = nextWorkdayKey(candidateDate);
+  }
+  const schedule = profileWorkSchedule();
+  return { dateKey: candidateDate, minutes: schedule.workStart, at: `${candidateDate}T${timeFromMinutes(schedule.workStart)}` };
+}
+
+function assistantRelativeTimeSignal(raw = "") {
+  const text = String(raw || "");
+  if (/才完成|剛完成|剛剛完成|剛做完|剛結束|才做完/.test(text)) return "just_completed";
+  if (/剛剛|現在|此刻|剛才/.test(text)) return "now";
+  return "";
+}
+
+function roundedCurrentMinutes(now = new Date()) {
+  return Math.floor((now.getHours() * 60 + now.getMinutes()) / 5) * 5;
+}
+
+function resolveWorklogTime({ raw = "", dateKey = key(), hours = 1, explicitAt = "", now = new Date(), excludeId = null, reserved = [] } = {}) {
+  if (explicitAt) return { at: explicitAt, dateKey: String(explicitAt).slice(0, 10), reason: "explicit" };
+  const relative = assistantRelativeTimeSignal(raw);
+  if (relative) {
+    const durationMinutes = Math.max(1, Math.round(Number(hours || 1) * 60));
+    const current = roundedCurrentMinutes(now);
+    const start = relative === "just_completed" ? Math.max(0, current - durationMinutes) : current;
+    return { at: `${dateKey}T${timeFromMinutes(start)}`, dateKey, reason: relative };
+  }
+  return { ...earliestAvailableWorkTime(dateKey, hours, excludeId, reserved), reason: "earliest_gap" };
 }
 
 function nextAvailableStart(dateKey = key(), durationHours = 1, excludeId = null, reserved = []) {
-  const start = availableStartMinutes(dateKey, durationHours, excludeId, reserved);
-  return `${dateKey}T${timeFromMinutes(start)}`;
+  return resolveWorklogTime({ dateKey, hours: durationHours, excludeId, reserved }).at;
 }
 
 function nextStart() {
@@ -980,6 +1123,7 @@ function executeConversationIntent(intent = null) {
 function pendingConversationGuidance(pending = null) {
   if (!pending) return "";
   if (isDurationPending(pending)) return "這筆紀錄還缺少時間長度。您可以直接回覆：30m、1h、1.5h、2h，或輸入自訂時間。";
+  if (pending.action === "awaiting_work_context") return "這筆工時還缺少工作分類。請直接回覆：採購、行政、專案或其他適合的分類。";
   if (pending.action === "confirm_add_entry") return "目前有一筆工時等待確認。您可以按「確認建立」，或按「取消」重新開始。";
   if (pending.action === "confirm_calendar") return "目前有一筆工時月曆紀錄等待確認。您可以按「確認建立」，或按「取消」重新開始。";
   if (pending.action === "calendar_worklog_offer") return "目前有一筆工時月曆紀錄等待確認。您可以按「確認建立」，或按「取消」重新開始。";
@@ -1058,15 +1202,55 @@ function buildAssistantEntry(command = {}) {
   });
 }
 
-function assistantCommandFromParts({ raw = "", dateKey = key(), at = "", hours = 1, entryType = "work" } = {}) {
-  const hasHours = hours !== undefined && hours !== null && hours !== "";
+function inferWorkSemantics(title = "", raw = "") {
+  const text = `${title} ${raw}`.trim();
+  const rules = [
+    { pattern: /採購|請購|詢價|議價|供應商|驗收|交貨/, category: "採購", nature: "案件管理", tags: ["採購", "案件"] },
+    { pattern: /請款|發票|應付|付款|費用/, category: "財務行政", nature: "費用管理", tags: ["請款", "費用"] },
+    { pattern: /會議|開會|討論|訪談|面試/, category: "協作", nature: "會議", tags: ["會議", "協作"] },
+    { pattern: /教育訓練|訓練|研習|課程/, category: "學習發展", nature: "教育訓練", tags: ["訓練"] },
+    { pattern: /程式|開發|測試|除錯|系統|部署/, category: "資訊", nature: "專案執行", tags: ["IT", "專案"] },
+    { pattern: /報表|資料|文件|整理|歸檔|公文|Mail|信件/, category: "行政", nature: "資料處理", tags: ["行政", "文件"] },
+    { pattern: /專案|進度|上櫃|掛牌|企劃|計畫/, category: "專案", nature: "專案管理", tags: ["專案"] },
+    { pattern: /客戶|拜訪|客服|聯繫/, category: "客戶服務", nature: "對外協作", tags: ["客戶", "聯繫"] },
+    { pattern: /特休|請假|休假|病假|事假/, category: "請假", nature: "Leave", tags: ["請假"] }
+  ];
+  const matched = rules.filter(rule => rule.pattern.test(text));
+  if (!matched.length) return { category: "一般工作", tags: [], nature: "一般工作", confidence: 0.45 };
+  const first = matched[0];
   return {
-    title: assistantEntryTitle(raw, entryType),
+    category: first.category,
+    tags: [...new Set(matched.flatMap(rule => rule.tags))],
+    nature: first.nature,
+    confidence: matched.length > 1 ? 0.94 : 0.82
+  };
+}
+
+function assistantCommandFromParts({ raw = "", dateKey = key(), at = "", hours = 1, entryType = "work", timeSource = "" } = {}) {
+  const hasHours = hours !== undefined && hours !== null && hours !== "";
+  const title = assistantEntryTitle(raw, entryType);
+  return {
+    title,
+    raw,
     dateKey,
     at,
     hours: hasHours ? Number(hours) : 1,
-    entryType
+    entryType,
+    timeSource: timeSource || (at ? "explicit" : ""),
+    semantics: inferWorkSemantics(title, raw)
   };
+}
+
+function resolveAssistantCommandTime(command = {}) {
+  const dateKey = command.dateKey || String(command.at || "").slice(0, 10) || key();
+  const explicitAt = command.timeSource === "explicit" ? command.at : "";
+  const resolved = resolveWorklogTime({
+    raw: command.raw || "",
+    dateKey,
+    hours: Number(command.hours || 1),
+    explicitAt
+  });
+  return { ...command, dateKey: resolved.dateKey, at: resolved.at, timeResolution: resolved.reason };
 }
 
 function assistantConfirmationPayload(command = {}) {
@@ -1078,7 +1262,11 @@ function assistantConfirmationPayload(command = {}) {
     end: timeFromMinutes(entryEndMinutes(item)),
     hours: item.hours,
     entryType: item.entryType,
-    at: item.at
+    at: item.at,
+    category: command.semantics?.category || "一般工作",
+    tags: command.semantics?.tags || [],
+    nature: command.semantics?.nature || "一般工作",
+    timeResolution: command.timeResolution || ""
   };
 }
 
@@ -1230,19 +1418,30 @@ function intentFromDomainDraft(raw = "", draft = null) {
   const duration = explicitDuration ? (draftDuration || (startTime && endTime ? hoursBetween(startTime, endTime) : localSlots.duration || 0)) : (localSlots.duration || 0);
   const entryType = intent === "leave" ? "leave" : entryTypeFromDescription(draft.description || raw);
   const title = String(draft.description || draft.title || extractAssistantDescription(raw) || (entryType === "leave" ? "請假" : "工時紀錄")).trim();
-  const at = startTime ? `${dateKey}T${startTime}` : (localSlots.range?.at || localSlots.singleStart || localSlots.vagueStart || (entryType === "leave" ? `${dateKey}T09:00` : ""));
-  const parsedCommand = { title, dateKey, at, hours: duration, entryType };
+  const hasExplicitTime = Boolean(localSlots.range || localSlots.singleStart || localSlots.vagueStart);
+  const at = hasExplicitTime && startTime ? `${dateKey}T${startTime}` : (localSlots.range?.at || localSlots.singleStart || localSlots.vagueStart || (entryType === "leave" ? `${dateKey}T09:00` : ""));
+  const parsedCommand = {
+    title,
+    raw,
+    dateKey,
+    at,
+    hours: duration,
+    entryType,
+    timeSource: hasExplicitTime || entryType === "leave" ? "explicit" : "",
+    semantics: inferWorkSemantics(title, raw)
+  };
   if (intent === "task") return { type: "task_draft", parsedCommand: { title, raw, llmDraft: draft } };
   if (intent === "calendar") {
-    const command = { ...parsedCommand, at: at || `${dateKey}T09:00`, entryType: "work" };
+    const command = { ...parsedCommand, entryType: "work" };
     if (!command.hours) return { type: "need_duration", parsedCommand: command, llmDraft: draft };
-    return { type: "confirm_add_entry", parsedCommand: command, entryPayload: assistantConfirmationPayload(command), llmDraft: draft };
+    const resolvedCommand = resolveAssistantCommandTime(command);
+    return { type: "confirm_add_entry", parsedCommand: resolvedCommand, entryPayload: assistantConfirmationPayload(resolvedCommand), llmDraft: draft };
   }
   if (intent === "worklog" || intent === "leave") {
-    if (!parsedCommand.hours) return { type: "need_duration", parsedCommand: { ...parsedCommand, at: parsedCommand.at || (entryType === "leave" ? `${dateKey}T09:00` : nextAvailableStart(dateKey, 1)) }, llmDraft: draft };
+    if (!parsedCommand.hours) return { type: "need_duration", parsedCommand, llmDraft: draft };
     const hoursValue = parsedCommand.hours;
-    if (!hoursValue) return { type: "need_duration", parsedCommand: { ...parsedCommand, at: parsedCommand.at || nextAvailableStart(dateKey, 1) }, llmDraft: draft };
-    const command = { ...parsedCommand, hours: hoursValue, at: parsedCommand.at || nextAvailableStart(dateKey, hoursValue) };
+    if (!hoursValue) return { type: "need_duration", parsedCommand, llmDraft: draft };
+    const command = resolveAssistantCommandTime({ ...parsedCommand, hours: hoursValue });
     return { type: "confirm_add_entry", parsedCommand: command, entryPayload: assistantConfirmationPayload(command), llmDraft: draft };
   }
   return null;
@@ -1262,10 +1461,11 @@ function parseWorklogIntentLocal(text = "") {
     return { type: "task_draft", parsedCommand: { title: slots.description || stripAssistantSlots(raw) || "待辦", raw } };
   }
   if (intent === "calendar") {
-    const at = slots.range?.at || slots.singleStart || slots.vagueStart || `${slots.dateKey}T09:00`;
+    const at = slots.range?.at || slots.singleStart || slots.vagueStart || "";
     const parsedCommand = assistantCommandFromParts({ raw, dateKey: slots.dateKey, at, hours: slots.range?.hours || slots.duration || 0, entryType: "work" });
     if (!parsedCommand.hours) return { type: "need_duration", parsedCommand };
-    return { type: "confirm_add_entry", parsedCommand, entryPayload: assistantConfirmationPayload(parsedCommand) };
+    const resolvedCommand = resolveAssistantCommandTime(parsedCommand);
+    return { type: "confirm_add_entry", parsedCommand: resolvedCommand, entryPayload: assistantConfirmationPayload(resolvedCommand) };
   }
   if (intent === "worklog" || intent === "leave") {
     const { dateKey, range, singleStart, vagueStart, duration, entryType } = slots;
@@ -1279,17 +1479,18 @@ function parseWorklogIntentLocal(text = "") {
       return { type: "need_duration", parsedCommand };
     }
     if (entryType === "leave" && !duration && !/半天|半日|整天|整日|全天|一整天|一天/.test(raw)) {
-      const parsedCommand = assistantCommandFromParts({ raw, dateKey, at: start || `${dateKey}T09:00`, hours: 0, entryType });
+      const parsedCommand = assistantCommandFromParts({ raw, dateKey, at: start || `${dateKey}T09:00`, hours: 0, entryType, timeSource: "explicit" });
       return { type: "need_duration", parsedCommand };
     }
     if (!duration && !start) {
-      const parsedCommand = assistantCommandFromParts({ raw, dateKey, at: nextAvailableStart(dateKey, 1), hours: 0, entryType });
+      const parsedCommand = assistantCommandFromParts({ raw, dateKey, at: "", hours: 0, entryType });
       return { type: "need_duration", parsedCommand };
     }
     const hoursValue = duration || (entryType === "leave" ? 8 : 0);
-    const at = start || (entryType === "leave" ? `${dateKey}T09:00` : nextAvailableStart(dateKey, hoursValue));
-    const parsedCommand = assistantCommandFromParts({ raw, dateKey, at, hours: hoursValue, entryType });
-    return { type: "confirm_add_entry", parsedCommand, entryPayload: assistantConfirmationPayload(parsedCommand) };
+    const at = start || (entryType === "leave" ? `${dateKey}T09:00` : "");
+    const parsedCommand = assistantCommandFromParts({ raw, dateKey, at, hours: hoursValue, entryType, timeSource: at ? "explicit" : "" });
+    const resolvedCommand = resolveAssistantCommandTime(parsedCommand);
+    return { type: "confirm_add_entry", parsedCommand: resolvedCommand, entryPayload: assistantConfirmationPayload(resolvedCommand) };
   }
   return { type: "unsupported" };
 }
@@ -1308,13 +1509,14 @@ async function parseWorklogIntent(text = "") {
 
 async function saveAssistantEntry(command = {}) {
   if (!session || !hasGoogleOAuthSession()) throw new Error("尚未完成 Google Login");
-  const item = buildAssistantEntry(command);
+  const resolvedCommand = resolveAssistantCommandTime(command);
+  const item = buildAssistantEntry(resolvedCommand);
   const error = validateEntry(item);
   if (error) throw new Error(error);
   if (!confirmOvertimeEntry(item)) return { cancelled: true };
   const saved = await persistEntry(item, { requireCloud: true });
   if (!saved) throw new Error("DataService.saveEntry 回傳失敗");
-  return { saved, item };
+  return { saved, item, command: resolvedCommand };
 }
 
 async function executeWorklogCommand(intent) {
@@ -1354,8 +1556,9 @@ async function executeWorklogCommand(intent) {
     return assistantResult("我先幫您整理成任務紀錄：", { type: "task_draft", payload: intent.parsedCommand });
   }
   if (intent.type === "confirm_calendar") {
-    await setAssistantPendingCommand({ action: "confirm_add_entry", command: intent.parsedCommand });
-    return assistantResult("請確認這筆工時：", { type: "confirm_entry", payload: assistantConfirmationPayload(intent.parsedCommand) });
+    const command = resolveAssistantCommandTime(intent.parsedCommand);
+    await setAssistantPendingCommand({ action: "confirm_add_entry", command });
+    return assistantResult("請確認這筆工時：", { type: "confirm_entry", payload: assistantConfirmationPayload(command) });
   }
   if (intent.type === "confirm_pending_calendar") {
     const result = await saveAssistantEntry(intent.parsedCommand);
@@ -1370,11 +1573,19 @@ async function executeWorklogCommand(intent) {
     return assistantResult("已同步建立工時。", { type: "entry_created", payload: assistantConfirmationPayload(result.item) });
   }
   if (intent.type === "confirm_add_entry") {
-    const item = buildAssistantEntry(intent.parsedCommand);
+    const command = resolveAssistantCommandTime({
+      ...intent.parsedCommand,
+      semantics: intent.parsedCommand?.semantics || inferWorkSemantics(intent.parsedCommand?.title, intent.parsedCommand?.raw)
+    });
+    if (command.entryType !== "leave" && Number(command.semantics?.confidence || 0) < 0.6) {
+      await setAssistantPendingCommand({ action: "awaiting_work_context", command });
+      return assistantResult("我理解這是一筆工時，但還不確定工作分類。請告訴我是採購、行政、專案或其他哪一類工作？");
+    }
+    const item = buildAssistantEntry(command);
     const error = validateEntry(item);
     if (error) throw new Error(error);
-    await setAssistantPendingCommand({ action: "confirm_add_entry", command: intent.parsedCommand });
-    return assistantResult("請確認這筆工時：", { type: "confirm_entry", payload: assistantConfirmationPayload(intent.parsedCommand) });
+    await setAssistantPendingCommand({ action: "confirm_add_entry", command });
+    return assistantResult("請確認這筆工時：", { type: "confirm_entry", payload: assistantConfirmationPayload(command) });
   }
   if (intent.type === "confirm_pending_entry") {
     const result = await saveAssistantEntry(intent.parsedCommand);
@@ -1912,11 +2123,11 @@ function mobileCalendarPanel() {
     return `<button class="mobile-day ${isToday ? "today" : ""} ${isSelected ? "sel" : ""} ${out ? "out" : ""}" data-mobile-date="${key(d)}"><b>${d.getDate()}</b><small>${h ? h + "h" : ""}</small></button>`;
   };
   if (!isOpen) {
-    const weekStart = startOfWorkWeek(selected);
+    const weekStart = startOfWeek(selected);
     const weekEnd = addDays(weekStart, 6);
     const weekDays = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
     const range = `${String(weekStart.getMonth() + 1).padStart(2, "0")}/${String(weekStart.getDate()).padStart(2, "0")} ~ ${String(weekEnd.getMonth() + 1).padStart(2, "0")}/${String(weekEnd.getDate()).padStart(2, "0")}`;
-    return `<div class="mobile-calendar-head"><div><h2>工時月曆</h2><span class="muted">${y} / ${String(m + 1).padStart(2, "0")}</span></div></div><div class="mobile-week-navigation"><button class="btn2" type="button" data-mobile-week-nav="-1" aria-label="上週">‹</button><button class="btn2 mobile-current-week" type="button" data-mobile-week-nav="0">本週 ${range}</button><button class="btn2" type="button" data-mobile-week-nav="1" aria-label="下週">›</button></div><div class="mobile-week-head">${["一", "二", "三", "四", "五", "六", "日"].map(label => `<span>${label}</span>`).join("")}</div><div class="mobile-week-grid">${weekDays.map(d => dayMarkup(d)).join("")}</div><button class="mobile-calendar-expand" type="button" data-toggle-mobile-calendar="1">⌄ 點擊展開月曆</button>`;
+    return `<div class="mobile-calendar-head"><div><h2>工時月曆</h2><span class="muted">${y} / ${String(m + 1).padStart(2, "0")}</span></div></div><div class="mobile-week-navigation"><button class="btn2" type="button" data-mobile-week-nav="-1" aria-label="上週">‹</button><button class="btn2 mobile-current-week" type="button" data-mobile-week-nav="0">本週 ${range}</button><button class="btn2" type="button" data-mobile-week-nav="1" aria-label="下週">›</button></div><div class="mobile-week-head">${["日", "一", "二", "三", "四", "五", "六"].map(label => `<span>${label}</span>`).join("")}</div><div class="mobile-week-grid">${weekDays.map(d => dayMarkup(d)).join("")}</div><button class="mobile-calendar-expand" type="button" data-toggle-mobile-calendar="1">⌄ 點擊展開月曆</button>`;
   }
   return `<div class="mobile-calendar-head"><div><h2>工時月曆</h2><span class="muted">${y} / ${String(m + 1).padStart(2, "0")}</span></div><button class="btn2" data-toggle-mobile-calendar="1">收合月曆</button></div><div class="mobile-month-navigation"><button class="btn2" type="button" data-mobile-month-nav="-1">← 上一月</button><button class="btn2" type="button" data-mobile-month-nav="0">本月</button><button class="btn2" type="button" data-mobile-month-nav="1">下一月 →</button></div><div class="mobile-month-scroll"><div class="mobile-week-head">${["日", "一", "二", "三", "四", "五", "六"].map(label => `<span>${label}</span>`).join("")}</div><div class="mobile-month-grid">${days.map(d => dayMarkup(d, d.getMonth() !== m)).join("")}</div></div>`;
 }
@@ -1968,9 +2179,26 @@ function suggestionPriority(model = {}) {
     ? Math.max(0, 12 - Math.floor((now - lastUsedTime) / 86400000))
     : 0;
   const missingHours = Math.max(0, 8 - hours(dayEntries()));
+  const metrics = suggestionMetricsFor(model);
+  const roleProfile = roleProfileFor(model);
+  const primaryRoleMatch = roleProfile.primaryRole === profile?.role ? 1 : 0;
+  const secondaryRoleWeight = roleProfile.secondaryRoles.reduce((sum, item) => sum + Number(item?.ratio || 0), 0);
+  const usageFrequency = metrics.suggestionCount ? metrics.addedCount / metrics.suggestionCount : 0;
+  const currentMinutes = new Date().getHours() * 60 + new Date().getMinutes();
+  const commonTimeScore = Object.entries(metrics.commonTimes).reduce((highest, [clock, count]) => {
+    const distance = Math.abs(minutesFromTime(clock) - currentMinutes);
+    return Math.max(highest, distance <= 90 ? Math.min(8, Number(count || 0) * 2) : 0);
+  }, 0);
   const score = (Number(feedback[title] || 0) * 24)
     + (recentUsage * 7)
     + (weekdayUsage * 8)
+    + (metrics.addedCount * 10)
+    + (metrics.editedCount * 2)
+    - (metrics.deletedCount * 5)
+    + (usageFrequency * 18)
+    + commonTimeScore
+    + (primaryRoleMatch * 10)
+    + (secondaryRoleWeight * 6)
     + (Number(model.familiarity || 1) * 4)
     + (knowledgeReferences.length * 3)
     + (confidence * 10)
@@ -1985,17 +2213,17 @@ function suggestionPriority(model = {}) {
 
 function makeSuggestions() {
   if (!profile) return [];
-  const done = dayEntries().map(entry => String(entry.title || ""));
   return workMemoryObjects()
-    .filter(model => model.isActive && !done.some(title => title.includes(model.name) || model.name.includes(title)))
+    .filter(model => model.isActive)
     .map(model => {
       const ranking = suggestionPriority(model);
+      const metrics = suggestionMetricsFor(model);
       return {
         id: model.name,
         title: model.name,
         note: "",
-        hours: 1,
-        at: `${key()}T09:00`,
+        hours: metrics.averageHours || 1,
+        at: resolveWorklogTime({ dateKey: key(), hours: metrics.averageHours || 1 }).at,
         ecpTask: defaultEcpTaskName(model.name),
         sourceLabel: `📂 來源：${model.name}`,
         priority: ranking.score,
@@ -2020,7 +2248,10 @@ function suggestionPanel() {
 }
 
 function bindSuggestionCardActions(root = document) {
-  root.querySelectorAll("[data-accept]").forEach(button => button.onclick = () => acceptSuggestion(button.dataset.accept));
+  root.querySelectorAll("[data-accept]").forEach(button => {
+    recordSuggestionMetric(button.dataset.accept, "suggested");
+    button.onclick = () => acceptSuggestion(button.dataset.accept);
+  });
   root.querySelectorAll("[data-adjust]").forEach(button => button.onclick = () => adjustSuggestion(button.dataset.adjust));
 }
 
@@ -2080,7 +2311,7 @@ function renderAssistantCard(card = null) {
   }
   if (card.type === "confirm_entry") {
     const p = card.payload || {};
-    return `<div class="assistant-command-card"><div class="assistant-card-title">請確認這筆工時</div><div class="assistant-card-grid"><span>日期</span><b>${escapeHtml(p.date || "")}</b><span>時間</span><b>${escapeHtml(p.start || "")}–${escapeHtml(p.end || "")}</b><span>工時</span><b>${escapeHtml(String(p.hours || ""))}h</b><span>描述</span><b>${escapeHtml(p.title || "")}</b></div><div class="assistant-card-actions"><button class="btn green" type="button" data-assistant-confirm-entry="1">確認建立</button><button class="btn2" type="button" data-assistant-cancel-command="1">取消</button></div></div>`;
+    return `<div class="assistant-command-card"><div class="assistant-card-title">請確認這筆工時</div><div class="assistant-card-grid"><span>日期</span><b>${escapeHtml(p.date || "")}</b><span>時間</span><b>${escapeHtml(p.start || "")}–${escapeHtml(p.end || "")}</b><span>工時</span><b>${escapeHtml(String(p.hours || ""))}h</b><span>描述</span><b>${escapeHtml(p.title || "")}</b><span>分類</span><b>${escapeHtml(p.category || "一般工作")}</b><span>性質</span><b>${escapeHtml(p.nature || "一般工作")}</b></div><div class="assistant-card-actions"><button class="btn green" type="button" data-assistant-confirm-entry="1">確認建立</button><button class="btn2" type="button" data-assistant-cancel-command="1">取消</button></div></div>`;
   }
   if (card.type === "duration_prompt") {
     const title = card.intent === "leave" ? "請選擇請假時間" : "請選擇預計時間";
@@ -2245,7 +2476,9 @@ function capture(editId = null, seed = null) {
   const title = e ? e.title : (seed ? seed.title : "");
   const note = e ? (e.note || "") : (seed ? seed.note || "" : "");
   const ecpTask = e ? (e.ecpTask || "") : (seed ? seed.ecpTask || defaultEcpTaskName(seed.title) : defaultEcpTaskName(title));
-  return `<section class="panel capture-panel" style="margin-top:18px"><div class="panel-head"><div><h2>${e ? "編輯工時" : "➕ 快速紀錄"}</h2></div></div><div class="form capture-form"><label>日期 / 開始時間</label><input class="input" id="dt" type="datetime-local" value="${e ? e.at : captureDefaultStart()}"><label>工作描述（必填）</label><input class="input" id="title" value="${escapeHtml(title)}" placeholder="例如：採購案件處理、特休" autocomplete="off">${descriptionSuggestionChips(title)}<label>ECP 任務（選填）</label><select id="ecpTaskSelect" class="input">${ecpTaskOptions(ecpTask)}</select><div class="work-model-add ecp-task-quick-add" id="ecpTaskQuickAdd" style="display:none"><input class="input" id="newEcpTaskCapture" placeholder="新增 ECP 任務，例如：採購案件處理"><button class="btn2" data-add-capture-ecp-task="1" type="button">＋ 新增</button></div><label>工時</label><div class="row hours">${[0.5, 1, 1.5, 2, 3, 4, 5, 8].map(h => `<button class="btn2 hour" data-h="${h}">${h === 0.5 ? "30m" : h + "h"}</button>`).join("")}</div><label>備註（選填）</label><input class="input" id="note" value="${escapeHtml(note)}" placeholder="補充說明，不參與 ECP 匯出"><div class="form-actions capture-actions"><button class="btn2" data-capture-cancel="1">取消</button><button class="btn" id="saveEntry">儲存</button></div></div></section>`;
+  const isSuggestion = Boolean(seed?.suggestionId || seed?.source === "ai-card");
+  const startAt = e?.at || seed?.at || captureDefaultStart(seed?.hours || 1);
+  return `<section class="panel capture-panel" style="margin-top:18px"><div class="panel-head"><div><h2>${e ? "編輯工時" : isSuggestion ? "確認加入工時" : "➕ 快速紀錄"}</h2>${isSuggestion ? `<div class="muted">Mr. KM 已建議可用時間；確認後才會正式寫入工時月曆。</div>` : ""}</div></div><div class="form capture-form"><label>日期 / 開始時間</label><input class="input" id="dt" type="datetime-local" value="${startAt}"><label>工作描述（必填）</label><input class="input" id="title" value="${escapeHtml(title)}" placeholder="例如：採購案件處理、特休" autocomplete="off">${descriptionSuggestionChips(title)}<label>ECP 任務（選填）</label><select id="ecpTaskSelect" class="input">${ecpTaskOptions(ecpTask)}</select><div class="work-model-add ecp-task-quick-add" id="ecpTaskQuickAdd" style="display:none"><input class="input" id="newEcpTaskCapture" placeholder="新增 ECP 任務，例如：採購案件處理"><button class="btn2" data-add-capture-ecp-task="1" type="button">＋ 新增</button></div><label>工時</label><div class="row hours">${[0.5, 1, 1.5, 2, 3, 4, 5, 8].map(h => `<button class="btn2 hour ${Number(seed?.hours || e?.hours || 1) === h ? "selected" : ""}" data-h="${h}">${h === 0.5 ? "30m" : h + "h"}</button>`).join("")}</div><label>備註（選填）</label><input class="input" id="note" value="${escapeHtml(note)}" placeholder="補充說明，不參與 ECP 匯出"><div class="form-actions capture-actions"><button class="btn2" data-capture-cancel="1">取消</button><button class="btn" id="saveEntry">${isSuggestion ? "確認建立" : "儲存"}</button></div></div></section>`;
 }
 
 function sync() {
@@ -2639,7 +2872,16 @@ function libraryIntelligenceView(id = null) {
       ? `<label class="inline-check"><input type="checkbox" class="knowledge-work-candidate" value="${escapeHtml(work.name)}" checked> <span>建議加入「我的工作」</span></label>`
       : `<span class="work-dna-existing">✓ 已引用「${escapeHtml(reference?.workMemory || work.name)}」</span>`;
     const dnaList = (values, empty = "尚未辨識") => arrayFromInput(values).map(value => escapeHtml(value)).join("、") || empty;
-    return `<div class="work-dna-card"><div class="work-dna-head"><div><b>${escapeHtml(work.name)}</b></div>${decision}</div><div class="work-dna-primary"><div><span>工作目的</span><b>${escapeHtml(work.purpose || "尚未整理")}</b></div><div><span>主要內容</span><b>${escapeHtml(work.description || work.purpose || "尚未整理")}</b></div><div><span>主要系統</span><b>${dnaList(work.systems)}</b></div></div><details class="work-dna-process"><summary>▼ 查看 Work DNA</summary><div class="work-dna-grid"><div><span>工作頻率</span><b>${escapeHtml(work.frequency || "依需求")}</b></div><div><span>涉及部門</span><b>${dnaList(work.departments)}</b></div><div><span>輸出成果</span><b>${dnaList(work.outputs)}</b></div><div><span>Trigger</span><b>${dnaList(work.triggers)}</b></div><div><span>Keyword</span><b>${dnaList(work.keywords)}</b></div><div><span>Confidence</span><b>${Math.round(Number(work.confidence || 0) * 100) || "待確認"}${Number(work.confidence || 0) ? "%" : ""}</b></div></div><div><b>Flow</b><ol>${arrayFromInput(work.processes).map(step => `<li>${escapeHtml(step)}</li>`).join("") || "<li>尚未整理出可靠流程</li>"}</ol></div><div class="muted">Evidence 請見下方「查看我理解工作的依據」。</div></details></div>`;
+    const primaryRole = profile?.role || "採購";
+    const secondaryRoles = [...new Set([
+      ...arrayFromInput(work.relatedRoles || work.related_roles).map(roleDisplayName),
+      ...arrayFromInput(item.relatedRoles).map(roleDisplayName),
+      ...arrayFromInput(work.departments)
+    ])].filter(role => role && role !== primaryRole && role !== "待確認職務").slice(0, 3);
+    const primaryRatio = secondaryRoles.length ? 70 : 100;
+    const secondaryRatio = secondaryRoles.length ? Math.round(30 / secondaryRoles.length) : 0;
+    const secondaryLabel = secondaryRoles.length ? secondaryRoles.map(role => `${escapeHtml(role)} ${secondaryRatio}%`).join("、") : "目前無次要職務";
+    return `<div class="work-dna-card"><div class="work-dna-head"><div><b>${escapeHtml(work.name)}</b></div>${decision}</div><div class="work-dna-primary"><div><span>工作目的</span><b>${escapeHtml(work.purpose || "尚未整理")}</b></div><div><span>主要內容</span><b>${escapeHtml(work.description || work.purpose || "尚未整理")}</b></div><div><span>主要系統</span><b>${dnaList(work.systems)}</b></div></div><details class="work-dna-process"><summary>▼ 查看 Work DNA</summary><div class="work-dna-grid"><div><span>Primary Role</span><b>${escapeHtml(primaryRole)} ${primaryRatio}%</b></div><div><span>Secondary Role</span><b>${secondaryLabel}</b></div><div><span>工作頻率</span><b>${escapeHtml(work.frequency || "依需求")}</b></div><div><span>涉及部門</span><b>${dnaList(work.departments)}</b></div><div><span>輸出成果</span><b>${dnaList(work.outputs)}</b></div><div><span>Trigger</span><b>${dnaList(work.triggers)}</b></div><div><span>Keyword</span><b>${dnaList(work.keywords)}</b></div><div><span>Confidence</span><b>${Math.round(Number(work.confidence || 0) * 100) || "待確認"}${Number(work.confidence || 0) ? "%" : ""}</b></div></div><div><b>Flow</b><ol>${arrayFromInput(work.processes).map(step => `<li>${escapeHtml(step)}</li>`).join("") || "<li>尚未整理出可靠流程</li>"}</ol></div><div class="muted">Evidence 請見下方「查看我理解工作的依據」。</div></details></div>`;
   }).join("") : `<div class="empty"><b>我還沒有辨識出完整的工作</b><div class="muted">這次內容可能只有零散步驟；為避免把「確認、檢查、追蹤」誤當成工作，我不會產生低品質建議。</div></div>`;
   const autoMeta = `<div class="entry"><b>我先幫你判斷</b><div class="source-path">工作來源類型：${escapeHtml(KNOWLEDGE_SCOPE_LABELS[item.scope] || item.scope || "待確認")}</div><div class="source-path">適用對象：${escapeHtml(item.applicableAgents.join("、") || "待確認")}</div><div class="source-path">適用職務：${escapeHtml(item.relatedRoles.map(roleDisplayName).join("、") || "待確認")}</div><div class="source-path">標籤：${escapeHtml(item.tags.join("、") || "待確認")}</div><div class="source-path">我的工作：${escapeHtml(item.relatedWorkModels.join("、") || "待確認")}</div></div>`;
   const acceptWorkActions = !isFailed && candidates.length
@@ -2807,7 +3049,7 @@ function bindWorklogAssistant() {
   const completePendingDuration = async (hoursValue, userLabel = "") => {
     const pending = getAssistantPendingCommand();
     if (!pending?.command || !hoursValue || !isDurationPending(pending)) return toast("找不到待補充時間的草稿");
-    const parsedCommand = { ...pending.command, hours: hoursValue };
+    const parsedCommand = resolveAssistantCommandTime({ ...pending.command, hours: hoursValue });
     const entryPayload = assistantConfirmationPayload(parsedCommand);
     if (userLabel) addConversationMessage("user", userLabel);
     const thinkingId = addAssistantThinkingMessage();
@@ -2833,10 +3075,29 @@ function bindWorklogAssistant() {
       const durationReply = isDurationPending(pending) ? parseAssistantDuration(text) : null;
       if (durationReply) {
         removeConversationMessage(thinkingId);
-        const parsedCommand = { ...pending.command, hours: durationReply };
+        const parsedCommand = resolveAssistantCommandTime({ ...pending.command, hours: durationReply });
         const entryPayload = assistantConfirmationPayload(parsedCommand);
         await setAssistantPendingCommand({ action: "confirm_add_entry", command: parsedCommand });
         addAssistantResult({ text: "請確認這筆工時：", card: { type: "confirm_entry", payload: entryPayload } });
+        render();
+        return;
+      }
+      if (pending?.action === "awaiting_work_context" && pending.command) {
+        removeConversationMessage(thinkingId);
+        const category = text.replace(/^(這是|屬於|分類為|分類是)\s*/, "").trim() || "一般工作";
+        const parsedCommand = {
+          ...pending.command,
+          semantics: {
+            ...(pending.command.semantics || {}),
+            category,
+            nature: pending.command.semantics?.nature === "一般工作" ? category : pending.command.semantics?.nature,
+            tags: [...new Set([...(pending.command.semantics?.tags || []), category])],
+            confidence: 1
+          }
+        };
+        const entryPayload = assistantConfirmationPayload(parsedCommand);
+        await setAssistantPendingCommand({ action: "confirm_add_entry", command: parsedCommand });
+        addAssistantResult({ text: "了解，我會依這個工作性質記錄。請確認這筆工時：", card: { type: "confirm_entry", payload: entryPayload } });
         render();
         return;
       }
@@ -3158,6 +3419,7 @@ function bind() {
     if (!removed) return;
     try {
       await DataService.deleteEntry(removed);
+      if (removed.source === "ai-card") recordSuggestionMetric(removed.title, "deleted", removed);
       saveAll({ skipSync: true });
       toast("已刪除");
       render();
@@ -3443,23 +3705,23 @@ async function persistEntry(item, options = {}) {
 async function acceptSuggestion(id) {
   const s = makeSuggestions().find(x => x.id === id);
   if (!s) return;
-  const item = createEntry({ title: s.title, note: s.note || "", hours: s.hours || 1, at: s.at, ecpTask: s.ecpTask || defaultEcpTaskName(s.title), entryType: "work", source: "ai-card" });
-  const error = validateEntry(item); if (error) return toast(error);
-  if (!confirmOvertimeEntry(item)) return;
-  const saved = await persistEntry(item);
-  if (!saved) return;
-  feedback[s.id] = (feedback[s.id] || 0) + 1;
-  aiTodaySuggestionIndex = Math.min(aiTodaySuggestionIndex, Math.max(0, makeSuggestions().length - 1));
-  localStorage.setItem(AI_TODAY_SUGGESTION_INDEX_KEY, String(aiTodaySuggestionIndex));
-  saveAll({ skipSync: true });
-  toast("已加入工時");
+  const resolved = resolveWorklogTime({ dateKey: key(), hours: s.hours || 1 });
+  editingEntryId = null;
+  captureSeed = { ...s, at: resolved.at, timeResolution: resolved.reason, source: "ai-card", suggestionId: s.id, confirmationOnly: true };
+  activeWorkspace = "worklog";
+  if (!openTabs.includes("worklog")) openTabs.push("worklog");
+  rememberWorkspace("worklog");
+  view = "capture";
+  saveAll();
   render();
 }
 
 function adjustSuggestion(id) {
   const s = makeSuggestions().find(x => x.id === id);
+  if (!s) return;
+  const resolved = resolveWorklogTime({ dateKey: key(), hours: s.hours || 1 });
   editingEntryId = null;
-  captureSeed = s;
+  captureSeed = { ...s, at: resolved.at, timeResolution: resolved.reason, source: "ai-card", suggestionId: s.id, wasAdjusted: true };
   activeWorkspace = "worklog";
   if (!openTabs.includes("worklog")) openTabs.push("worklog");
   rememberWorkspace("worklog");
@@ -3471,7 +3733,8 @@ function adjustSuggestion(id) {
 function bindCapture(editId = null) {
   editId = editId || editingEntryId;
   const editingEntry = editId ? entries.find(e => e.id === editId) : null;
-  let selectedH = editingEntry ? Number(editingEntry.hours) : 1;
+  const suggestionSeed = !editingEntry && captureSeed ? { ...captureSeed } : null;
+  let selectedH = editingEntry ? Number(editingEntry.hours) : Number(suggestionSeed?.hours || 1);
   document.querySelectorAll("[data-capture-back],[data-capture-cancel]").forEach(b => b.onclick = () => { view = "center"; editingEntryId = null; captureSeed = null; saveAll(); render(); });
   const titleInput = document.getElementById("title");
   const bindDescriptionSuggestions = () => {
@@ -3566,12 +3829,19 @@ function bindCapture(editId = null) {
     const description = document.getElementById("title").value.trim();
     const entryType = editingEntry ? normalizeEntryType(editingEntry.entryType || editingEntry.type || entryTypeFromDescription(description)) : entryTypeFromDescription(description);
     const selectedEcpTask = isLeaveType(entryType) ? "" : (document.getElementById("ecpTaskSelect").value === "__add__" ? "" : document.getElementById("ecpTaskSelect").value.trim());
-    const item = createEntry({ id: editingEntry ? editingEntry.id : undefined, date: at.slice(0, 10), at, title: description, ecpTask: selectedEcpTask, hours: selectedH, entryType, note: document.getElementById("note").value.trim(), source: editingEntry ? editingEntry.source : "manual", cloudId: editingEntry?.cloudId });
+    const item = createEntry({ id: editingEntry ? editingEntry.id : undefined, date: at.slice(0, 10), at, title: description, ecpTask: selectedEcpTask, hours: selectedH, entryType, note: document.getElementById("note").value.trim(), source: editingEntry ? editingEntry.source : (suggestionSeed?.source || "manual"), cloudId: editingEntry?.cloudId });
     const error = validateEntry(item); if (error) return toast(error);
     if (monthKey(item.date) !== selectedMonth && !confirm(`此筆工時日期為 ${monthKey(item.date)}，目前畫面月份為 ${selectedMonth}。是否仍要儲存？`)) return;
     if (!confirmOvertimeEntry(item)) return;
     const saved = await persistEntry(item);
     if (!saved) return;
+    if (suggestionSeed?.suggestionId) {
+      if (suggestionSeed.wasAdjusted) recordSuggestionMetric(suggestionSeed.suggestionId, "edited", item);
+      recordSuggestionMetric(suggestionSeed.suggestionId, "added", item);
+      feedback[suggestionSeed.suggestionId] = (feedback[suggestionSeed.suggestionId] || 0) + 1;
+    } else if (editingEntry?.source === "ai-card") {
+      recordSuggestionMetric(editingEntry.title, "edited", item);
+    }
     view = "center"; editingEntryId = null; captureSeed = null; toast("已儲存工時"); render();
   };
 }

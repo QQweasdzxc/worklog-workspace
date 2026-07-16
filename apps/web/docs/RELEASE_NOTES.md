@@ -1,5 +1,85 @@
 # WorkLog RC3 Release Patch1
 
+## Build 20260716-1349 - P5.7 Final Patch / UI Freeze
+
+- 我的工時改為固定 Header、可捲動清單與固定 Footer；新增工時按鈕不再被內容推移，空資料提示改為緊湊狀態。
+- Mr. KM 建議維持可重複使用；加入工時不再讓建議消失。
+- 「加入工時」改為先解析建議時間並進入確認畫面，只有按下「確認建立」才寫入 WorkLog。
+- 建議使用訊號納入 Cloud Work Memory：建議、加入、調整、刪除次數、最近使用、平均工時、常見時間與使用頻率。
+- Chat 與建議卡共用 Time Resolution Engine：明確時間優先，其次為剛剛／現在，無時間才找最早空缺。
+- 自動找空缺會避開 12:00–13:00；使用者明確指定跨午休或超過 18:00 時不拆分、不阻擋。
+- 當今日最後一筆超過 18:00，下一筆自動建議從下一工作日 09:00 開始。
+- Chat 會推論工作分類、標籤與性質；信心不足時先向使用者確認。
+- Work DNA 顯示 Primary Role、Secondary Role 與比例；建議排序納入角色權重和使用訊號。
+- Tablet 改為兩欄工作區加全寬建議區，避免三欄過度壓縮；Mobile 與 Desktop 保留既有功能。
+- 月曆星期順序統一為日、一、二、三、四、五、六。
+
+### QA
+
+- WorkLog CRUD／排序／清單 Scroll：PASS
+- Time Resolution（明確、剛剛、現在、無時間、午休、跨午休、加班、隔日 09:00）：PASS
+- P5.5～P5.7 既有自動回歸測試：PASS
+- JavaScript syntax／Root-Web-Extension 一致性：PASS
+- Supabase Schema：未修改；使用權重沿用 `user_work_models.source_references` JSONB。
+
+### 🎯 Mr. KM Perspective
+
+這一版，我不會把建議當成一次性的待辦。你可以重複使用同一項工作，我會記住你何時採用、通常花多久，也會先提出合適時間，再等你確認後才正式建立工時。
+
+## Build 20260715-0857 - P5.6 Mobile Suggestion Hotfix
+
+- 修正 Mobile 預設「📝 工時」頁將 `.suggestion-module` 隱藏，造成 Mr. KM 建議功能消失的 responsive regression。
+- Mobile 工時頁現在依序顯示：工時月曆、快速新增、我的工作、🪶 Mr. KM 建議。
+- 保留獨立「🪶 Mr. KM 建議」頁籤，作為建議專注檢視，不建立第二份 Suggestion Component。
+- Desktop、Tablet、Mobile 共用相同 `suggestionPanel()` 與正式 Work Memory 資料流。
+- 新增 Mobile Suggestion CSS／render regression test 與 responsive browser fixture。
+- 新增 P6 Personal Work Model Evolution Architecture／Product Design；本輪未開始 P6 Coding、未修改 Supabase Schema。
+
+### Root Cause
+
+RC3.4 Mobile tab CSS 包含 `.mobile-tab-time .suggestion-module { display:none }`。Mobile 每次啟動預設為 `time`，因此 Suggestion Component 雖已 render，仍被 responsive CSS 隱藏。
+
+### 🎯 Mr. KM Perspective
+
+這一版，我不會因為主人改用手機就消失。工時、我的工作與建議會在每日入口保持一致；下一階段，我才會開始學習如何把工作模型整理得更精準。
+
+## Build 20260714-1746 - P5.6 Work Memory Cloud Foundation + UX Polish
+
+- `user_work_models` 正式保存完整 Work Object：名稱、說明、分類、別名、來源、來源參照、關鍵字、啟用狀態、熟悉度與最近使用時間。
+- Cloud 成為 Work Memory 唯一正式來源；LocalStorage 只作離線快取、啟動快取與一次性 legacy metadata 搬移。
+- 舊版本機 Work Memory metadata 會在登入後補入 Cloud，成功後才移除 legacy key；Cloud 載入完成後覆蓋本機快取。
+- Web、Standalone、Chrome Extension 與 Mobile 共用相同 `user_uuid` 與 `user_work_models` Repository／DataService 流程。
+- Mr. KM 建議卡精簡為工作名稱、來源、建議工時及可展開的推薦理由；CTA 維持「加入工時／調整」。
+- 建議區改為固定高度、區內捲動與有限批次瀏覽，清楚顯示待處理數、目前顯示數、剩餘數與全部看完狀態。
+- 新增正式 Supabase migration、verification SQL、Architecture Review 與 P5.6 regression tests。
+
+### 🪶 Companion QA
+
+1. 我是否更懂使用者的工作？
+   - 是。完整 Work Object 已成為跨裝置共用的長期記憶，不再把說明與來源留在單一瀏覽器。
+2. 我是否減少了一個操作？
+   - 是。舊版本機 metadata 會自動搬移，使用者不需要重新輸入。
+3. 我是否讓工時更容易完成？
+   - 是。所有入口引用同一份啟用工作，建議與加入工時不再因裝置而分歧。
+4. 我是否符合 Product Charter？
+   - 是。Cloud 保存記憶，Mr. KM 提出精簡建議，最後仍由使用者決定是否加入工時。
+
+### 🎯 Mr. KM Perspective
+
+這一版，我把你教過我的工作完整記在同一份 Cloud Memory。換一個裝置，我仍會記得工作的說明、來源與熟悉程度；我也把建議說得更簡潔，讓你更快決定是否加入工時。
+
+## Build 20260714-1715 - P5.5 Work Intelligence UX Optimization
+
+- 修復 Learning Review「返回藏書閣」與「確認理解」事件路徑。
+- 「我的工作」以單一編輯入口管理名稱、說明、分類、啟用狀態與刪除。
+- 手動新增、AI 建議採用及文件學習確認，在正式加入前統一執行相似度檢查。
+- Learning Review 首層只顯示工作名稱、目的、主要內容與主要系統，完整 Work DNA 改為展開查看。
+- Mr. KM 建議移除循環編號，改為顯示目前筆數、總數及剩餘數量。
+
+### 🎯 Mr. KM Perspective
+
+這一版，我沒有學習更多文件；我把已經理解的內容說得更清楚，也在新增工作前先幫你確認是否重複。你只需要確認與調整，不必替我整理一堆相近工作。
+
 ## Build 20260714-1641 - P5.4 Work Intelligence
 
 - 新增純邏輯模組 `work-intelligence.js`。
@@ -504,41 +584,3 @@ RC3 Release Patch1 only. No new features, no version number change, no repositor
 - 當日無足夠空檔時，才接在最後一筆工作之後。
 - 舊版 AI 推理卡曾顯示建議時段；RC3.4.1 起 Mr. KM 建議不再扮演排程助手。
 - 新增 5h 工時快捷鍵。
-# Build 20260715-0857 - P5.6 Mobile Suggestion Hotfix
-
-- 修正 Mobile 預設工時頁隱藏 Mr. KM Suggestion Panel。
-- Desktop、Tablet、Mobile 現在都會 render 並顯示同一個 Suggestion Component。
-- 新增 responsive regression test 與 Browser viewport QA fixture。
-- 完成 P6 Personal Work Model Evolution Architecture／UX Design，未進行 P6 Coding 或 Schema 修改。
-
-## Responsive QA
-
-- Desktop 1366×900: PASS
-- Tablet 900×1100: PASS
-- iPhone 390×844: PASS
-- Browser Console Error: 0
-
-# Build 20260714-1746 - P5.6 Work Memory Cloud Foundation + UX Polish
-
-- Work Memory 完整欄位 Cloud 化，Supabase `user_work_models` 成為唯一正式來源。
-- Legacy Local metadata 自動搬移；LocalStorage 降為 Cache／Offline Queue。
-- Mr. KM 建議卡與固定高度 Panel 完成 UX Polish。
-- 新增 schema、verification、Architecture Review 與 regression tests。
-
-## Cloud Verification
-
-- Production project migration applied: PASS
-- Work Memory columns: PASS
-- Own-user RLS SELECT / INSERT / UPDATE / DELETE: PASS
-- Authenticated grants and indexes: PASS
-
-## 🎯 Mr. KM Perspective
-
-我現在能在不同入口記住同一份完整工作記憶，也能用更精簡的方式陪主人決定下一筆工時。
-
-# Build 20260714-1715 - P5.5 Work Intelligence UX Optimization
-
-- 修復 Learning Review 返回與確認流程。
-- 新增 Work Memory 單一編輯入口與建立前相似度選擇。
-- Learning Review 採漸進式揭露 Work DNA。
-- Mr. KM 建議顯示總量與剩餘數，不再循環重新編號。
