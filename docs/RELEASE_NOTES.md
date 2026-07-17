@@ -1,27 +1,5 @@
 # WorkLog RC3 Release Patch1
 
-## Build 20260716-2137 - P6.1 Google Drive Integration / AI Core Milestone 1
-
-- 沿用既有 Supabase PKCE Google Login，新增 Google Drive `drive.readonly` scope，並分離保存 Google provider token；Drive API 不會誤用 Supabase JWT。
-- 新增單一 `GoogleDriveService`，統一處理指定 Folder、分頁檔案清單、巢狀 Folder、Google Workspace export 與一般 Drive 檔案下載。
-- 第一階段支援 Google Docs、PDF、DOCX、XLSX；另支援 Google Sheets 以 XLSX export 進入相同 Parser Pipeline。
-- 新增來源獨立的 `KnowledgeParserRegistry` 與 `KnowledgeEngine`，未來 Gmail、Calendar、Notion、GitHub、Markdown、HTML、OCR 可註冊 Parser，不必修改 Drive Service。
-- 每份文件統一產生 Knowledge Object：File ID、標題、類型、Folder、Modified Time、純文字、來源、MIME、Parser、頁碼與來源追溯資訊。
-- 新增 `indexGoogleDriveFolder(folderId, options)` Console 驗證入口；只有明確開啟 debug 才輸出文件內容，且永不輸出 OAuth token。
-- 本 Milestone 不含 AI 問答、SOP 推理、建議、RAG、Embedding、新 UI 或 Supabase Schema。
-
-### QA
-
-- Folder metadata、pageToken 分頁、File ID／MIME Type／Modified Time：PASS。
-- Google Docs `files.export`、PDF／DOCX／XLSX Parser contract：PASS。
-- Google provider token 與 Supabase JWT 邊界：PASS。
-- 缺少／過期 Drive token 以 `GOOGLE_DRIVE_REAUTHORIZE_REQUIRED` fail closed：PASS。
-- P5 完整 Regression 與五入口 Browser Runtime：PASS。
-
-### 🎯 Mr. KM Perspective
-
-這一版，我先學會安全地看見主人指定的 Google Drive 文件，並把不同格式整理成一致、可追溯的文字資料。我還不做判斷或建議；先確保每一份資料都能被可靠地讀取，才進入下一步理解。
-
 ## Build 20260716-1802 - P5.7.3 Work Schedule Engine v2.1
 
 - Time Resolution Engine 正式收斂為 Work Schedule Engine，統一處理上班時間、正常午休、延後午休、8 小時完成、加班與跨日排程。

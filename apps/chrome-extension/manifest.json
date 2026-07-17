@@ -11,7 +11,6 @@
     "storage"
   ],
   "host_permissions": [
-    "https://lenpbbhwxyyfwgvjcozf.supabase.co/*",
-    "https://www.googleapis.com/*"
+    "https://lenpbbhwxyyfwgvjcozf.supabase.co/*"
   ]
 }

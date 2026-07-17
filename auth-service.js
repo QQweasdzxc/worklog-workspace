@@ -38,11 +38,6 @@ async function refreshAuthSession(force = false) {
   const sessionValue = {
     access_token: data.access_token,
     refresh_token: data.refresh_token || refreshToken,
-    provider_token: data.provider_token || stored?.provider_token || session?.provider_token || "",
-    provider_refresh_token: data.provider_refresh_token || stored?.provider_refresh_token || session?.provider_refresh_token || "",
-    provider_expires_at: data.provider_token
-      ? Date.now() + Number(data.expires_in || 3600) * 1000
-      : (stored?.provider_expires_at || session?.provider_expires_at || null),
     token_type: data.token_type || "bearer",
     expires_in: Number(data.expires_in || 3600),
     expires_at: Date.now() + Number(data.expires_in || 3600) * 1000
@@ -124,9 +119,6 @@ function captureHashAuthSession() {
   const sessionValue = {
     access_token: accessToken,
     refresh_token: hash.get("refresh_token"),
-    provider_token: hash.get("provider_token") || "",
-    provider_refresh_token: hash.get("provider_refresh_token") || "",
-    provider_expires_at: hash.get("provider_token") ? Date.now() + Number(hash.get("expires_in") || 3600) * 1000 : null,
     token_type: hash.get("token_type") || "bearer",
     expires_in: Number(hash.get("expires_in") || 3600),
     expires_at: Date.now() + Number(hash.get("expires_in") || 3600) * 1000
@@ -158,9 +150,6 @@ async function exchangeCodeForSession() {
   const sessionValue = {
     access_token: data.access_token,
     refresh_token: data.refresh_token,
-    provider_token: data.provider_token || "",
-    provider_refresh_token: data.provider_refresh_token || "",
-    provider_expires_at: data.provider_token ? Date.now() + Number(data.expires_in || 3600) * 1000 : null,
     token_type: data.token_type || "bearer",
     expires_in: Number(data.expires_in || 3600),
     expires_at: Date.now() + Number(data.expires_in || 3600) * 1000
@@ -184,10 +173,7 @@ async function signInWithGoogle() {
     provider: "google",
     redirect_to: redirectTo,
     code_challenge: codeChallenge,
-    code_challenge_method: "S256",
-    scopes: GOOGLE_DRIVE_OAUTH_SCOPE,
-    access_type: "offline",
-    prompt: "consent"
+    code_challenge_method: "S256"
   });
   location.href = `${AUTH_CONFIG.supabaseUrl}/auth/v1/authorize?${params.toString()}`;
 }
@@ -205,26 +191,11 @@ function googleSessionFromUser(authUser, authSession = {}) {
     avatarUrl: meta.avatar_url || "",
     access_token: authSession.access_token || "",
     refresh_token: authSession.refresh_token || "",
-    provider_token: authSession.provider_token || "",
-    provider_refresh_token: authSession.provider_refresh_token || "",
-    provider_expires_at: authSession.provider_expires_at || null,
     expires_at: authSession.expires_at || null,
     expires_in: authSession.expires_in || null,
     token_type: authSession.token_type || "bearer",
     loginAt: new Date().toISOString()
   };
-}
-
-function currentGoogleProviderToken() {
-  const stored = getStoredAuthSession();
-  const token = session?.provider_token || stored?.provider_token || "";
-  const expiresAt = tokenExpiresAtMs(session?.provider_expires_at) || tokenExpiresAtMs(stored?.provider_expires_at);
-  if (expiresAt && Date.now() + 30000 >= expiresAt) return "";
-  return token;
-}
-
-function hasGoogleDriveAccess() {
-  return Boolean(currentGoogleProviderToken());
 }
 
 async function getGoogleAuthUser() {
