@@ -223,53 +223,7 @@ function saveLocalSnapshot() {
   localStorage.setItem("wl_view", view);
   localStorage.setItem("wl_selected", selected.toISOString());
   localStorage.setItem("wl_selected_month", selectedMonth);
-  saveTasks();
   LocalCache.saveAll();
-}
-
-function taskStorageKey() {
-  return scopedLocalKey(TASKS_KEY);
-}
-
-function normalizeTask(item = {}) {
-  const title = String(item.title || item.name || "").trim();
-  return {
-    id: String(item.id || uid("task")),
-    title,
-    note: String(item.note || "").trim(),
-    dueDate: String(item.dueDate || "").slice(0, 10),
-    status: item.status === "completed" ? "completed" : "open",
-    createdAt: item.createdAt || new Date().toISOString(),
-    updatedAt: item.updatedAt || item.createdAt || new Date().toISOString(),
-    completedAt: item.completedAt || ""
-  };
-}
-
-function loadTasksForSession() {
-  tasks = currentUserUuid() ? readJson(taskStorageKey(), []).map(normalizeTask).filter(item => item.title) : [];
-}
-
-function saveTasks() {
-  if (currentUserUuid()) writeJson(taskStorageKey(), tasks.map(normalizeTask));
-}
-
-function taskListItems() {
-  const search = taskSearch.trim().toLowerCase();
-  return tasks
-    .filter(task => taskFilter === "all" || task.status === taskFilter)
-    .filter(task => !search || `${task.title} ${task.note}`.toLowerCase().includes(search))
-    .sort((a, b) => {
-      if (a.status !== b.status) return a.status === "open" ? -1 : 1;
-      return String(a.dueDate || "9999-12-31").localeCompare(String(b.dueDate || "9999-12-31")) || String(b.updatedAt).localeCompare(String(a.updatedAt));
-    });
-}
-
-function taskWorkspace() {
-  const editing = tasks.find(task => task.id === editingTaskId) || null;
-  const list = taskListItems();
-  const form = `<section class="task-form"><div class="panel-head"><div><h3>${editing ? "✏️ 編輯任務" : "＋ 新增任務"}</h3><div class="muted">把需要完成的事情留下來，完成後再標記即可。</div></div></div><label>任務名稱</label><input class="input" id="taskTitle" value="${escapeHtml(editing?.title || "")}" placeholder="例如：寄出採購資料"><label>備註（選填）</label><textarea class="input" id="taskNote" rows="2" placeholder="補充說明">${escapeHtml(editing?.note || "")}</textarea><label>期限（選填）</label><input class="input" id="taskDueDate" type="date" value="${escapeHtml(editing?.dueDate || "")}"><div class="form-actions"><button class="btn2" type="button" data-task-cancel="1" ${editing ? "" : "disabled"}>取消</button><button class="btn" type="button" data-task-save="1">${editing ? "儲存修改" : "建立任務"}</button></div></section>`;
-  const rows = list.length ? list.map(task => `<div class="entry task-row ${task.status === "completed" ? "task-completed" : ""}"><div class="entry-main"><b>${task.status === "completed" ? "✅" : "⬜"} ${escapeHtml(task.title)}</b><small>${task.dueDate ? `期限：${escapeHtml(task.dueDate)}` : "無期限"}${task.note ? `｜${escapeHtml(task.note)}` : ""}</small></div><div class="actions compact"><button class="btn2" type="button" data-task-toggle="${escapeHtml(task.id)}">${task.status === "completed" ? "恢復" : "完成"}</button><button class="btn2" type="button" data-task-edit="${escapeHtml(task.id)}">編輯</button><button class="btn2 danger" type="button" data-task-delete="${escapeHtml(task.id)}">刪除</button></div></div>`).join("") : `<div class="empty"><b>${taskSearch ? "找不到符合的任務" : "目前還沒有任務"}</b><div class="muted">可以從上方建立第一個任務，或在 Mr. KM 對話中說：「提醒我寄採購資料」。</div></div>`;
-  return `<section class="panel tasks-workspace" style="margin-top:18px"><div class="panel-head"><div><h2>✅ 任務</h2><div class="muted">目前 ${tasks.length} 項｜未完成 ${tasks.filter(task => task.status === "open").length} 項</div></div><button class="btn2" type="button" data-task-new="1">＋ 新增任務</button></div>${form}<section class="task-list-section"><div class="task-toolbar"><div class="task-filters">${["all", "open", "completed"].map(filter => `<button class="btn2 ${taskFilter === filter ? "selected" : ""}" type="button" data-task-filter="${filter}">${filter === "all" ? "全部" : filter === "open" ? "未完成" : "已完成"}</button>`).join("")}</div><div class="task-search"><input class="input" id="taskSearch" value="${escapeHtml(taskSearch)}" placeholder="搜尋任務"><button class="btn2" type="button" data-task-search-submit="1">搜尋</button></div></div><div class="task-list">${rows}</div></section></section>`;
 }
 
 function toast(t) {
@@ -1848,9 +1802,7 @@ function header() {
 }
 
 function authScreen() {
-  const oauthError = getStoredOAuthError();
-  const errorBlock = oauthError ? `<div class="empty" role="alert" style="margin:14px 0;border-color:#d97878"><b>Google 登入未完成</b><div class="muted">${escapeHtml(oauthError.message || "請稍後再試")}</div><small>錯誤代碼：${escapeHtml(oauthError.code || "unknown")}</small></div>` : "";
-  return `<div class="wrap"><div class="card"><section class="panel" style="margin-top:18px"><h1>🪶 Zhuge AI OS</h1><div class="muted">by Mr. KM</div>${errorBlock}<button class="btn full" id="googleLoginBtn">使用 Google 登入</button></section></div></div>`;
+  return `<div class="wrap"><div class="card"><section class="panel" style="margin-top:18px"><h1>🪶 Zhuge AI OS</h1><div class="muted">by Mr. KM</div><button class="btn full" id="googleLoginBtn">使用 Google 登入</button></section></div></div>`;
 }
 
 function worklogWelcomeSeen() {
@@ -1951,7 +1903,7 @@ function sidebarSection(title, group) {
 function osSidebar() {
   const checked = new Date().toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false });
   const syncTime = cloudSync.lastSyncedAt ? fmt(cloudSync.lastSyncedAt) : cloudSyncDetail();
-  return `<aside class="os-sidebar"><div class="sidebar-brand"><div class="brand-row"><div class="brand-stack"><h1><span class="brand-mark" aria-hidden="true">🪶</span> Zhuge AI OS</h1><span class="brand-companion">by Mr. KM</span></div></div><button class="mini sidebar-close" data-close-sidebar="1" aria-label="關閉選單">×</button><button class="mini sidebar-menu-mark" type="button" data-toggle-sidebar="1" aria-label="營帳選單">☰</button></div>${agentStatusPanel()}${sidebarSection("🏕️ 營帳", "camp")}${sidebarSection("⚙️ 系統", "system")}<div class="developer-build-info"><div class="sidebar-sync-summary" id="developerCloudSyncStatus" data-retry-cloud-sync="1"><strong>${escapeHtml(cloudSyncLabel())}</strong><span>最後同步</span><time>${escapeHtml(syncTime)}</time></div><div class="sidebar-version-summary"><span>Version</span><strong>v${escapeHtml(VERSION)}</strong></div><details class="developer-version-details"><summary>版本資訊 <span aria-hidden="true">›</span></summary><div class="developer-version-content"><div>Build：${BUILD_TIME}</div><div>Product Version：${RELEASE_VERSION}</div><div>${escapeHtml(conversationSyncLabel())}</div><div>${escapeHtml(conversationSyncDetail())}</div><div>GitHub Pages：最後檢查 ${checked}</div><div>Source：${DEPLOY_SOURCE}</div></div></details></div></aside>`;
+  return `<aside class="os-sidebar"><div class="sidebar-brand"><div class="brand-row"><div class="brand-stack"><h1><span class="brand-mark" aria-hidden="true">🪶</span> Zhuge AI OS</h1><span class="brand-companion">by Mr. KM</span></div></div><button class="mini sidebar-close" data-close-sidebar="1" aria-label="關閉選單">×</button><button class="mini sidebar-menu-mark" type="button" data-toggle-sidebar="1" aria-label="營帳選單">☰</button></div>${agentStatusPanel()}${sidebarSection("🏕️ 營帳", "camp")}${sidebarSection("⚙️ 系統", "system")}<div class="developer-build-info"><div class="sidebar-sync-summary" id="developerCloudSyncStatus" data-retry-cloud-sync="1"><strong>${escapeHtml(cloudSyncLabel())}</strong><span>最後同步</span><time>${escapeHtml(syncTime)}</time></div><div class="sidebar-version-summary"><span>Version</span><strong>v${escapeHtml(VERSION)}</strong></div><details class="developer-version-details"><summary>版本資訊 <span aria-hidden="true">›</span></summary><div class="developer-version-content"><div>Build：${BUILD_TIME}</div><div>RC Version：${RELEASE_VERSION}</div><div>${escapeHtml(conversationSyncLabel())}</div><div>${escapeHtml(conversationSyncDetail())}</div><div>GitHub Pages：最後檢查 ${checked}</div><div>Source：${DEPLOY_SOURCE}</div></div></details></div></aside>`;
 }
 
 function workspaceTabs() {
@@ -2218,7 +2170,6 @@ function worklogWorkspace() {
 function workspaceContent() {
   if (activeWorkspace === "dashboard") return zhugeDashboard();
   if (activeWorkspace === "worklog") return profile ? worklogWorkspace() : onboardingWorkspace();
-  if (activeWorkspace === "tasks") return taskWorkspace();
   if (activeWorkspace === "library") {
     if (view === "libraryForm") return libraryForm(editingLibraryId);
     if (view === "libraryLearning") return libraryLearningView();
@@ -2563,7 +2514,7 @@ function renderAssistantCard(card = null) {
   }
   if (card.type === "task_draft") {
     const p = card.payload || {};
-    return `<div class="assistant-command-card"><div class="assistant-card-title">✅ 任務建議</div><div class="assistant-card-grid"><span>任務</span><b>${escapeHtml(p.title || "待辦")}</b><span>狀態</span><b>等待你確認</b></div><div class="assistant-card-actions"><button class="btn green" type="button" data-assistant-create-task="1">建立任務</button><button class="btn2" type="button" data-assistant-edit-task="1">調整</button></div></div>`;
+    return `<div class="assistant-command-card"><div class="assistant-card-title">📝 任務紀錄</div><div class="assistant-card-grid"><span>任務</span><b>${escapeHtml(p.title || "待辦")}</b><span>狀態</span><b>待建立正式任務功能</b></div></div>`;
   }
   if (card.type === "calendar_draft") {
     const p = card.payload || {};
@@ -3444,23 +3395,6 @@ function bindWorklogAssistant() {
     addConversationMessage("assistant", "已取消這筆工時建立。");
     render();
   });
-  document.querySelectorAll("[data-assistant-create-task]").forEach(button => button.onclick = () => {
-    const message = button.closest(".assistant-command-card");
-    const title = message?.querySelector(".assistant-card-grid b")?.textContent?.trim() || "待辦";
-    createTask(title);
-    addConversationMessage("assistant", `已建立任務：「${title}」。`);
-    activeWorkspace = "tasks";
-    if (!openTabs.includes("tasks")) openTabs.push("tasks");
-    rememberWorkspace("tasks");
-    saveAll();
-    render();
-  });
-  document.querySelectorAll("[data-assistant-edit-task]").forEach(button => button.onclick = () => {
-    activeWorkspace = "tasks";
-    if (!openTabs.includes("tasks")) openTabs.push("tasks");
-    rememberWorkspace("tasks");
-    render();
-  });
   document.querySelectorAll("[data-assistant-confirm-entry]").forEach(button => button.onclick = async () => {
     const pending = getAssistantPendingCommand();
     const parsedCommand = pending?.command || null;
@@ -3586,58 +3520,7 @@ function bindGlobal() {
     if (cloudSync.status === "failed") DataService.retryAutoSave();
   });
 }
-function createTask(title = "", note = "", dueDate = "") {
-  const normalized = normalizeTask({ title, note, dueDate });
-  if (!normalized.title) return null;
-  const existing = tasks.find(task => task.status === "open" && task.title === normalized.title);
-  if (existing) return existing;
-  tasks = [normalized, ...tasks];
-  saveTasks();
-  return normalized;
-}
-
-function bindTasks() {
-  document.querySelectorAll("[data-task-new]").forEach(button => button.onclick = () => { editingTaskId = null; taskSearch = ""; render(); });
-  document.querySelectorAll("[data-task-filter]").forEach(button => button.onclick = () => { taskFilter = button.dataset.taskFilter || "all"; render(); });
-  const search = document.getElementById("taskSearch");
-  const submitSearch = () => { taskSearch = search?.value?.trim() || ""; render(); };
-  document.querySelector("[data-task-search-submit]")?.addEventListener("click", submitSearch);
-  search?.addEventListener("keydown", event => { if (event.key === "Enter") { event.preventDefault(); submitSearch(); } });
-  document.querySelectorAll("[data-task-cancel]").forEach(button => button.onclick = () => { editingTaskId = null; render(); });
-  document.querySelectorAll("[data-task-save]").forEach(button => button.onclick = () => {
-    const title = document.getElementById("taskTitle")?.value?.trim() || "";
-    if (!title) return toast("請輸入任務名稱");
-    const note = document.getElementById("taskNote")?.value?.trim() || "";
-    const dueDate = document.getElementById("taskDueDate")?.value || "";
-    if (editingTaskId) {
-      tasks = tasks.map(task => task.id === editingTaskId ? normalizeTask({ ...task, title, note, dueDate, updatedAt: new Date().toISOString() }) : task);
-      toast("任務已更新");
-    } else {
-      createTask(title, note, dueDate);
-      toast("任務已建立");
-    }
-    editingTaskId = null;
-    saveTasks();
-    render();
-  });
-  document.querySelectorAll("[data-task-toggle]").forEach(button => button.onclick = () => {
-    tasks = tasks.map(task => task.id === button.dataset.taskToggle ? normalizeTask({ ...task, status: task.status === "completed" ? "open" : "completed", completedAt: task.status === "completed" ? "" : new Date().toISOString(), updatedAt: new Date().toISOString() }) : task);
-    saveTasks();
-    toast("任務狀態已更新");
-    render();
-  });
-  document.querySelectorAll("[data-task-edit]").forEach(button => button.onclick = () => { editingTaskId = button.dataset.taskEdit; render(); });
-  document.querySelectorAll("[data-task-delete]").forEach(button => button.onclick = () => {
-    const task = tasks.find(item => item.id === button.dataset.taskDelete);
-    if (!task || !confirm(`確定刪除任務「${task.title}」？`)) return;
-    tasks = tasks.filter(item => item.id !== task.id);
-    saveTasks();
-    toast("任務已刪除");
-    render();
-  });
-}
-
-function doLogout() { clearStoredAuthSession(); clearStoredCodeVerifier(); session = null; tasks = []; activeModule = "dashboard"; activeWorkspace = "dashboard"; openTabs = []; recentWorkspaces = []; view = "center"; saveAll(); toast("已登出"); render(); }
+function doLogout() { clearStoredAuthSession(); clearStoredCodeVerifier(); session = null; activeModule = "dashboard"; activeWorkspace = "dashboard"; openTabs = []; recentWorkspaces = []; view = "center"; saveAll(); toast("已登出"); render(); }
 
 function bindOnboarding() {
   let tags = [], src = [];
@@ -3739,7 +3622,6 @@ function bind() {
   document.querySelectorAll("[data-edit-id]").forEach(b => b.onclick = () => { editingEntryId = b.dataset.editId; captureSeed = null; activeWorkspace = "worklog"; if (!openTabs.includes("worklog")) openTabs.push("worklog"); rememberWorkspace("worklog"); view = "capture"; saveAll(); render(); });
   bindLibrary();
   if (activeWorkspace === "workMemory" || activeWorkspace === "settings" || activeWorkspace === "aiSuggestions") bindWorkMemory();
-  if (activeWorkspace === "tasks") bindTasks();
   if (activeWorkspace === "worklog" && view === "capture") bindCapture();
   bindWorklogAssistant();
   if (activeWorkspace === "worklog" && !profile) bindOnboarding();
@@ -4850,12 +4732,10 @@ async function boot() {
     const googleAuth = await getGoogleAuthUser();
     if (googleAuth) {
       session = googleSessionFromUser(googleAuth.user, googleAuth.authSession);
-      loadTasksForSession();
       if (authCallbackCaptured) { activeModule = "dashboard"; activeWorkspace = "worklog"; openTabs = ["worklog"]; recentWorkspaces = ["worklog"]; view = "center"; hasOsShellState = true; }
       saveAll();
       await DataService.init();
     } else if (hasGoogleOAuthSession()) {
-      loadTasksForSession();
       await DataService.init();
     }
   } catch {
