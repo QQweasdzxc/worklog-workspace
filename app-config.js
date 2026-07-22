@@ -1,17 +1,12 @@
 // P5.2A-1 Foundation Split: configuration and static constants.
-const VERSION = "0.9.0-alpha.2";
-const RELEASE_VERSION = VERSION;
-const BUILD_TIME = "20260722-2225";
+const VERSION = "1.0.0-rc3.1-sp3";
+const RELEASE_VERSION = "RC3.3";
+const BUILD_TIME = "20260716-1802";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const KNOWLEDGE_DEBUG_MODE = (() => {
   try { return new URLSearchParams(location.search).has("debugKnowledge") || localStorage.getItem("zhuge_debug_knowledge") === "1"; }
   catch { return false; }
 })();
-const DRIVE_DEBUG_MODE = (() => {
-  try { return new URLSearchParams(location.search).has("debugDrive") || localStorage.getItem("zhuge_debug_drive") === "1"; }
-  catch { return false; }
-})();
-const GOOGLE_DRIVE_OAUTH_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
 const PDFJS_LIB_URL = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.269/build/pdf.mjs";
 const PDFJS_WORKER_URL = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.269/build/pdf.worker.mjs";
 const root = document.getElementById("app");
@@ -20,7 +15,6 @@ const WEB_APP_URL = "https://qqweasdzxc.github.io/worklog-workspace/";
 const CHROME_EXTENSION_STORE_URL = "";
 const AUTH_SESSION_KEY = "zhuge_ai_os_google_auth_session_v1";
 const AUTH_CODE_VERIFIER_KEY = "zhuge_ai_os_pkce_code_verifier_v1";
-const OAUTH_ERROR_KEY = "zhuge_ai_os_oauth_error_v1";
 const AI_OS_SESSION_KEY = "zhuge_ai_os_session_v1";
 const WORKLOG_WELCOME_KEY = "zhuge_worklog_welcome_seen_v1";
 const WORK_PROFILE_PROMPT_KEY = "zhuge_work_profile_prompt_date_v1";
@@ -34,7 +28,6 @@ const AI_TODAY_SUGGESTION_INDEX_KEY = "zhuge_ai_today_suggestion_index_v1";
 const WORK_MEMORY_MERGE_DECISIONS_KEY = "zhuge_work_memory_merge_decisions_v1";
 const WORK_MEMORY_MERGE_STATS_KEY = "zhuge_work_memory_merge_stats_v1";
 const WORK_MEMORY_AI_SUGGESTION_DECISIONS_KEY = "zhuge_work_memory_ai_suggestion_decisions_v1";
-const TASKS_KEY = "zhuge_worklog_tasks_v1";
 const LEGACY_WORK_MEMORY_METADATA_KEY = "zhuge_work_memory_merge_notes_v1";
 const WORK_MEMORY_CLOUD_MIGRATION_KEY = "p5_6_work_memory_cloud_migrated_v1";
 const WORK_MEMORY_SCHEMA_SQL = "docs/supabase/20260714_p5_6_work_memory_cloud_foundation_schema.sql";
@@ -91,7 +84,6 @@ const KNOWLEDGE_ROLE_OPTIONS = ["PROCUREMENT", "HR", "IT", "ADMIN", "FINANCE", "
 const WORK_PROFILE_SCHEMA_SQL = "docs/supabase/20260712_p4_5_user_work_profile_schema.sql";
 const workspaceRegistry = {
   worklog: { icon: "🪶", label: "工時營帳", group: "camp", enabled: true },
-  tasks: { icon: "✅", label: "任務", group: "camp", enabled: true },
   investment: { icon: "📈", label: "投資營帳", group: "camp", comingSoon: true },
   procurement: { icon: "📦", label: "採購營帳", group: "camp", comingSoon: true },
   hr: { icon: "👥", label: "HR營帳", group: "camp", comingSoon: true },
