@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "milestone": "P0.3A-1",
+  "mode": "architecture",
+  "deployable": false,
+  "buildTime": "20260722-2225",
+  "commitSha": "deferred-simple-first",
+  "productVersion": "0.9.0-alpha.2",
+  "unresolvedKeys": [
+    "ROOT_DOMAIN",
+    "WEBSITE_URL",
+    "APP_URL",
+    "SUPPORT_EMAIL",
+    "OPERATOR_LEGAL_NAME",
+    "SUPABASE_URL",
+    "SUPABASE_PUBLISHABLE_KEY",
+    "SUPABASE_AUTH_CALLBACK_URL"
+  ],
+  "websiteUrl": "{{WEBSITE_URL}}",
+  "appUrl": "{{APP_URL}}",
+  "supabaseAuthCallbackUrl": "{{SUPABASE_AUTH_CALLBACK_URL}}",
+  "warning": "Architecture artifact only. Production deployment is prohibited.",
+  "artifact": "app"
+}

@@ -223,53 +223,7 @@ function saveLocalSnapshot() {
   localStorage.setItem("wl_view", view);
   localStorage.setItem("wl_selected", selected.toISOString());
   localStorage.setItem("wl_selected_month", selectedMonth);
-  saveTasks();
   LocalCache.saveAll();
-}
-
-function taskStorageKey() {
-  return scopedLocalKey(TASKS_KEY);
-}
-
-function normalizeTask(item = {}) {
-  const title = String(item.title || item.name || "").trim();
-  return {
-    id: String(item.id || uid("task")),
-    title,
-    note: String(item.note || "").trim(),
-    dueDate: String(item.dueDate || "").slice(0, 10),
-    status: item.status === "completed" ? "completed" : "open",
-    createdAt: item.createdAt || new Date().toISOString(),
-    updatedAt: item.updatedAt || item.createdAt || new Date().toISOString(),
-    completedAt: item.completedAt || ""
-  };
-}
-
-function loadTasksForSession() {
-  tasks = currentUserUuid() ? readJson(taskStorageKey(), []).map(normalizeTask).filter(item => item.title) : [];
-}
-
-function saveTasks() {
-  if (currentUserUuid()) writeJson(taskStorageKey(), tasks.map(normalizeTask));
-}
-
-function taskListItems() {
-  const search = taskSearch.trim().toLowerCase();
-  return tasks
-    .filter(task => taskFilter === "all" || task.status === taskFilter)
-    .filter(task => !search || `${task.title} ${task.note}`.toLowerCase().includes(search))
-    .sort((a, b) => {
-      if (a.status !== b.status) return a.status === "open" ? -1 : 1;
-      return String(a.dueDate || "9999-12-31").localeCompare(String(b.dueDate || "9999-12-31")) || String(b.updatedAt).localeCompare(String(a.updatedAt));
-    });
-}
-
-function taskWorkspace() {
-  const editing = tasks.find(task => task.id === editingTaskId) || null;
-  const list = taskListItems();
-  const form = `<section class="task-form"><div class="panel-head"><div><h3>${editing ? "✏️ 編輯任務" : "＋ 新增任務"}</h3><div class="muted">把需要完成的事情留下來，完成後再標記即可。</div></div></div><label>任務名稱</label><input class="input" id="taskTitle" value="${escapeHtml(editing?.title || "")}" placeholder="例如：寄出採購資料"><label>備註（選填）</label><textarea class="input" id="taskNote" rows="2" placeholder="補充說明">${escapeHtml(editing?.note || "")}</textarea><label>期限（選填）</label><input class="input" id="taskDueDate" type="date" value="${escapeHtml(editing?.dueDate || "")}"><div class="form-actions"><button class="btn2" type="button" data-task-cancel="1" ${editing ? "" : "disabled"}>取消</button><button class="btn" type="button" data-task-save="1">${editing ? "儲存修改" : "建立任務"}</button></div></section>`;
-  const rows = list.length ? list.map(task => `<div class="entry task-row ${task.status === "completed" ? "task-completed" : ""}"><div class="entry-main"><b>${task.status === "completed" ? "✅" : "⬜"} ${escapeHtml(task.title)}</b><small>${task.dueDate ? `期限：${escapeHtml(task.dueDate)}` : "無期限"}${task.note ? `｜${escapeHtml(task.note)}` : ""}</small></div><div class="actions compact"><button class="btn2" type="button" data-task-toggle="${escapeHtml(task.id)}">${task.status === "completed" ? "恢復" : "完成"}</button><button class="btn2" type="button" data-task-edit="${escapeHtml(task.id)}">編輯</button><button class="btn2 danger" type="button" data-task-delete="${escapeHtml(task.id)}">刪除</button></div></div>`).join("") : `<div class="empty"><b>${taskSearch ? "找不到符合的任務" : "目前還沒有任務"}</b><div class="muted">可以從上方建立第一個任務，或在 Mr. KM 對話中說：「提醒我寄採購資料」。</div></div>`;
-  return `<section class="panel tasks-workspace" style="margin-top:18px"><div class="panel-head"><div><h2>✅ 任務</h2><div class="muted">目前 ${tasks.length} 項｜未完成 ${tasks.filter(task => task.status === "open").length} 項</div></div><button class="btn2" type="button" data-task-new="1">＋ 新增任務</button></div>${form}<section class="task-list-section"><div class="task-toolbar"><div class="task-filters">${["all", "open", "completed"].map(filter => `<button class="btn2 ${taskFilter === filter ? "selected" : ""}" type="button" data-task-filter="${filter}">${filter === "all" ? "全部" : filter === "open" ? "未完成" : "已完成"}</button>`).join("")}</div><div class="task-search"><input class="input" id="taskSearch" value="${escapeHtml(taskSearch)}" placeholder="搜尋任務"><button class="btn2" type="button" data-task-search-submit="1">搜尋</button></div></div><div class="task-list">${rows}</div></section></section>`;
 }
 
 function toast(t) {
@@ -1239,26 +1193,6 @@ function assistantFallbackText() {
   return assistantUnknownResponse();
 }
 
-async function knowledgeAssistantAnswer(query = "") {
-  const text = String(query || "").trim();
-  const api = globalThis.KnowledgeAPI;
-  if (!text || !api || typeof api.search !== "function") return null;
-  try {
-    const result = await api.search(text, { limit: 5 });
-    const items = Array.isArray(result?.items) ? result.items.filter(item => item && item.title) : [];
-    if (!items.length) return null;
-    const lines = items.map(item => {
-      const source = item.reference?.sourceTitle || item.reference?.title || "藏書閣";
-      const excerpt = String(item.summary || "").trim();
-      return `• ${item.title}${excerpt ? `：${excerpt}` : ""}\n  來源：${source}`;
-    });
-    return `🪶 我從藏書閣找到與「${text}」相關的工作知識：\n\n${lines.join("\n")}\n\n這些是文件中的可追溯摘要；如果你希望我把它整理成正式工作，請告訴我是否加入「我的工作」。`;
-  } catch (error) {
-    console.warn("Knowledge context lookup unavailable; using assistant fallback", { error });
-    return null;
-  }
-}
-
 function pickAssistantResponse(pool = []) {
   if (!pool.length) return "";
   return pool[Math.floor(Math.random() * pool.length)];
@@ -1868,9 +1802,7 @@ function header() {
 }
 
 function authScreen() {
-  const oauthError = getStoredOAuthError();
-  const errorBlock = oauthError ? `<div class="empty" role="alert" style="margin:14px 0;border-color:#d97878"><b>Google 登入未完成</b><div class="muted">${escapeHtml(oauthError.message || "請稍後再試")}</div><small>錯誤代碼：${escapeHtml(oauthError.code || "unknown")}</small></div>` : "";
-  return `<div class="wrap"><div class="card"><section class="panel" style="margin-top:18px"><h1>🪶 Zhuge AI OS</h1><div class="muted">by Mr. KM</div>${errorBlock}<button class="btn full" id="googleLoginBtn">使用 Google 登入</button></section></div></div>`;
+  return `<div class="wrap"><div class="card"><section class="panel" style="margin-top:18px"><h1>🪶 Zhuge AI OS</h1><div class="muted">by Mr. KM</div><button class="btn full" id="googleLoginBtn">使用 Google 登入</button></section></div></div>`;
 }
 
 function worklogWelcomeSeen() {
@@ -1971,7 +1903,7 @@ function sidebarSection(title, group) {
 function osSidebar() {
   const checked = new Date().toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false });
   const syncTime = cloudSync.lastSyncedAt ? fmt(cloudSync.lastSyncedAt) : cloudSyncDetail();
-  return `<aside class="os-sidebar"><div class="sidebar-brand"><div class="brand-row"><div class="brand-stack"><h1><span class="brand-mark" aria-hidden="true">🪶</span> Zhuge AI OS</h1><span class="brand-companion">by Mr. KM</span></div></div><button class="mini sidebar-close" data-close-sidebar="1" aria-label="關閉選單">×</button><button class="mini sidebar-menu-mark" type="button" data-toggle-sidebar="1" aria-label="營帳選單">☰</button></div>${agentStatusPanel()}${sidebarSection("🏕️ 營帳", "camp")}${sidebarSection("⚙️ 系統", "system")}<div class="developer-build-info"><div class="sidebar-sync-summary" id="developerCloudSyncStatus" data-retry-cloud-sync="1"><strong>${escapeHtml(cloudSyncLabel())}</strong><span>最後同步</span><time>${escapeHtml(syncTime)}</time></div><div class="sidebar-version-summary"><span>Version</span><strong>v${escapeHtml(VERSION)}</strong></div><details class="developer-version-details"><summary>版本資訊 <span aria-hidden="true">›</span></summary><div class="developer-version-content"><div>Build：${BUILD_TIME}</div><div>Product Version：${RELEASE_VERSION}</div><div>${escapeHtml(conversationSyncLabel())}</div><div>${escapeHtml(conversationSyncDetail())}</div><div>GitHub Pages：最後檢查 ${checked}</div><div>Source：${DEPLOY_SOURCE}</div></div></details></div></aside>`;
+  return `<aside class="os-sidebar"><div class="sidebar-brand"><div class="brand-row"><div class="brand-stack"><h1><span class="brand-mark" aria-hidden="true">🪶</span> Zhuge AI OS</h1><span class="brand-companion">by Mr. KM</span></div></div><button class="mini sidebar-close" data-close-sidebar="1" aria-label="關閉選單">×</button><button class="mini sidebar-menu-mark" type="button" data-toggle-sidebar="1" aria-label="營帳選單">☰</button></div>${agentStatusPanel()}${sidebarSection("🏕️ 營帳", "camp")}${sidebarSection("⚙️ 系統", "system")}<div class="developer-build-info"><div class="sidebar-sync-summary" id="developerCloudSyncStatus" data-retry-cloud-sync="1"><strong>${escapeHtml(cloudSyncLabel())}</strong><span>最後同步</span><time>${escapeHtml(syncTime)}</time></div><div class="sidebar-version-summary"><span>Version</span><strong>v${escapeHtml(VERSION)}</strong></div><details class="developer-version-details"><summary>版本資訊 <span aria-hidden="true">›</span></summary><div class="developer-version-content"><div>Build：${BUILD_TIME}</div><div>RC Version：${RELEASE_VERSION}</div><div>${escapeHtml(conversationSyncLabel())}</div><div>${escapeHtml(conversationSyncDetail())}</div><div>GitHub Pages：最後檢查 ${checked}</div><div>Source：${DEPLOY_SOURCE}</div></div></details></div></aside>`;
 }
 
 function workspaceTabs() {
@@ -2238,7 +2170,6 @@ function worklogWorkspace() {
 function workspaceContent() {
   if (activeWorkspace === "dashboard") return zhugeDashboard();
   if (activeWorkspace === "worklog") return profile ? worklogWorkspace() : onboardingWorkspace();
-  if (activeWorkspace === "tasks") return taskWorkspace();
   if (activeWorkspace === "library") {
     if (view === "libraryForm") return libraryForm(editingLibraryId);
     if (view === "libraryLearning") return libraryLearningView();
@@ -2583,7 +2514,7 @@ function renderAssistantCard(card = null) {
   }
   if (card.type === "task_draft") {
     const p = card.payload || {};
-    return `<div class="assistant-command-card"><div class="assistant-card-title">✅ 任務建議</div><div class="assistant-card-grid"><span>任務</span><b>${escapeHtml(p.title || "待辦")}</b><span>狀態</span><b>等待你確認</b></div><div class="assistant-card-actions"><button class="btn green" type="button" data-assistant-create-task="1">建立任務</button><button class="btn2" type="button" data-assistant-edit-task="1">調整</button></div></div>`;
+    return `<div class="assistant-command-card"><div class="assistant-card-title">📝 任務紀錄</div><div class="assistant-card-grid"><span>任務</span><b>${escapeHtml(p.title || "待辦")}</b><span>狀態</span><b>待建立正式任務功能</b></div></div>`;
   }
   if (card.type === "calendar_draft") {
     const p = card.payload || {};
@@ -2876,10 +2807,6 @@ function knowledgeSourceTypeLabel(type = "") {
   return labels[type] || type || "未指定";
 }
 
-function knowledgeSourceProviderLabel(provider = "upload") {
-  return provider === "google_drive" ? "Google Drive 文件" : "使用者上傳文件";
-}
-
 function knowledgeActionLabel(status = "uploaded") {
   return ["processed", "verified", "failed"].includes(status) ? "重新學習" : "開始學習";
 }
@@ -2958,10 +2885,6 @@ function normalizedLibraryItem(item = {}) {
     category: KNOWLEDGE_CATEGORIES.includes(item.category) ? item.category : "其他",
     scope: normalizeKnowledgeScope(item.scope),
     sourceType: normalizeKnowledgeSourceType(item.sourceType || item.source_type || item.type, filename),
-    sourceProvider: item.sourceProvider || item.source_provider || "upload",
-    externalFileId: item.externalFileId || item.external_file_id || "",
-    sourceModifiedAt: item.sourceModifiedAt || item.source_modified_at || "",
-    sourceMetadata: item.sourceMetadata || item.source_metadata || {},
     sourceName: item.sourceName || item.source_name || filename,
     sourceUrl: item.sourceUrl || item.source_url || "",
     mimeType: item.mimeType || item.mime_type || "",
@@ -2981,8 +2904,6 @@ function normalizedLibraryItem(item = {}) {
     aiStatus: normalizeKnowledgeProcessingStatus(item.processingStatus || item.processing_status || item.status || item.aiStatus || item.ai_status),
     version: item.version || "v1.0",
     sourceVersion: item.sourceVersion || item.source_version || item.version || "v1.0",
-    knowledgeVersion: item.knowledgeVersion || item.knowledge_version || "v1.0",
-    indexedAt: item.indexedAt || item.indexed_at || "",
     createdAt,
     updatedAt: item.updatedAt || item.updated_at || createdAt,
     filename,
@@ -3006,10 +2927,6 @@ function knowledgeFromCloud(row = {}) {
     organizationId: row.organization_id,
     tenantId: row.tenant_id,
     sourceType: row.source_type,
-    sourceProvider: row.source_provider,
-    externalFileId: row.external_file_id,
-    sourceModifiedAt: row.source_modified_at,
-    sourceMetadata: row.source_metadata || {},
     sourceName: row.source_name,
     sourceUrl: row.source_url,
     mimeType: row.mime_type,
@@ -3029,8 +2946,6 @@ function knowledgeFromCloud(row = {}) {
     aiStatus: row.processing_status,
     version: row.version,
     sourceVersion: row.source_version,
-    knowledgeVersion: row.knowledge_version,
-    indexedAt: row.indexed_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     filename: row.filename,
@@ -3072,7 +2987,7 @@ function hasLegacyKnowledgeMigrationDone() {
 }
 
 function knowledgeInitializationNotice() {
-  return `<div class="empty"><b>📚 藏書閣尚未初始化</b><div class="muted">藏書閣資料庫、檔案儲存空間或文件整理資料表尚未建立。這不影響工時、對話、月曆與登入。</div><div class="source-path">請先執行：docs/supabase/20260712_p5_1_knowledge_repository_schema.sql</div><div class="source-path">若已完成 P5.1，請再執行：docs/supabase/20260713_p5_2_knowledge_intelligence_v1_schema.sql</div><div class="source-path">Sprint 2 若要使用 Google Drive，請再執行：docs/supabase/20260724_sprint_2_knowledge_integration_schema.sql</div><div class="muted">完成 SQL 與 Storage Policy 建立後，重新整理頁面即可啟用藏書閣。</div></div>`;
+  return `<div class="empty"><b>📚 藏書閣尚未初始化</b><div class="muted">藏書閣資料庫、檔案儲存空間或文件整理資料表尚未建立。這不影響工時、對話、月曆與登入。</div><div class="source-path">請先執行：docs/supabase/20260712_p5_1_knowledge_repository_schema.sql</div><div class="source-path">若已完成 P5.1，請再執行：docs/supabase/20260713_p5_2_knowledge_intelligence_v1_schema.sql</div><div class="muted">完成 SQL 與 Storage Policy 建立後，重新整理頁面即可啟用藏書閣。</div></div>`;
 }
 
 function knowledgeCardSummary(item = {}) {
@@ -3103,11 +3018,7 @@ function libraryView() {
         ? capabilities.map(capability => `<li>✓ ${escapeHtml(capability)}</li>`).join("")
         : `<li>${item.processingStatus === "uploaded" ? "等你把這份文件交給我學習" : "我還沒整理出可用於工時的工作"}</li>`;
       const counts = knowledgeOutcomeCounts(item);
-      const providerLabel = knowledgeSourceProviderLabel(item.sourceProvider);
-      const sourceAction = item.sourceProvider === "google_drive" ? "重新整理" : knowledgeActionLabel(item.processingStatus);
-      const sourceLink = item.sourceUrl ? `<a class="source-path" href="${escapeHtml(item.sourceUrl)}" target="_blank" rel="noopener">查看 Google Drive 來源 ↗</a>` : "";
-      const previewButton = item.storagePath ? `<button class="btn2" data-preview-library="${item.id}">預覽原始檔</button>` : sourceLink;
-      return `<div class="entry knowledge-card"><div class="entry-main"><b>🪶 ${escapeHtml(item.title)}</b><div class="muted">${escapeHtml(knowledgeLearnedLabel(item.processingStatus))}｜${escapeHtml(providerLabel)}｜${escapeHtml(knowledgeSourceTypeLabel(item.sourceType))}</div><small>${escapeHtml(item.description || "這份文件會幫我更懂你的工作。")}</small><div class="source-path"><b>我目前理解出的工作：</b></div><ul class="knowledge-result-list">${capabilityList}</ul><div class="source-path">我整理出｜理解 ${counts.summary}｜流程 ${counts.process}｜規則 ${counts.rule}｜可協助工作 ${counts.recommendation}</div>${item.processingStatus === "failed" && item.intelligenceError ? `<div class="source-path">我讀不懂的原因：${escapeHtml(item.intelligenceError)}</div>` : ""}</div><div class="actions compact"><button class="btn2" ${viewDisabled} data-view-knowledge-result="${item.id}">查看我的理解</button><button class="btn2" data-refresh-library="${item.id}">${escapeHtml(sourceAction)}</button>${item.processingStatus === "processed" ? `<button class="btn green" data-verify-library="${item.id}">✓ 接受我的理解</button>` : ""}${previewButton}<button class="btn2" data-edit-library="${item.id}">✏️ 調整我的理解</button><button class="btn2" data-archive-library="${item.id}">封存</button><button class="btn2 danger" data-del-library="${item.id}">刪除</button></div></div>`;
+      return `<div class="entry knowledge-card"><div class="entry-main"><b>🪶 ${escapeHtml(item.title)}</b><div class="muted">${escapeHtml(knowledgeLearnedLabel(item.processingStatus))}</div><small>${escapeHtml(item.description || "這份文件會幫我更懂你的工作。")}</small><div class="source-path"><b>我目前理解出的工作：</b></div><ul class="knowledge-result-list">${capabilityList}</ul><div class="source-path">我整理出｜理解 ${counts.summary}｜流程 ${counts.process}｜規則 ${counts.rule}｜可協助工作 ${counts.recommendation}</div>${item.processingStatus === "failed" && item.intelligenceError ? `<div class="source-path">我讀不懂的原因：${escapeHtml(item.intelligenceError)}</div>` : ""}</div><div class="actions compact"><button class="btn2" ${viewDisabled} data-view-knowledge-result="${item.id}">查看我的理解</button><button class="btn2" data-reprocess-library="${item.id}">${knowledgeActionLabel(item.processingStatus)}</button>${item.processingStatus === "processed" ? `<button class="btn green" data-verify-library="${item.id}">✓ 接受我的理解</button>` : ""}<button class="btn2" data-preview-library="${item.id}">預覽原始檔</button><button class="btn2" data-edit-library="${item.id}">✏️ 調整我的理解</button><button class="btn2" data-archive-library="${item.id}">封存</button><button class="btn2 danger" data-del-library="${item.id}">刪除</button></div></div>`;
     }).join("") : `<div class="empty"><b>還沒有教我新的工作</b><div class="muted">請上傳 SOP、Excel 或文件，讓我開始理解你每天會做哪些工作。</div><button class="btn" data-add-library="1">🪶 教我新的工作</button></div>`);
   return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>📚 教 Mr. KM 學會你的工作</h2><div class="muted">上傳 SOP、Excel 或文件後，我會整理出可用於工時建議的工作。之後，我會依照你的工作，提供更貼近的工時建議。</div></div>${addButton}</div>${legacyBlock}<div class="library-list">${body}</div></section>`;
 }
@@ -3167,18 +3078,16 @@ function libraryIntelligenceView(id = null) {
   const acceptWorkActions = !isFailed && candidates.length
     ? `<button class="btn green" data-accept-all-knowledge-work="${item.id}">✓ 全部正確</button><button class="btn2" data-accept-selected-knowledge-work="${item.id}">接受勾選</button>`
     : "";
-  const reprocessAttribute = item.sourceProvider === "google_drive" ? "data-refresh-library" : "data-reprocess-library";
-  const reprocessLabel = item.sourceProvider === "google_drive" ? "重新整理" : knowledgeActionLabel(item.processingStatus);
   const resultActions = isFailed
-    ? `<button class="btn2" ${reprocessAttribute}="${item.id}">${reprocessLabel}</button><button class="btn2" data-edit-library="${item.id}">✏️ 調整我的理解</button>`
+    ? `<button class="btn2" data-reprocess-library="${item.id}">重新學習</button><button class="btn2" data-edit-library="${item.id}">✏️ 調整我的理解</button>`
     : `${acceptWorkActions}<button class="btn2" data-verify-library="${item.id}">✓ 確認理解</button><button class="btn2" data-edit-library="${item.id}">✏️ 調整我的理解</button>`;
-  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>${escapeHtml(resultHeading)}</h2><div class="muted">${escapeHtml(item.knowledgeId)}｜${escapeHtml(knowledgeLearnedLabel(item.processingStatus))}</div></div><button class="btn2" data-library-back="1">返回藏書閣</button></div>${resultPrompt}<div class="entry"><div class="entry-main"><b>${escapeHtml(item.title)}</b><div class="source-path">我閱讀到的品質：${escapeHtml(knowledgeSupportLevelLabel(summary.supportLevel))}</div>${item.intelligenceError ? `<div class="source-path">我讀不懂的原因：${escapeHtml(item.intelligenceError)}</div>` : ""}</div><div class="actions compact"><button class="btn2" ${reprocessAttribute}="${item.id}">${reprocessLabel}</button></div></div><div class="entry"><b>我目前的理解</b><p class="muted">${escapeHtml(companionSummary)}</p></div><div class="work-dna-list">${workDnaCards}</div><details class="work-evidence-panel"><summary>查看我理解工作的依據</summary><div class="profile-grid"><div class="entry"><b>文件中的流程證據</b><ul class="knowledge-result-list">${list(processItems)}</ul></div><div class="entry"><b>文件中的規則證據</b><ul class="knowledge-result-list">${list(ruleItems)}</ul></div></div><div class="entry"><b>文件重點</b><ul class="knowledge-result-list">${list(focusItems)}</ul></div>${autoMeta}<section class="panel" style="margin-top:12px"><h3>可追溯內容（${units.length}）</h3>${units.length ? units.map(unit => `<div class="entry"><div class="entry-main"><b>${escapeHtml(unit.title)}</b><div class="muted">${escapeHtml(knowledgeUnitTypeLabel(unit.unitType))}｜${escapeHtml(unit.pageReference || unit.sectionReference || "")}</div><small>${escapeHtml(unit.summary || unit.content)}</small><div class="library-tag-line">${unit.triggers.map(tag => `<span>${escapeHtml(tag)}</span>`).join("")}</div></div><div class="actions compact"><button class="btn2 danger" data-remove-knowledge-unit="${unit.id}">移除</button></div></div>`).join("") : `<div class="empty">目前沒有可追溯內容。</div>`}</section></details><div class="form-actions">${resultActions}</div></section>`;
+  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>${escapeHtml(resultHeading)}</h2><div class="muted">${escapeHtml(item.knowledgeId)}｜${escapeHtml(knowledgeLearnedLabel(item.processingStatus))}</div></div><button class="btn2" data-library-back="1">返回藏書閣</button></div>${resultPrompt}<div class="entry"><div class="entry-main"><b>${escapeHtml(item.title)}</b><div class="source-path">我閱讀到的品質：${escapeHtml(knowledgeSupportLevelLabel(summary.supportLevel))}</div>${item.intelligenceError ? `<div class="source-path">我讀不懂的原因：${escapeHtml(item.intelligenceError)}</div>` : ""}</div><div class="actions compact"><button class="btn2" data-reprocess-library="${item.id}">${knowledgeActionLabel(item.processingStatus)}</button></div></div><div class="entry"><b>我目前的理解</b><p class="muted">${escapeHtml(companionSummary)}</p></div><div class="work-dna-list">${workDnaCards}</div><details class="work-evidence-panel"><summary>查看我理解工作的依據</summary><div class="profile-grid"><div class="entry"><b>文件中的流程證據</b><ul class="knowledge-result-list">${list(processItems)}</ul></div><div class="entry"><b>文件中的規則證據</b><ul class="knowledge-result-list">${list(ruleItems)}</ul></div></div><div class="entry"><b>文件重點</b><ul class="knowledge-result-list">${list(focusItems)}</ul></div>${autoMeta}<section class="panel" style="margin-top:12px"><h3>可追溯內容（${units.length}）</h3>${units.length ? units.map(unit => `<div class="entry"><div class="entry-main"><b>${escapeHtml(unit.title)}</b><div class="muted">${escapeHtml(knowledgeUnitTypeLabel(unit.unitType))}｜${escapeHtml(unit.pageReference || unit.sectionReference || "")}</div><small>${escapeHtml(unit.summary || unit.content)}</small><div class="library-tag-line">${unit.triggers.map(tag => `<span>${escapeHtml(tag)}</span>`).join("")}</div></div><div class="actions compact"><button class="btn2 danger" data-remove-knowledge-unit="${unit.id}">移除</button></div></div>`).join("") : `<div class="empty">目前沒有可追溯內容。</div>`}</section></details><div class="form-actions">${resultActions}</div></section>`;
 }
 
 function libraryForm(id = null) {
   const item = normalizedLibraryItem(id ? library.find(x => x.id === id) : {});
   if (!id) {
-    return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>🪶 教我新的工作</h2><div class="muted">請提供文件，其餘分類、標籤與工作拆解先交給我理解。</div></div><button class="btn2" data-library-back="1">返回</button></div><div class="entry"><b>一份文件，就是一次教學</b><div class="muted">你只需要提供內容；我會先理解，再請你確認我理解得對不對。</div></div><label>這次要教我的主題 <span class="muted">必填</span></label><input id="libTitle" class="input" value="" placeholder="例如：採購工作提醒事項 SOP"><label>說明 <span class="muted">選填</span></label><textarea id="libDesc" placeholder="可以簡單告訴我這份文件和什麼工作有關，也可以留空。"></textarea><label>提供一份文件</label><div class="upload-drop"><input id="libFile" type="file"><span>請選擇 PDF / Word / Excel / PowerPoint / TXT</span></div><div class="form-actions"><button class="btn2" type="button" data-select-drive="1">從 Google Drive 選取</button><span id="driveSelectionStatus" class="muted">也可以指定一份 Google Drive 文件</span></div><div class="library-ai-preview"><b>🪶 我會先讀，再請你確認</b><div class="muted">我會整理我理解的工作、流程、規則與之後可以協助你的工時建議。</div></div><div class="form-actions"><button class="btn2" data-library-cancel="1">取消</button><button class="btn" id="saveLibrary">🪶 開始學習</button></div></section>`;
+    return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>🪶 教我新的工作</h2><div class="muted">請提供文件，其餘分類、標籤與工作拆解先交給我理解。</div></div><button class="btn2" data-library-back="1">返回</button></div><div class="entry"><b>一份文件，就是一次教學</b><div class="muted">你只需要提供內容；我會先理解，再請你確認我理解得對不對。</div></div><label>這次要教我的主題 <span class="muted">必填</span></label><input id="libTitle" class="input" value="" placeholder="例如：採購工作提醒事項 SOP"><label>說明 <span class="muted">選填</span></label><textarea id="libDesc" placeholder="可以簡單告訴我這份文件和什麼工作有關，也可以留空。"></textarea><label>上傳檔案 <span class="muted">必填</span></label><div class="upload-drop"><input id="libFile" type="file"><span>請選擇 PDF / Word / Excel / PowerPoint / TXT</span></div><div class="library-ai-preview"><b>🪶 我會先讀，再請你確認</b><div class="muted">我會整理我理解的工作、流程、規則與之後可以協助你的工時建議。</div></div><div class="form-actions"><button class="btn2" data-library-cancel="1">取消</button><button class="btn" id="saveLibrary">🪶 開始學習</button></div></section>`;
   }
   return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>✏️ 調整我的理解</h2><div class="muted">只有需要修正我自動判斷時，才需要調整這些內容。</div></div><button class="btn2" data-library-back="1">返回</button></div><label>知識編號</label><input id="libKnowledgeId" class="input" value="${escapeHtml(item.knowledgeId || "儲存後產生")}" readonly><label>主題</label><input id="libTitle" class="input" value="${escapeHtml(item.title || "")}" placeholder="例如：採購請購 SOP"><label>說明</label><textarea id="libDesc" placeholder="這份文件想讓我理解什麼工作？">${escapeHtml(item.description || "")}</textarea><label>分類</label><select id="libCategory" class="input">${selectOptions(KNOWLEDGE_CATEGORIES, item.category)}</select><label>工作來源類型</label><select id="libScope" class="input">${KNOWLEDGE_SCOPES.map(scope => `<option value="${escapeHtml(scope)}" ${scope === item.scope ? "selected" : ""}>${escapeHtml(KNOWLEDGE_SCOPE_LABELS[scope])}</option>`).join("")}</select><div class="muted">這些是我自動理解後的資料，通常不需要手動調整。</div><label>適用對象</label>${checkboxGroup(KNOWLEDGE_AGENTS, item.applicableAgents, "libAgents")}<label>適用職務</label>${checkboxGroup(KNOWLEDGE_ROLE_OPTIONS, item.relatedRoles, "libRoles")}<label>我的工作</label>${checkboxGroup(workModels(), item.relatedWorkModels, "libWorkModels")}<label>標籤</label><input id="libTags" class="input" value="${escapeHtml(item.tags.join("、"))}" placeholder="採購、請購、供應商、SOP"><label>觸發關鍵字</label><input id="libTriggers" class="input" value="${escapeHtml(item.triggers.join("、"))}" placeholder="供應商會議、新供應商、年度評鑑"><label>版本</label><input id="libVersion" class="input" value="${escapeHtml(item.version || "v1.0")}" placeholder="v1.0"><label>來源版本</label><input id="libSourceVersion" class="input" value="${escapeHtml(item.sourceVersion || item.version || "v1.0")}" placeholder="v1.0"><label>整理狀態</label><div class="readonly-status">${escapeHtml(processingStatusLabel(item.processingStatus || "uploaded"))}</div><label>重新上傳檔案 <span class="muted">選填</span></label><div class="upload-drop"><input id="libFile" type="file"><span>${escapeHtml(item.filename || "不重新上傳，則保留原始檔案")}</span></div><div class="form-actions"><button class="btn2" data-library-cancel="1">取消</button><button class="btn" id="saveLibrary">儲存調整</button></div></section>`;
 }
@@ -3427,15 +3336,6 @@ function bindWorklogAssistant() {
         return;
       }
       parsedIntent = await parseWorklogIntent(text);
-      if (!pending && parsedIntent?.type === "unsupported") {
-        const knowledgeResponse = await knowledgeAssistantAnswer(text);
-        if (knowledgeResponse) {
-          removeConversationMessage(thinkingId);
-          addAssistantResult(knowledgeResponse);
-          render();
-          return;
-        }
-      }
       const response = await executeWorklogCommand(parsedIntent);
       removeConversationMessage(thinkingId);
       addAssistantResult(response);
@@ -3493,23 +3393,6 @@ function bindWorklogAssistant() {
     clearAssistantPendingCommand();
     addConversationMessage("user", "取消");
     addConversationMessage("assistant", "已取消這筆工時建立。");
-    render();
-  });
-  document.querySelectorAll("[data-assistant-create-task]").forEach(button => button.onclick = () => {
-    const message = button.closest(".assistant-command-card");
-    const title = message?.querySelector(".assistant-card-grid b")?.textContent?.trim() || "待辦";
-    createTask(title);
-    addConversationMessage("assistant", `已建立任務：「${title}」。`);
-    activeWorkspace = "tasks";
-    if (!openTabs.includes("tasks")) openTabs.push("tasks");
-    rememberWorkspace("tasks");
-    saveAll();
-    render();
-  });
-  document.querySelectorAll("[data-assistant-edit-task]").forEach(button => button.onclick = () => {
-    activeWorkspace = "tasks";
-    if (!openTabs.includes("tasks")) openTabs.push("tasks");
-    rememberWorkspace("tasks");
     render();
   });
   document.querySelectorAll("[data-assistant-confirm-entry]").forEach(button => button.onclick = async () => {
@@ -3637,58 +3520,7 @@ function bindGlobal() {
     if (cloudSync.status === "failed") DataService.retryAutoSave();
   });
 }
-function createTask(title = "", note = "", dueDate = "") {
-  const normalized = normalizeTask({ title, note, dueDate });
-  if (!normalized.title) return null;
-  const existing = tasks.find(task => task.status === "open" && task.title === normalized.title);
-  if (existing) return existing;
-  tasks = [normalized, ...tasks];
-  saveTasks();
-  return normalized;
-}
-
-function bindTasks() {
-  document.querySelectorAll("[data-task-new]").forEach(button => button.onclick = () => { editingTaskId = null; taskSearch = ""; render(); });
-  document.querySelectorAll("[data-task-filter]").forEach(button => button.onclick = () => { taskFilter = button.dataset.taskFilter || "all"; render(); });
-  const search = document.getElementById("taskSearch");
-  const submitSearch = () => { taskSearch = search?.value?.trim() || ""; render(); };
-  document.querySelector("[data-task-search-submit]")?.addEventListener("click", submitSearch);
-  search?.addEventListener("keydown", event => { if (event.key === "Enter") { event.preventDefault(); submitSearch(); } });
-  document.querySelectorAll("[data-task-cancel]").forEach(button => button.onclick = () => { editingTaskId = null; render(); });
-  document.querySelectorAll("[data-task-save]").forEach(button => button.onclick = () => {
-    const title = document.getElementById("taskTitle")?.value?.trim() || "";
-    if (!title) return toast("請輸入任務名稱");
-    const note = document.getElementById("taskNote")?.value?.trim() || "";
-    const dueDate = document.getElementById("taskDueDate")?.value || "";
-    if (editingTaskId) {
-      tasks = tasks.map(task => task.id === editingTaskId ? normalizeTask({ ...task, title, note, dueDate, updatedAt: new Date().toISOString() }) : task);
-      toast("任務已更新");
-    } else {
-      createTask(title, note, dueDate);
-      toast("任務已建立");
-    }
-    editingTaskId = null;
-    saveTasks();
-    render();
-  });
-  document.querySelectorAll("[data-task-toggle]").forEach(button => button.onclick = () => {
-    tasks = tasks.map(task => task.id === button.dataset.taskToggle ? normalizeTask({ ...task, status: task.status === "completed" ? "open" : "completed", completedAt: task.status === "completed" ? "" : new Date().toISOString(), updatedAt: new Date().toISOString() }) : task);
-    saveTasks();
-    toast("任務狀態已更新");
-    render();
-  });
-  document.querySelectorAll("[data-task-edit]").forEach(button => button.onclick = () => { editingTaskId = button.dataset.taskEdit; render(); });
-  document.querySelectorAll("[data-task-delete]").forEach(button => button.onclick = () => {
-    const task = tasks.find(item => item.id === button.dataset.taskDelete);
-    if (!task || !confirm(`確定刪除任務「${task.title}」？`)) return;
-    tasks = tasks.filter(item => item.id !== task.id);
-    saveTasks();
-    toast("任務已刪除");
-    render();
-  });
-}
-
-function doLogout() { clearStoredAuthSession(); clearStoredCodeVerifier(); session = null; tasks = []; activeModule = "dashboard"; activeWorkspace = "dashboard"; openTabs = []; recentWorkspaces = []; view = "center"; saveAll(); toast("已登出"); render(); }
+function doLogout() { clearStoredAuthSession(); clearStoredCodeVerifier(); session = null; activeModule = "dashboard"; activeWorkspace = "dashboard"; openTabs = []; recentWorkspaces = []; view = "center"; saveAll(); toast("已登出"); render(); }
 
 function bindOnboarding() {
   let tags = [], src = [];
@@ -3790,7 +3622,6 @@ function bind() {
   document.querySelectorAll("[data-edit-id]").forEach(b => b.onclick = () => { editingEntryId = b.dataset.editId; captureSeed = null; activeWorkspace = "worklog"; if (!openTabs.includes("worklog")) openTabs.push("worklog"); rememberWorkspace("worklog"); view = "capture"; saveAll(); render(); });
   bindLibrary();
   if (activeWorkspace === "workMemory" || activeWorkspace === "settings" || activeWorkspace === "aiSuggestions") bindWorkMemory();
-  if (activeWorkspace === "tasks") bindTasks();
   if (activeWorkspace === "worklog" && view === "capture") bindCapture();
   bindWorklogAssistant();
   if (activeWorkspace === "worklog" && !profile) bindOnboarding();
@@ -4272,14 +4103,13 @@ function bindLibrary() {
   document.querySelectorAll("[data-library-back]").forEach(b => b.onclick = () => {
     editingLibraryId = null;
     viewingKnowledgeId = null;
-    knowledgeDriveSelectionDraft = null;
     activeWorkspace = "library";
     view = "library";
     saveAll();
     render();
   });
-  const add = document.querySelector("[data-add-library]"); if (add) add.onclick = () => { editingLibraryId = null; knowledgeDriveSelectionDraft = null; activeWorkspace = "library"; view = "libraryForm"; saveAll(); render(); };
-  document.querySelectorAll("[data-edit-library]").forEach(b => b.onclick = () => { editingLibraryId = b.dataset.editLibrary; knowledgeDriveSelectionDraft = null; activeWorkspace = "library"; view = "libraryForm"; saveAll(); render(); });
+  const add = document.querySelector("[data-add-library]"); if (add) add.onclick = () => { editingLibraryId = null; activeWorkspace = "library"; view = "libraryForm"; saveAll(); render(); };
+  document.querySelectorAll("[data-edit-library]").forEach(b => b.onclick = () => { editingLibraryId = b.dataset.editLibrary; activeWorkspace = "library"; view = "libraryForm"; saveAll(); render(); });
   document.querySelectorAll("[data-view-knowledge-result]").forEach(b => b.onclick = () => { viewingKnowledgeId = b.dataset.viewKnowledgeResult; activeWorkspace = "library"; view = "libraryIntelligence"; saveAll(); render(); });
   document.querySelectorAll("[data-reprocess-library]").forEach(b => b.onclick = async () => {
     const item = library.find(x => x.id === b.dataset.reprocessLibrary);
@@ -4300,29 +4130,6 @@ function bindLibrary() {
     } catch (error) {
       console.error("Knowledge reprocess failed", { error, item });
       render();
-    }
-  });
-  document.querySelectorAll("[data-refresh-library]").forEach(b => b.onclick = async () => {
-    const item = library.find(x => x.id === b.dataset.refreshLibrary || x.cloudId === b.dataset.refreshLibrary);
-    if (!item || !globalThis.KnowledgeIngestionAPI) return toast("Knowledge ingestion 尚未就緒");
-    b.disabled = true;
-    try {
-      learningKnowledgeDraft = item;
-      viewingKnowledgeId = item.id;
-      view = "libraryLearning";
-      render();
-      await KnowledgeIngestionAPI.refreshSource(item);
-      learningKnowledgeDraft = null;
-      view = "libraryIntelligence";
-      toast("我已重新整理這份來源");
-      render();
-    } catch (error) {
-      learningKnowledgeDraft = null;
-      console.error("Knowledge source refresh failed", { error, item });
-      toast(error.message || "重新整理失敗");
-      render();
-    } finally {
-      b.disabled = false;
     }
   });
   document.querySelectorAll("[data-verify-library]").forEach(b => b.onclick = async () => {
@@ -4447,31 +4254,11 @@ function bindLibrary() {
 }
 
 function bindLibraryForm(id = null) {
-  document.querySelectorAll("[data-library-back],[data-library-cancel]").forEach(b => b.onclick = () => { editingLibraryId = null; viewingKnowledgeId = null; knowledgeDriveSelectionDraft = null; view = "library"; saveAll(); render(); });
-  document.querySelectorAll("[data-select-drive]").forEach(button => button.onclick = async () => {
-    if (!globalThis.KnowledgeIngestionAPI) return toast("Google Drive ingestion 尚未就緒");
-    button.disabled = true;
-    try {
-      const selectedDriveFile = await KnowledgeIngestionAPI.selectDriveFile();
-      if (!selectedDriveFile) return;
-      knowledgeDriveSelectionDraft = selectedDriveFile;
-      const title = document.getElementById("libTitle");
-      if (title && !title.value.trim()) title.value = selectedDriveFile.name || "";
-      const status = document.getElementById("driveSelectionStatus");
-      if (status) status.textContent = `已選取：${selectedDriveFile.name || selectedDriveFile.id}`;
-      toast("已選取 Google Drive 文件");
-    } catch (error) {
-      console.error("Google Drive Picker failed", { error });
-      toast(error.message || "Google Drive 選取失敗");
-    } finally {
-      button.disabled = false;
-    }
-  });
+  document.querySelectorAll("[data-library-back],[data-library-cancel]").forEach(b => b.onclick = () => { editingLibraryId = null; viewingKnowledgeId = null; view = "library"; saveAll(); render(); });
   document.getElementById("saveLibrary").onclick = async () => {
     const existing = id ? normalizedLibraryItem(library.find(x => x.id === id)) : {};
     const file = document.getElementById("libFile")?.files?.[0] || null;
-    const driveFile = knowledgeDriveSelectionDraft;
-    const fileName = file?.name || driveFile?.name || existing.filename || "";
+    const fileName = file?.name || existing.filename || "";
     const titleValue = document.getElementById("libTitle")?.value.trim() || "";
     const descriptionValue = document.getElementById("libDesc")?.value.trim() || "";
     const textSeed = `${titleValue} ${descriptionValue} ${fileName}`;
@@ -4495,14 +4282,9 @@ function bindLibraryForm(id = null) {
       processingStatus: existing.processingStatus || "uploaded",
       version: valueOf("libVersion", existing.version || "v1.0"),
       sourceVersion: valueOf("libSourceVersion", existing.sourceVersion || existing.version || "v1.0"),
-      sourceProvider: driveFile ? "google_drive" : (existing.sourceProvider || "upload"),
-      externalFileId: driveFile?.id || existing.externalFileId || "",
-      sourceModifiedAt: driveFile?.modifiedTime || existing.sourceModifiedAt || "",
-      sourceMetadata: driveFile ? { parents: driveFile.parents || [], driveId: driveFile.driveId || "", md5Checksum: driveFile.md5Checksum || "", webViewLink: driveFile.webViewLink || "" } : (existing.sourceMetadata || {}),
-      sourceUrl: driveFile?.webViewLink || existing.sourceUrl || "",
       filename: fileName,
       storagePath: existing.storagePath || "",
-      sourceType: driveFile ? (driveFile.mimeType === "application/pdf" ? "pdf" : inferKnowledgeSourceType(fileName)) : inferKnowledgeSourceType(fileName || existing.sourceName || existing.sourceUrl),
+      sourceType: inferKnowledgeSourceType(fileName || existing.sourceName || existing.sourceUrl),
       sourceName: fileName || existing.sourceName || "",
       mimeType: file?.type || existing.mimeType || "",
       fileSize: file?.size || existing.fileSize || 0,
@@ -4510,32 +4292,9 @@ function bindLibraryForm(id = null) {
       updatedAt: new Date().toISOString()
     });
     if (!item.title) return toast("請輸入 知識標題");
-    if (!id && !file && !driveFile) return toast("請上傳檔案或從 Google Drive 選取文件");
+    if (!id && !file) return toast("請選擇要教給 Mr. KM 的檔案");
     let saved = null;
     try {
-      if (!id && globalThis.KnowledgeIngestionAPI) {
-        const onSourceSaved = async source => {
-          learningKnowledgeDraft = source;
-          viewingKnowledgeId = source.id;
-          editingLibraryId = null;
-          activeWorkspace = "library";
-          view = "libraryLearning";
-          knowledgeDriveSelectionDraft = null;
-          saveAll();
-          render();
-        };
-        const result = driveFile
-          ? await KnowledgeIngestionAPI.addDriveFile({ file: driveFile, onSourceSaved })
-          : await KnowledgeIngestionAPI.addUpload({ file, title: titleValue, description: descriptionValue, onSourceSaved });
-        saved = result?.source || result;
-        learningKnowledgeDraft = null;
-        viewingKnowledgeId = saved?.id || saved?.cloudId || viewingKnowledgeId;
-        editingLibraryId = null;
-        view = "libraryIntelligence";
-        saveAll();
-        render();
-        return;
-      }
       saved = await DataService.saveKnowledgeSource(item, { file, requireCloud: true });
       if (file) {
         learningKnowledgeDraft = saved;
@@ -4973,12 +4732,10 @@ async function boot() {
     const googleAuth = await getGoogleAuthUser();
     if (googleAuth) {
       session = googleSessionFromUser(googleAuth.user, googleAuth.authSession);
-      loadTasksForSession();
       if (authCallbackCaptured) { activeModule = "dashboard"; activeWorkspace = "worklog"; openTabs = ["worklog"]; recentWorkspaces = ["worklog"]; view = "center"; hasOsShellState = true; }
       saveAll();
       await DataService.init();
     } else if (hasGoogleOAuthSession()) {
-      loadTasksForSession();
       await DataService.init();
     }
   } catch {
