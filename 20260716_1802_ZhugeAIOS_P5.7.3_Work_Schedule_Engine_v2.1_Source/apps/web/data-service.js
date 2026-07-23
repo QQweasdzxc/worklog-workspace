@@ -722,9 +722,7 @@ const DataService = {
         extractedText: sanitizedExtractedText,
         intelligenceSummary: sanitizedSummary,
         intelligenceError: null,
-        processedAt,
-        indexedAt: processedAt,
-        knowledgeVersion: normalized.knowledgeVersion || "v1.0"
+        processedAt
       });
       const cloudItem = knowledgeFromCloud(source);
       const savedUnits = await KnowledgeRepository.replaceUnits(cloudItem, sanitizedUnits);

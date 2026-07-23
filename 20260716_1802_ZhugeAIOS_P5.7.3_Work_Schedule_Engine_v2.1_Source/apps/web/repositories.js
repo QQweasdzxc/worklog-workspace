@@ -429,12 +429,10 @@ const SupabaseRepository = {
     const knowledgeId = item.knowledgeId || (isNew ? await this.allocateKnowledgeId() : "");
     if (!knowledgeId) throw new Error("無法產生 Knowledge ID");
     const version = item.version || "v1.0";
-    const sourceProvider = item.sourceProvider || item.source_provider || "upload";
-    const persistBinary = sourceProvider !== "google_drive";
     let storagePath = item.storagePath || "";
     let uploadedPath = "";
     let uploadResponse = null;
-    if (file && persistBinary) {
+    if (file) {
       const requestedStoragePath = this.knowledgeStorageObjectPath(file);
       uploadResponse = await this.uploadKnowledgeFile(requestedStoragePath, file);
       storagePath = this.objectPathFromUploadResponse(uploadResponse, requestedStoragePath);
@@ -458,15 +456,11 @@ const SupabaseRepository = {
       category: item.category || "其他",
       scope: normalizeKnowledgeScope(item.scope),
       source_type: item.sourceType || inferKnowledgeSourceType(file?.name || item.filename || storagePath),
-      source_provider: sourceProvider,
-      external_file_id: item.externalFileId || item.external_file_id || null,
-      source_modified_at: item.sourceModifiedAt || item.source_modified_at || null,
-      source_metadata: item.sourceMetadata || item.source_metadata || {},
       source_name: item.sourceName || file?.name || item.filename || "",
       source_url: item.sourceUrl || "",
       storage_path: storagePath,
-      mime_type: (persistBinary ? file?.type : "") || item.mimeType || "",
-      file_size: (persistBinary ? file?.size : 0) || item.fileSize || null,
+      mime_type: file?.type || item.mimeType || "",
+      file_size: file?.size || item.fileSize || null,
       applicable_agents: item.applicableAgents || [],
       related_roles: item.relatedRoles || [],
       related_work_models: item.relatedWorkModels || [],
@@ -480,8 +474,6 @@ const SupabaseRepository = {
       verified_at: item.verifiedAt || item.verified_at || null,
       version,
       source_version: item.sourceVersion || version,
-      knowledge_version: item.knowledgeVersion || item.knowledge_version || "v1.0",
-      indexed_at: item.indexedAt || item.indexed_at || null,
       filename: file?.name || item.filename || "",
       legacy_id: item.id || null,
       created_by: currentUserUuid(),
@@ -510,14 +502,6 @@ const SupabaseRepository = {
       throw error;
     }
   },
-  async findKnowledgeSourceByExternalFile(sourceProvider = "", externalFileId = "") {
-    if (!sourceProvider || !externalFileId) return null;
-    const rows = await this.select(
-      "knowledge_sources",
-      `?select=*&source_provider=eq.${encodeURIComponent(sourceProvider)}&external_file_id=eq.${encodeURIComponent(externalFileId)}&deleted_at=is.null&limit=1`
-    );
-    return Array.isArray(rows) ? (rows[0] || null) : null;
-  },
   async deleteKnowledgeSource(item) {
     if (!currentUserUuid() || !currentAccessToken()) throw new Error("Cloud Sync 尚未就緒");
     const existing = item.cloudId ? [{ id: item.cloudId }] : await this.select("knowledge_sources", `?select=id&legacy_id=eq.${encodeURIComponent(item.id)}&limit=1`);
@@ -535,12 +519,9 @@ const SupabaseRepository = {
       ...(patch.intelligenceError !== undefined ? { intelligence_error: patch.intelligenceError || null } : {}),
       ...(patch.processedAt !== undefined ? { processed_at: patch.processedAt || null } : {}),
       ...(patch.verifiedAt !== undefined ? { verified_at: patch.verifiedAt || null } : {}),
-      indexed_at: patch.indexedAt !== undefined ? (patch.indexedAt || null) : undefined,
-      knowledge_version: patch.knowledgeVersion !== undefined ? (patch.knowledgeVersion || "v1.0") : undefined,
       updated_at: new Date().toISOString(),
       updated_by: currentUserUuid()
     };
-    Object.keys(payload).forEach(key => payload[key] === undefined && delete payload[key]);
     const query = `?id=eq.${encodeURIComponent(sourceId)}`;
     knowledgeDebugLog("info", "PATCH Payload Debug", {
       operation: "PATCH",
@@ -554,8 +535,6 @@ const SupabaseRepository = {
       "intelligence_error",
       "processed_at",
       "verified_at",
-      "indexed_at",
-      "knowledge_version",
       "processing_status"
     ].filter(field => Object.prototype.hasOwnProperty.call(payload, field));
     const metaPayload = {
@@ -705,9 +684,6 @@ const KnowledgeRepository = {
   },
   saveSource(item = {}, file = null) {
     return SupabaseRepository.saveKnowledgeSource(item, file);
-  },
-  findSourceByExternalFile(sourceProvider = "", externalFileId = "") {
-    return SupabaseRepository.findKnowledgeSourceByExternalFile(sourceProvider, externalFileId);
   },
   deleteSource(item = {}) {
     return SupabaseRepository.deleteKnowledgeSource(item);
