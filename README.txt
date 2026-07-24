@@ -1,4 +1,5 @@
 Zhuge AI OS 0.9.0-alpha.2 — Sprint 2 Knowledge Integration
+Build: 20260724-2232 (UAT ingestion initialization hotfix)
 
 This folder is the flat GitHub Pages deployment artifact.
 

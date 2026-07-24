@@ -24,10 +24,23 @@
     return blob;
   }
 
+  // The core services are classic-script `const` bindings, not properties on
+  // window/globalThis.  Resolve both forms so the service works in the real
+  // browser runtime as well as isolated test/extension contexts.
+  function runtimeServices() {
+    return {
+      dataService: global.DataService || (typeof DataService !== "undefined" ? DataService : null),
+      knowledgeIntelligence: global.KnowledgeIntelligence || (typeof KnowledgeIntelligence !== "undefined" ? KnowledgeIntelligence : null),
+      knowledgeRepository: global.KnowledgeRepository || (typeof KnowledgeRepository !== "undefined" ? KnowledgeRepository : null)
+    };
+  }
+
   function requireRuntime() {
-    if (!global.DataService || !global.KnowledgeIntelligence || !global.KnowledgeRepository) {
+    const services = runtimeServices();
+    if (!services.dataService || !services.knowledgeIntelligence || !services.knowledgeRepository) {
       throw new Error("Knowledge ingestion 尚未完成初始化");
     }
+    return services;
   }
 
   function sourceItemFromDrive(file = {}, payload = {}, existing = {}) {
@@ -59,14 +72,14 @@
   }
 
   async function persistAndProcess(item, file = null, options = {}) {
-    requireRuntime();
+    const { dataService, knowledgeIntelligence } = requireRuntime();
     // Drive files are read into memory for parsing but their binary must never
     // be copied into the Knowledge Storage bucket. Uploads are the only source
     // that persists an original binary for the existing preview flow.
     const persistFile = options.persistFile !== false ? file : null;
-    const saved = await global.DataService.saveKnowledgeSource(item, { file: persistFile, requireCloud: true });
+    const saved = await dataService.saveKnowledgeSource(item, { file: persistFile, requireCloud: true });
     if (typeof options.onSourceSaved === "function") await options.onSourceSaved(saved);
-    return global.KnowledgeIntelligence.processSource(saved, file ? { file } : {});
+    return knowledgeIntelligence.processSource(saved, file ? { file } : {});
   }
 
   async function addUpload(options = {}) {
@@ -96,13 +109,13 @@
   }
 
   async function addDriveFile(options = {}) {
-    requireRuntime();
+    const { knowledgeRepository } = requireRuntime();
     const fileId = String(options.fileId || options.file?.id || "").trim();
     if (!fileId) throw new Error("請先從 Google Drive 選取一個檔案");
     const service = global.GoogleDriveService;
     const file = options.file?.id ? options.file : await service.getFile(fileId);
     if (!service.isSupported(file)) throw new Error("這個 Google Drive 檔案格式目前尚未支援");
-    const existingRow = await global.KnowledgeRepository.findSourceByExternalFile(DRIVE_PROVIDER, file.id);
+    const existingRow = await knowledgeRepository.findSourceByExternalFile(DRIVE_PROVIDER, file.id);
     const existing = existingRow ? {
       cloudId: existingRow.id,
       knowledgeId: existingRow.knowledge_id || "",
@@ -141,23 +154,23 @@
   }
 
   async function refreshSource(source = {}) {
-    requireRuntime();
+    const { knowledgeIntelligence } = requireRuntime();
     const provider = source.sourceProvider || source.source_provider || UPLOAD_PROVIDER;
     if (provider === DRIVE_PROVIDER) {
       return addDriveFile({ fileId: source.externalFileId || source.external_file_id, refreshExisting: true });
     }
-    return global.KnowledgeIntelligence.processSource(source, {});
+    return knowledgeIntelligence.processSource(source, {});
   }
 
   async function updateSource(source = {}, patch = {}) {
-    requireRuntime();
-    const updated = await global.DataService.saveKnowledgeSource({ ...source, ...patch }, { requireCloud: true });
+    const { dataService } = requireRuntime();
+    const updated = await dataService.saveKnowledgeSource({ ...source, ...patch }, { requireCloud: true });
     return updated;
   }
 
   async function archiveSource(source = {}) {
-    requireRuntime();
-    return global.DataService.saveKnowledgeSource({ ...source, processingStatus: "archived" }, { requireCloud: true });
+    const { dataService } = requireRuntime();
+    return dataService.saveKnowledgeSource({ ...source, processingStatus: "archived" }, { requireCloud: true });
   }
 
   const api = Object.freeze({
