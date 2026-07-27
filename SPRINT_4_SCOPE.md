@@ -1,7 +1,7 @@
 # Sprint 4 — Product Experience Optimization
 
 Version: `0.9.0-alpha.4`  
-Build: `20260727-1552`
+Build: `20260727-1619`
 
 ## In scope
 
@@ -16,4 +16,3 @@ Build: `20260727-1552`
 - New AI capability or new Google connector.
 - Gmail, Calendar, Workspace, folder scan, background sync, or automatic Drive indexing.
 - Production OAuth submission; this package prepares the reviewer materials only.
-

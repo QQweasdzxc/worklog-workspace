@@ -2270,6 +2270,50 @@ function workMemoryMergeSuggestions(limit = 3) {
   return suggestions.sort((x, y) => y.score - x.score).slice(0, limit);
 }
 
+function workMemoryMergeSuggestionForNames(names = []) {
+  const members = [...new Set(arrayFromInput(names).map(name => String(name || "").trim()).filter(Boolean))];
+  if (members.length < 2) return null;
+  const models = workMemoryObjects();
+  const selected = members.map(name => models.find(model => model.name === name)).filter(Boolean);
+  if (selected.length < 2) return null;
+  const semanticGroups = selected.map(model => workMemorySemanticGroup(model.name)).filter(Boolean);
+  const sharedSemantic = semanticGroups.length === selected.length && semanticGroups.every(group => group.id === semanticGroups[0].id)
+    ? semanticGroups[0]
+    : null;
+  const canonical = sharedSemantic?.canonical || selected.reduce((preferred, model) => preferredWorkMemoryName(preferred, model.name), selected[0].name);
+  const scoreValues = [];
+  for (let index = 0; index < members.length; index += 1) {
+    for (let nextIndex = index + 1; nextIndex < members.length; nextIndex += 1) {
+      scoreValues.push(Math.max(SuggestionIntelligence.similarity(members[index], members[nextIndex]), workMemorySemanticRelationship(members[index], members[nextIndex])?.score || 0));
+    }
+  }
+  const sourceLabels = [...new Set(selected.flatMap(model => workMemorySourcesFor(model.name)).concat(selected.some(model => workMemoryUsageFor(model.name).count) ? ["歷史工時"] : []))];
+  const aliases = [...new Set(selected.flatMap(model => model.aliases || []).concat(members).filter(name => name && name !== canonical))];
+  return {
+    a: members[0],
+    b: members[1],
+    members,
+    keep: canonical,
+    merge: members.find(name => name !== canonical) || members[1],
+    canonical,
+    aliases,
+    category: sharedSemantic?.category || workMemoryCategoryFor(canonical),
+    score: scoreValues.length ? scoreValues.reduce((sum, value) => sum + value, 0) / scoreValues.length : 0,
+    sources: sourceLabels.length ? sourceLabels : ["我的工作"],
+    description: `${canonical} 可涵蓋 ${members.filter(name => name !== canonical).join("、")}；我建議先預覽合併內容，確認後才會整理正式工作。`
+  };
+}
+
+function workMemoryMergePreviewMarkup(suggestion = {}) {
+  const members = [...new Set(arrayFromInput(suggestion.members || [suggestion.a, suggestion.b]).filter(Boolean))];
+  const sourceLabels = arrayFromInput(suggestion.sources).filter(Boolean);
+  const aliases = arrayFromInput(suggestion.aliases).filter(Boolean);
+  const sourceCopy = sourceLabels.length ? sourceLabels.join("、") : "我的工作";
+  const aliasCopy = aliases.length ? aliases.join("、") : "合併後由 Mr. KM 持續整理";
+  const workCards = members.slice(0, 6).map((name, index) => `<div class="merge-work-card"><span>工作 ${String.fromCharCode(65 + index)}</span><strong>${escapeHtml(name)}</strong></div>`).join("");
+  return `<div class="companion-card-section work-memory-merge-preview"><b>合併前預覽</b><div class="merge-visual-flow"><div class="merge-member-grid">${workCards}</div><div class="merge-flow-arrow merge-flow-arrow-down" aria-hidden="true">↓</div><div class="merge-work-card merge-result"><span>合併結果</span><strong>${escapeHtml(suggestion.canonical || suggestion.keep || "")}</strong><small>分類：${escapeHtml(suggestion.category || "其他")}</small></div></div><div>相似度：<strong>${Math.round(Number(suggestion.score || 0) * 100)}%</strong></div><div>保留別名：${escapeHtml(aliasCopy)}</div><div>來源與關聯：${escapeHtml(sourceCopy)}</div><small>歷史工時、Knowledge 關聯、來源與啟用狀態會一起保留；只有你確認後才會合併。</small></div>`;
+}
+
 function workMemoryItems() {
   return workMemoryObjects().map(model => {
     const usage = workMemoryUsageFor(model.name);
@@ -2310,21 +2354,26 @@ function workMemoryPage(options = {}) {
   const aiSuggestionButton = aiSuggestionCount
     ? `<button class="btn" data-open-workspace="aiSuggestions">🪶 查看 AI 建議（${aiSuggestionCount}）</button>`
     : `<button class="btn2" disabled>目前沒有新的 AI 建議</button>`;
+  const headActions = workMemoryMergeMode
+    ? `<button class="btn2" data-cancel-work-memory-merge="1">取消合併</button><button class="btn" data-next-work-memory-merge="1" ${workMemoryMergeSelection.length < 2 ? "disabled" : ""}>下一步（${workMemoryMergeSelection.length}）</button>`
+    : `<button class="btn" data-add-work-memory="1">＋ 新增工作</button>${aiSuggestionButton}`;
   const cloudNotice = workMemoryFoundationNotInitialized
     ? `<div class="empty work-memory-cloud-notice"><b>🟡 Work Memory Cloud 尚未初始化</b><div class="muted">目前畫面只顯示本機快取，不能視為正式記憶。請先執行 ${escapeHtml(WORK_MEMORY_SCHEMA_SQL)}。</div></div>`
     : "";
   const groups = [...new Set(items.map(item => item.category || "其他"))];
   const cards = items.length ? groups.map(category => {
     const categoryItems = items.filter(item => (item.category || "其他") === category);
-    return `<section class="work-memory-folder"><div class="work-memory-folder-head"><div><span class="work-memory-folder-icon">📁</span><b>${escapeHtml(category)}</b><small>${categoryItems.length} 項工作</small></div><span class="muted">Mr. KM 已整理</span></div><div class="work-memory-card-grid">${categoryItems.map(item => `<article class="work-memory-card work-memory-confirmed-card"><div class="work-memory-card-top"><span class="work-memory-confirmed-label">已採用工作</span><span class="status-dot ${item.enabled ? "ok" : "off"}" title="${item.enabled ? "已啟用" : "已停用"}"></span></div><b class="work-memory-card-title">${escapeHtml(item.name)}</b><small>${escapeHtml(item.description)}</small><div class="work-memory-card-meta"><span>熟悉度 ${escapeHtml(workMemoryFamiliarityBars(item.familiarityScore))}</span><span>${item.usageCount ? `使用 ${item.usageCount} 次` : "尚未使用"}</span></div><button class="btn2" type="button" data-edit-work-memory="${escapeHtml(item.name)}">✏️ 編輯</button></article>`).join("")}</div></section>`;
+    return `<section class="work-memory-folder"><div class="work-memory-folder-head"><div><span class="work-memory-folder-icon">📁</span><b>${escapeHtml(category)}</b><small>${categoryItems.length} 項工作</small></div><span class="muted">Mr. KM 已整理</span></div><div class="work-memory-card-grid">${categoryItems.map(item => { const selected = workMemoryMergeSelection.includes(item.name); const cardAction = workMemoryMergeMode ? `<button class="btn2 ${selected ? "selected" : ""}" type="button" data-toggle-work-memory-merge="${escapeHtml(item.name)}">${selected ? "✓ 已選取" : "＋ 選取合併"}</button>` : `<div class="work-memory-card-actions"><button class="btn2" type="button" data-edit-work-memory="${escapeHtml(item.name)}">✏️ 編輯</button><button class="btn2" type="button" data-start-work-memory-merge="${escapeHtml(item.name)}">🔀 合併</button></div>`; return `<article class="work-memory-card work-memory-confirmed-card ${selected ? "is-merge-selected" : ""}"><div class="work-memory-card-top"><span class="work-memory-confirmed-label">已採用工作</span><span class="status-dot ${item.enabled ? "ok" : "off"}" title="${item.enabled ? "已啟用" : "已停用"}"></span></div><b class="work-memory-card-title">${escapeHtml(item.name)}</b><small>${escapeHtml(item.description)}</small><div class="work-memory-card-meta"><span>熟悉度 ${escapeHtml(workMemoryFamiliarityBars(item.familiarityScore))}</span><span>${item.usageCount ? `使用 ${item.usageCount} 次` : "尚未使用"}</span></div>${cardAction}</article>`; }).join("")}</div></section>`;
   }).join("") : `<div class="empty"><b>${workMemoryItems().length ? "找不到符合條件的工作" : "目前還沒有已採用工作"}</b><div class="muted">${workMemoryItems().length ? "請調整搜尋或分類條件。" : "你可以新增工作，或查看 Mr. KM 整理好的 AI 建議。"}</div></div>`;
   const editingItem = items.find(item => item.name === editingWorkMemoryName);
   const editor = editingItem ? `<div class="quick-add-dialog work-memory-editor"><div class="quick-add-card"><div class="panel-head"><div><h3>✏️ 編輯工作</h3><div class="muted">修改後，Mr. KM 會依照新的內容提供工時建議。</div></div><button class="btn2" type="button" data-cancel-work-memory-edit="1">關閉</button></div><label>工作名稱</label><input class="input" id="workMemoryEditName" value="${escapeHtml(editingItem.name)}"><label>工作說明</label><textarea id="workMemoryEditDescription">${escapeHtml(editingItem.description)}</textarea><label>分類</label><input class="input" id="workMemoryEditCategory" value="${escapeHtml(editingItem.category)}"><label>啟用狀態</label><select class="input" id="workMemoryEditEnabled"><option value="1" ${editingItem.enabled ? "selected" : ""}>啟用</option><option value="0" ${editingItem.enabled ? "" : "selected"}>停用</option></select><div class="form-actions"><button class="btn2 danger" type="button" data-delete-work-memory="${escapeHtml(editingItem.name)}">刪除</button><button class="btn" type="button" data-save-work-memory-edit="${escapeHtml(editingItem.name)}">儲存修改</button></div></div></div>` : "";
   const categories = [...new Set(workMemoryItems().map(item => item.category || "其他"))].sort((a, b) => a.localeCompare(b, "zh-Hant"));
   const filters = `<div class="work-memory-toolbar"><input class="input" type="search" data-work-memory-search placeholder="搜尋我的工作、別名或來源" value="${escapeHtml(workMemoryQuery)}"><select class="input" data-work-memory-category><option value="all" ${workMemoryCategoryFilter === "all" ? "selected" : ""}>全部分類</option>${categories.map(category => `<option value="${escapeHtml(category)}" ${category === workMemoryCategoryFilter ? "selected" : ""}>${escapeHtml(category)}</option>`).join("")}</select><select class="input" data-work-memory-sort><option value="category" ${workMemorySort === "category" ? "selected" : ""}>依分類</option><option value="name" ${workMemorySort === "name" ? "selected" : ""}>名稱</option><option value="usage" ${workMemorySort === "usage" ? "selected" : ""}>最近使用</option></select></div>`;
   const mergePreview = workMemoryMergeSuggestions(2);
-  const mergeNotice = mergePreview.length ? `<div class="work-memory-ai-notice"><b>🪶 我發現 ${mergePreview.length} 組工作可能可以整理</b><span>${mergePreview.map(item => `${escapeHtml(item.a)} ↔ ${escapeHtml(item.b)}`).join("、")}</span><button class="btn2" data-open-workspace="aiSuggestions">查看 AI 建議</button></div>` : "";
-  const content = `<div class="panel-head"><div><h2>🪶 我的工作</h2><div class="muted">這裡只放你已經確認的工作，也是工時建議的正式來源。</div></div><div class="actions compact work-memory-head-actions"><button class="btn" data-add-work-memory="1">＋ 新增工作</button>${aiSuggestionButton}</div></div>${cloudNotice}${mergeNotice}${filters}<div class="work-memory-count muted">顯示 ${items.length} / ${workMemoryItems().length} 項工作</div><div class="work-memory-folder-grid">${cards}</div>${editor}`;
+  const mergeNotice = mergePreview.length && !workMemoryMergeMode ? `<div class="work-memory-ai-notice"><b>🪶 我發現 ${mergePreview.length} 組工作可能可以整理</b><span>${mergePreview.map(item => `${escapeHtml(item.a)} ↔ ${escapeHtml(item.b)}`).join("、")}</span><button class="btn2" data-open-workspace="aiSuggestions">查看 AI 建議</button></div>` : "";
+  const mergeModeNotice = workMemoryMergeMode ? `<div class="work-memory-merge-mode"><b>🔀 手動合併工作</b><span>請選擇至少兩項工作；下一步會使用與 AI 建議相同的 Merge Preview。</span><strong>已選 ${workMemoryMergeSelection.length} 項</strong></div>` : "";
+  const manualPreview = workMemoryManualMergeSuggestion ? `<div class="work-memory-manual-merge-preview">${workMemoryMergePreviewMarkup(workMemoryManualMergeSuggestion)}<div class="merge-preview-actions"><button class="btn green" data-confirm-work-memory-merge="1">✅ 採用合併</button><button class="btn2" data-cancel-work-memory-merge="1">先保留</button></div></div>` : "";
+  const content = `<div class="panel-head"><div><h2>🪶 我的工作</h2><div class="muted">這裡只放你已經確認的工作，也是工時建議的正式來源。</div></div><div class="actions compact work-memory-head-actions">${headActions}</div></div>${cloudNotice}${mergeModeNotice}${manualPreview}${mergeNotice}${filters}<div class="work-memory-count muted">顯示 ${items.length} / ${workMemoryItems().length} 項工作</div><div class="work-memory-folder-grid">${cards}</div>${editor}`;
   return compact ? `<div class="work-memory-page">${content}</div>` : `<section class="panel work-memory-page" style="margin-top:18px">${content}</section>`;
 }
 
@@ -2338,9 +2387,9 @@ function aiSuggestionWorkspace() {
     const familiarityLabel = workMemoryFamiliarityLabel(familiarityScore);
     const recent = usage.latest ? fmt(usage.latest) : "尚未使用";
     const sourceList = sources.length ? sources.map(source => `<li><button class="work-memory-source-link" data-work-memory-source-name="${escapeHtml(source)}" data-work-memory-source-work="${escapeHtml(item.title)}">📄 ${escapeHtml(source)}</button></li>`).join("") : `<li><span class="work-memory-source-empty">尚未連結來源資料</span></li>`;
-    const mergePreview = item.type === "merge" ? `<div class="companion-card-section work-memory-merge-preview"><b>合併前預覽</b><div class="merge-visual-flow"><div class="merge-work-card"><span>工作 A</span><strong>${escapeHtml(item.mergeSuggestion?.a || "")}</strong></div><div class="merge-flow-arrow" aria-hidden="true">＋</div><div class="merge-work-card"><span>工作 B</span><strong>${escapeHtml(item.mergeSuggestion?.b || "")}</strong></div><div class="merge-flow-arrow merge-flow-arrow-down" aria-hidden="true">↓</div><div class="merge-work-card merge-result"><span>合併結果</span><strong>${escapeHtml(item.mergeSuggestion?.canonical || item.mergeSuggestion?.keep || "")}</strong><small>分類：${escapeHtml(item.mergeSuggestion?.category || "其他")}</small></div></div><div>相似度：<strong>${Math.round(Number(item.mergeSuggestion?.score || 0) * 100)}%</strong></div><div>保留別名：${escapeHtml((item.mergeSuggestion?.aliases || [item.mergeSuggestion?.a, item.mergeSuggestion?.b]).filter(Boolean).join("、"))}</div><small>歷史工時、Knowledge 關聯、來源與啟用狀態會一起保留；只有你確認後才會合併。</small></div>` : "";
+    const mergePreview = item.type === "merge" ? workMemoryMergePreviewMarkup(item.mergeSuggestion) : "";
     const actionLabel = item.type === "merge" ? "🔀 合併" : item.type === "rename" ? "✏️ 重新命名" : item.type === "category" ? "🏷️ 分類" : "🔀 整理到既有工作";
-    return `<div class="entry ai-suggestion-workspace-card companion-card"><div class="entry-main"><div class="work-memory-title"><b>${escapeHtml(item.title)}</b><span>${item.type === "merge" ? "整理建議" : item.type === "rename" ? "命名建議" : item.type === "category" ? "分類建議" : "新增建議"}</span></div><div class="companion-card-section"><b>🪶 我為什麼建議？</b><p class="muted">${escapeHtml(item.reason)}</p></div>${mergePreview}<div class="companion-card-section"><b>建議內容</b><div class="source-path">${escapeHtml(item.suggestion)}</div>${item.defaultDuration ? `<small>預設工時：約 ${escapeHtml(formatHumanDuration(item.defaultDuration))}</small>` : ""}</div><div class="companion-card-section"><b>🪶 我是從這些資料學會的：</b><ul class="knowledge-result-list work-memory-source-list">${sourceList}</ul></div><div class="companion-card-grid"><div><span>最近一次陪你完成</span><b>${escapeHtml(recent)}</b></div><div><span>熟悉程度</span><b>${escapeHtml(workMemoryFamiliarityBars(familiarityScore))}</b><small>${escapeHtml(familiarityLabel)}</small></div></div><div class="companion-card-section"><b>採用後，我可以：</b><ul class="knowledge-result-list"><li>✓ 推薦相關工時</li><li>✓ 提醒補工時</li><li>✓ 整理相近工作</li><li>✓ 引用這份經驗協助建立工時</li></ul></div></div><div class="actions compact ai-suggestion-actions"><button class="btn2" data-edit-ai-suggestion="${escapeHtml(item.key)}">✏️ 編輯</button><button class="btn2" data-merge-ai-suggestion="${escapeHtml(item.key)}">${actionLabel}</button><button class="btn green" data-adopt-ai-suggestion="${escapeHtml(item.key)}">✅ 採用</button><button class="btn2" data-ignore-ai-suggestion="${escapeHtml(item.key)}">🙈 忽略</button></div></div>`;
+    return `<div class="entry ai-suggestion-workspace-card companion-card"><details class="ai-suggestion-details"><summary><span class="ai-suggestion-summary-title">🪶 ${escapeHtml(item.title)}</span>${item.type === "merge" ? `<span class="ai-suggestion-summary-score">相似度 ${Math.round(Number(item.mergeSuggestion?.score || 0) * 100)}%</span>` : ""}<span class="ai-suggestion-summary-cta">查看建議內容</span></summary><div class="ai-suggestion-details-body"><div class="entry-main"><div class="work-memory-title"><b>${escapeHtml(item.title)}</b><span>${item.type === "merge" ? "整理建議" : item.type === "rename" ? "命名建議" : item.type === "category" ? "分類建議" : "新增建議"}</span></div><div class="companion-card-section"><b>🪶 我為什麼建議？</b><p class="muted">${escapeHtml(item.reason)}</p></div>${mergePreview}<div class="companion-card-section"><b>建議內容</b><div class="source-path">${escapeHtml(item.suggestion)}</div>${item.defaultDuration ? `<small>預設工時：約 ${escapeHtml(formatHumanDuration(item.defaultDuration))}</small>` : ""}</div><div class="companion-card-section"><b>🪶 我是從這些資料學會的：</b><ul class="knowledge-result-list work-memory-source-list">${sourceList}</ul></div><div class="companion-card-grid"><div><span>最近一次陪你完成</span><b>${escapeHtml(recent)}</b></div><div><span>熟悉程度</span><b>${escapeHtml(workMemoryFamiliarityBars(familiarityScore))}</b><small>${escapeHtml(familiarityLabel)}</small></div></div><div class="companion-card-section"><b>採用後，我可以：</b><ul class="knowledge-result-list"><li>✓ 推薦相關工時</li><li>✓ 提醒補工時</li><li>✓ 整理相近工作</li><li>✓ 引用這份經驗協助建立工時</li></ul></div></div><div class="actions compact ai-suggestion-actions"><button class="btn2" data-edit-ai-suggestion="${escapeHtml(item.key)}">✏️ 編輯</button><button class="btn2" data-merge-ai-suggestion="${escapeHtml(item.key)}">${actionLabel}</button><button class="btn green" data-adopt-ai-suggestion="${escapeHtml(item.key)}">✅ 採用</button><button class="btn2" data-ignore-ai-suggestion="${escapeHtml(item.key)}">🙈 忽略</button></div></div></details></div>`;
   }).join("") : `<div class="empty"><b>目前沒有新的 AI 建議</b><div class="muted">如果之後我從文件、歷史工時或相近工作裡發現值得整理的地方，會在這裡提出建議。</div></div>`;
   return `<section class="panel work-memory-ai-suggestions" style="margin-top:18px"><div class="panel-head"><div><h2>🪶 AI 建議</h2><div class="muted">這裡是我的提案，不是正式工作。只有你採用後，才會加入「我的工作」。</div></div><button class="btn2" data-open-workspace="settings">返回我的工作</button></div><div class="entry"><b>AI 建議，使用者決定</b><div class="muted">我可以提出、整理、合併或提醒；真正決定是否採用的人永遠是你。</div></div><div class="library-list">${cards}</div></section>`;
 }
@@ -4022,23 +4071,27 @@ async function acceptWorkMemoryMergeSuggestion(suggestion, nextName = "", nextDe
   const keepName = String(nextName || suggestion.keep || "").trim();
   if (!keepName) return toast("請輸入要保留的工作名稱");
   const objects = workMemoryObjects();
-  const keepObject = objects.find(item => item.name === suggestion.keep || item.name === keepName) || normalizeWorkMemoryObject({ name: keepName, category: suggestion.category });
-  const mergedObject = objects.find(item => item.name !== keepObject.name && [suggestion.merge, suggestion.a, suggestion.b].includes(item.name));
-  const allSourceReferences = [...(keepObject.sourceReferences || []), ...(mergedObject?.sourceReferences || []), ...(suggestion.sources || []).map(label => ({ type: "merge", label }))];
-  const allKeywords = [...new Set([...(keepObject.keywords || []), ...(mergedObject?.keywords || [])])];
-  const mergedObjects = objects.filter(item => item.name !== suggestion.a && item.name !== suggestion.b);
+  const members = [...new Set(arrayFromInput(suggestion.members || [suggestion.a, suggestion.b]).filter(Boolean))];
+  const selectedObjects = objects.filter(item => members.includes(item.name));
+  const keepObject = selectedObjects.find(item => item.name === suggestion.keep || item.name === keepName) || normalizeWorkMemoryObject({ name: keepName, category: suggestion.category });
+  const mergedObjects = objects.filter(item => !members.includes(item.name));
+  const allSourceReferences = [...selectedObjects.flatMap(item => item.sourceReferences || []), ...(suggestion.sources || []).map(label => ({ type: "merge", label }))];
+  const allKeywords = [...new Set(selectedObjects.flatMap(item => item.keywords || []))];
+  const allAliases = [...new Set(selectedObjects.flatMap(item => item.aliases || []).concat(members).filter(name => name && name !== keepName))];
   const nextObject = normalizeWorkMemoryObject({
     ...keepObject,
     name: keepName,
-    description: nextDescription || keepObject.description || mergedObject?.description || suggestion.description || "",
-    category: suggestion.category || keepObject.category || mergedObject?.category || "一般工作",
-    aliases: [...new Set([...(keepObject.aliases || []), ...(mergedObject?.aliases || []), ...(suggestion.aliases || []), suggestion.a, suggestion.b].filter(name => name && name !== keepName))],
+    description: nextDescription || keepObject.description || selectedObjects.map(item => item.description).find(Boolean) || suggestion.description || "",
+    category: suggestion.category || keepObject.category || selectedObjects.map(item => item.category).find(Boolean) || "一般工作",
+    aliases: [...new Set([...allAliases, ...(suggestion.aliases || [])].filter(name => name && name !== keepName))],
     keywords: allKeywords,
     sourceReferences: allSourceReferences,
-    isActive: Boolean(keepObject.isActive || mergedObject?.isActive)
+    isActive: selectedObjects.some(item => item.isActive)
   }, 0, keepObject);
   const next = [nextObject, ...mergedObjects];
-  saveWorkMemoryMergeDecision(suggestion.a, suggestion.b, "accepted");
+  for (let index = 0; index < members.length; index += 1) {
+    for (let nextIndex = index + 1; nextIndex < members.length; nextIndex += 1) saveWorkMemoryMergeDecision(members[index], members[nextIndex], "accepted");
+  }
   bumpWorkMemoryMergeStat(nextName && nextName !== suggestion.keep ? "renamed" : "merged");
   await persistWorkMemory(next, "我已記住這次整理方式");
 }
@@ -4113,6 +4166,39 @@ async function mergeAiSuggestion(item) {
   toast(`我已記住「${item.title}」併入「${clean}」`);
 }
 
+function resetWorkMemoryManualMerge() {
+  workMemoryMergeMode = false;
+  workMemoryMergeSelection = [];
+  workMemoryManualMergeSuggestion = null;
+}
+
+function startWorkMemoryManualMerge(name = "") {
+  const clean = String(name || "").trim();
+  if (!clean || !workMemoryObjectByName(clean)) return toast("找不到這項工作");
+  editingWorkMemoryName = null;
+  workMemoryManualMergeSuggestion = null;
+  workMemoryMergeMode = true;
+  workMemoryMergeSelection = [clean];
+  render();
+}
+
+function toggleWorkMemoryManualMerge(name = "") {
+  const clean = String(name || "").trim();
+  if (!clean) return;
+  workMemoryMergeSelection = workMemoryMergeSelection.includes(clean)
+    ? workMemoryMergeSelection.filter(value => value !== clean)
+    : [...workMemoryMergeSelection, clean];
+  render();
+}
+
+function prepareWorkMemoryManualMerge() {
+  const suggestion = workMemoryMergeSuggestionForNames(workMemoryMergeSelection);
+  if (!suggestion) return toast("請至少選擇兩項工作");
+  workMemoryMergeMode = false;
+  workMemoryManualMergeSuggestion = suggestion;
+  render();
+}
+
 function bindWorkMemory() {
   const aiSuggestions = workMemoryAiSuggestionItems();
   const search = document.querySelector("[data-work-memory-search]");
@@ -4145,6 +4231,16 @@ function bindWorkMemory() {
   if (categoryFilter) categoryFilter.onchange = event => { workMemoryCategoryFilter = event.target.value || "all"; render(); };
   const sort = document.querySelector("[data-work-memory-sort]");
   if (sort) sort.onchange = event => { workMemorySort = event.target.value || "category"; render(); };
+  document.querySelectorAll("[data-start-work-memory-merge]").forEach(button => button.onclick = () => startWorkMemoryManualMerge(button.dataset.startWorkMemoryMerge));
+  document.querySelectorAll("[data-toggle-work-memory-merge]").forEach(button => button.onclick = () => toggleWorkMemoryManualMerge(button.dataset.toggleWorkMemoryMerge));
+  document.querySelectorAll("[data-next-work-memory-merge]").forEach(button => button.onclick = () => prepareWorkMemoryManualMerge());
+  document.querySelectorAll("[data-cancel-work-memory-merge]").forEach(button => button.onclick = () => { resetWorkMemoryManualMerge(); render(); });
+  document.querySelectorAll("[data-confirm-work-memory-merge]").forEach(button => button.onclick = async () => {
+    const suggestion = workMemoryManualMergeSuggestion;
+    if (!suggestion) return toast("找不到這次合併預覽");
+    resetWorkMemoryManualMerge();
+    await acceptWorkMemoryMergeSuggestion(suggestion);
+  });
   const add = document.querySelector("[data-add-work-memory]");
   if (add) add.onclick = async () => {
     const name = prompt("想讓我記住哪一項工作？");
