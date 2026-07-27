@@ -55,4 +55,9 @@ let lastSuggestionBatchSize = 0;
 let conversationMessagesState = null;
 let conversationPendingState = undefined;
 let conversationRefreshTimer = null;
+// Render coordination keeps async callbacks from replacing the application root
+// while a render is already in progress. A queued follow-up render is coalesced
+// into a single microtask so the WorkLog home cannot visibly flash or duplicate DOM.
+let renderInProgress = false;
+let renderQueued = false;
 const AI_REASON_QUEUE_SIZE = 5;
