@@ -125,6 +125,8 @@ html:has(.standalone-chat-page),body:has(.standalone-chat-page),#app:has(.standa
 .knowledge-progress-step.done{color:#4ade80}
 .knowledge-progress-step.done span{background:rgba(74,222,128,.18)}
 .knowledge-progress-step.error{color:#f87171}
+.knowledge-learning-warning{display:flex;align-items:center;gap:10px;margin:14px 0;padding:14px 16px;border:1px solid rgba(250,204,21,.42);border-radius:14px;background:rgba(120,53,15,.18);color:#fde68a;line-height:1.5}.knowledge-learning-warning small{display:block;color:#fef3c7;font-weight:500}.knowledge-spinner{width:18px;height:18px;flex:0 0 18px;border:3px solid rgba(253,230,138,.28);border-top-color:#facc15;border-radius:50%;animation:knowledge-spin .85s linear infinite}@keyframes knowledge-spin{to{transform:rotate(360deg)}}
+.work-memory-merge-preview{border:1px solid rgba(96,165,250,.35);border-radius:12px;padding:11px 12px;background:rgba(23,37,84,.24);display:grid;gap:5px}.work-memory-merge-preview small{color:#bfdbfe;line-height:1.55}
 .knowledge-version-history{margin-top:14px;padding:12px 14px;border:1px solid rgba(148,163,184,.2);border-radius:12px;background:rgba(15,23,42,.32)}
 .knowledge-version-history summary{cursor:pointer;font-weight:700}
 .knowledge-version-current{margin:10px 0;color:var(--muted,#9aa7bb)}

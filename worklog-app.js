@@ -55,7 +55,7 @@ function normalizeWorkProfile(value = {}, baseProfile = profile) {
 
 function applyWorkProfileToProfile(nextWorkProfile = workProfile) {
   const p = normalizeWorkProfile(nextWorkProfile);
-  if (!profile) profile = { role: "採購", tags: [], sources: ["Google Drive", "Gmail", "Calendar", "手動紀錄"], workHours: "09:00~18:00", lunch: "12:00~13:00", sop: "" };
+  if (!profile) profile = { role: "採購", tags: [], sources: ["Google Drive", "手動紀錄"], workHours: "09:00~18:00", lunch: "12:00~13:00", sop: "" };
   profile.ecpOwner = p.ecpResponsiblePerson || "";
   profile.ecpDepartment = p.ecpDepartment || "";
   if (p.defaultTask) {
@@ -189,6 +189,7 @@ function validateEntry(item) {
     .filter(e => e.date === item.date && e.id !== item.id)
     .reduce((s, e) => s + Number(e.hours || 0), 0);
   if (sameDayHours + Number(item.hours) > 12) return "同日工時已超過 12 小時，請確認是否輸入錯誤";
+  if (worklogTimeConflicts(item)) return "這段時間與既有工時重疊，請調整日期或開始時間";
   return "";
 }
 
@@ -573,7 +574,7 @@ function recordSuggestionMetric(modelName = "", event = "suggested", entry = nul
 }
 
 function setWorkModels(models = []) {
-  if (!profile) profile = { role: "採購", tags: [], sources: ["Google Drive", "Gmail", "Calendar", "手動紀錄"], workHours: "09:00~18:00", lunch: "12:00~13:00", sop: "目前沒有 SOP，先用職務模型" };
+  if (!profile) profile = { role: "採購", tags: [], sources: ["Google Drive", "手動紀錄"], workHours: "09:00~18:00", lunch: "12:00~13:00", sop: "目前沒有 SOP，先用職務模型" };
   const current = workMemoryObjects();
   const normalized = (models || []).map((item, index) => {
     const name = String(typeof item === "string" ? item : item?.name || "").trim();
@@ -593,7 +594,7 @@ function ecpTasks() {
 }
 
 function setEcpTasks(tasks = []) {
-  if (!profile) profile = { role: "採購", tags: [], sources: ["Google Drive", "Gmail", "Calendar", "手動紀錄"], workHours: "09:00~18:00", lunch: "12:00~13:00", sop: "目前沒有 SOP，先用職務模型" };
+  if (!profile) profile = { role: "採購", tags: [], sources: ["Google Drive", "手動紀錄"], workHours: "09:00~18:00", lunch: "12:00~13:00", sop: "目前沒有 SOP，先用職務模型" };
   DataService.ecpTasksState = [...new Set((tasks || []).map(x => String(x).trim()).filter(Boolean))];
   profile.ecpTasks = [...DataService.ecpTasksState];
   profile.ecpTask = "";
@@ -887,6 +888,10 @@ function availableStartMinutes(dateKey = key(), durationHours = 1, excludeId = n
     if (candidate >= s.workEnd) break;
   }
   if (candidate + duration <= s.workEnd) return candidate;
+  // Keep the user on the current workday when a shorter duration could still
+  // use the remaining tail. The duration selector can then be changed without
+  // silently moving the form to the next workday.
+  if (candidate < s.workEnd) return candidate;
   return null;
 }
 
@@ -2123,6 +2128,31 @@ function workMemoryCategorySuggestion(name = "", currentCategory = "") {
   return inferred;
 }
 
+// Sprint 3: these are product-level work relationships, not string-only
+// duplicates.  Keep the recommendation explainable and user-confirmed.
+const WORK_MEMORY_SEMANTIC_GROUPS = Object.freeze([
+  { id: "contract", canonical: "合約管理", aliases: ["合約資料整理", "合約管理"], category: "行政" },
+  { id: "project", canonical: "專案進度管理", aliases: ["專案追蹤", "專案進度管理"], category: "專案" },
+  { id: "procurement", canonical: "採購案件管理", aliases: ["採購分析", "採購進度追蹤"], category: "採購" },
+  { id: "meeting", canonical: "會議安排", aliases: ["會議", "會議安排"], category: "會議" }
+]);
+
+function workMemorySemanticGroup(name = "") {
+  const value = String(name || "").trim();
+  if (!value) return null;
+  return WORK_MEMORY_SEMANTIC_GROUPS.find(group => group.aliases.some(alias => {
+    const left = String(alias || "").trim();
+    return value === left || value.includes(left) || left.includes(value);
+  })) || null;
+}
+
+function workMemorySemanticRelationship(a = "", b = "") {
+  const left = workMemorySemanticGroup(a);
+  const right = workMemorySemanticGroup(b);
+  if (!left || !right || left.id !== right.id || a === b) return null;
+  return { ...left, score: 0.94, aliases: [...new Set([...left.aliases, a, b])] };
+}
+
 function workMemoryAiSuggestionItems() {
   const decisions = readWorkMemoryAiSuggestionDecisions();
   const acceptedNames = workModels().map(name => String(name || "").trim()).filter(Boolean);
@@ -2135,7 +2165,7 @@ function workMemoryAiSuggestionItems() {
       title: `整理「${suggestion.a}」與「${suggestion.b}」`,
       content: suggestion.description,
       reason: `我發現「${suggestion.a}」與「${suggestion.b}」相似度約 ${Math.round(suggestion.score * 100)}%，可能屬於同一項工作。`,
-      suggestion: `保留「${suggestion.keep}」`,
+      suggestion: `建議主要名稱：${suggestion.keep}`,
       source: suggestion.sources.join("、") || "我的工作",
       defaultDuration: "",
       mergeSuggestion: suggestion
@@ -2217,10 +2247,11 @@ function workMemoryMergeSuggestions(limit = 3) {
     for (let j = i + 1; j < models.length; j++) {
       const a = models[i], b = models[j];
       if (decisions[workMemoryPairKey(a, b)]?.decision === "ignored") continue;
-      const score = SuggestionIntelligence.similarity(a, b);
+      const semantic = workMemorySemanticRelationship(a, b);
+      const score = Math.max(SuggestionIntelligence.similarity(a, b), semantic?.score || 0);
       if (score < 0.72) continue;
-      const keep = preferredWorkMemoryName(a, b);
-      const merge = keep === a ? b : a;
+      const keep = semantic?.canonical || preferredWorkMemoryName(a, b);
+      const merge = keep === a ? b : keep === b ? a : (preferredWorkMemoryName(a, b) === a ? b : a);
       const sourceLabels = [...new Set([...workMemorySourcesFor(a), ...workMemorySourcesFor(b), workMemoryUsageFor(a).count || workMemoryUsageFor(b).count ? "歷史工時" : ""].filter(Boolean))];
       suggestions.push({
         a,
@@ -2228,7 +2259,10 @@ function workMemoryMergeSuggestions(limit = 3) {
         keep,
         merge,
         score,
-        description: `${keep} 可涵蓋 ${merge}，之後我會優先用「${keep}」協助你建立工時。`,
+        canonical: keep,
+        aliases: semantic?.aliases || [...new Set([a, b])],
+        category: semantic?.category || workMemoryCategoryFor(keep),
+        description: `${keep} 可涵蓋 ${merge}；我建議先預覽合併內容，確認後才會整理正式工作。`,
         sources: sourceLabels.length ? sourceLabels : ["我的工作"]
       });
     }
@@ -2304,8 +2338,9 @@ function aiSuggestionWorkspace() {
     const familiarityLabel = workMemoryFamiliarityLabel(familiarityScore);
     const recent = usage.latest ? fmt(usage.latest) : "尚未使用";
     const sourceList = sources.length ? sources.map(source => `<li><button class="work-memory-source-link" data-work-memory-source-name="${escapeHtml(source)}" data-work-memory-source-work="${escapeHtml(item.title)}">📄 ${escapeHtml(source)}</button></li>`).join("") : `<li><span class="work-memory-source-empty">尚未連結來源資料</span></li>`;
+    const mergePreview = item.type === "merge" ? `<div class="companion-card-section work-memory-merge-preview"><b>合併前預覽</b><div>建議主要名稱：<strong>${escapeHtml(item.mergeSuggestion?.canonical || item.mergeSuggestion?.keep || "")}</strong></div><div>保留別名：${escapeHtml((item.mergeSuggestion?.aliases || [item.mergeSuggestion?.a, item.mergeSuggestion?.b]).filter(Boolean).join("、"))}</div><div>建議分類：${escapeHtml(item.mergeSuggestion?.category || "其他")}</div><small>歷史工時、Knowledge 關聯、來源與啟用狀態會一起保留；只有你確認後才會合併。</small></div>` : "";
     const actionLabel = item.type === "merge" ? "🔀 合併" : item.type === "rename" ? "✏️ 重新命名" : item.type === "category" ? "🏷️ 分類" : "🔀 整理到既有工作";
-    return `<div class="entry ai-suggestion-workspace-card companion-card"><div class="entry-main"><div class="work-memory-title"><b>${escapeHtml(item.title)}</b><span>${item.type === "merge" ? "整理建議" : item.type === "rename" ? "命名建議" : item.type === "category" ? "分類建議" : "新增建議"}</span></div><div class="companion-card-section"><b>🪶 我為什麼建議？</b><p class="muted">${escapeHtml(item.reason)}</p></div><div class="companion-card-section"><b>建議內容</b><div class="source-path">${escapeHtml(item.suggestion)}</div>${item.defaultDuration ? `<small>預設工時：約 ${escapeHtml(formatHumanDuration(item.defaultDuration))}</small>` : ""}</div><div class="companion-card-section"><b>🪶 我是從這些資料學會的：</b><ul class="knowledge-result-list work-memory-source-list">${sourceList}</ul></div><div class="companion-card-grid"><div><span>最近一次陪你完成</span><b>${escapeHtml(recent)}</b></div><div><span>熟悉程度</span><b>${escapeHtml(workMemoryFamiliarityBars(familiarityScore))}</b><small>${escapeHtml(familiarityLabel)}</small></div></div><div class="companion-card-section"><b>採用後，我可以：</b><ul class="knowledge-result-list"><li>✓ 推薦相關工時</li><li>✓ 提醒補工時</li><li>✓ 整理相近工作</li><li>✓ 引用這份經驗協助建立工時</li></ul></div></div><div class="actions compact ai-suggestion-actions"><button class="btn2" data-edit-ai-suggestion="${escapeHtml(item.key)}">✏️ 編輯</button><button class="btn2" data-merge-ai-suggestion="${escapeHtml(item.key)}">${actionLabel}</button><button class="btn green" data-adopt-ai-suggestion="${escapeHtml(item.key)}">✅ 採用</button><button class="btn2" data-ignore-ai-suggestion="${escapeHtml(item.key)}">🙈 忽略</button></div></div>`;
+    return `<div class="entry ai-suggestion-workspace-card companion-card"><div class="entry-main"><div class="work-memory-title"><b>${escapeHtml(item.title)}</b><span>${item.type === "merge" ? "整理建議" : item.type === "rename" ? "命名建議" : item.type === "category" ? "分類建議" : "新增建議"}</span></div><div class="companion-card-section"><b>🪶 我為什麼建議？</b><p class="muted">${escapeHtml(item.reason)}</p></div>${mergePreview}<div class="companion-card-section"><b>建議內容</b><div class="source-path">${escapeHtml(item.suggestion)}</div>${item.defaultDuration ? `<small>預設工時：約 ${escapeHtml(formatHumanDuration(item.defaultDuration))}</small>` : ""}</div><div class="companion-card-section"><b>🪶 我是從這些資料學會的：</b><ul class="knowledge-result-list work-memory-source-list">${sourceList}</ul></div><div class="companion-card-grid"><div><span>最近一次陪你完成</span><b>${escapeHtml(recent)}</b></div><div><span>熟悉程度</span><b>${escapeHtml(workMemoryFamiliarityBars(familiarityScore))}</b><small>${escapeHtml(familiarityLabel)}</small></div></div><div class="companion-card-section"><b>採用後，我可以：</b><ul class="knowledge-result-list"><li>✓ 推薦相關工時</li><li>✓ 提醒補工時</li><li>✓ 整理相近工作</li><li>✓ 引用這份經驗協助建立工時</li></ul></div></div><div class="actions compact ai-suggestion-actions"><button class="btn2" data-edit-ai-suggestion="${escapeHtml(item.key)}">✏️ 編輯</button><button class="btn2" data-merge-ai-suggestion="${escapeHtml(item.key)}">${actionLabel}</button><button class="btn green" data-adopt-ai-suggestion="${escapeHtml(item.key)}">✅ 採用</button><button class="btn2" data-ignore-ai-suggestion="${escapeHtml(item.key)}">🙈 忽略</button></div></div>`;
   }).join("") : `<div class="empty"><b>目前沒有新的 AI 建議</b><div class="muted">如果之後我從文件、歷史工時或相近工作裡發現值得整理的地方，會在這裡提出建議。</div></div>`;
   return `<section class="panel work-memory-ai-suggestions" style="margin-top:18px"><div class="panel-head"><div><h2>🪶 AI 建議</h2><div class="muted">這裡是我的提案，不是正式工作。只有你採用後，才會加入「我的工作」。</div></div><button class="btn2" data-open-workspace="settings">返回我的工作</button></div><div class="entry"><b>AI 建議，使用者決定</b><div class="muted">我可以提出、整理、合併或提醒；真正決定是否採用的人永遠是你。</div></div><div class="library-list">${cards}</div></section>`;
 }
@@ -2336,11 +2371,11 @@ function osShell() {
 }
 
 function onboardingWorkspace() {
-  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>🪶 初次認識工時營帳</h2><div class="muted">建立「我的工作」後，我就能提供更貼近你的工時建議。</div></div></div><div class="profile-grid"><div><label>你的職務</label><select id="role" class="input">${roles.map(r => `<option>${r}</option>`).join("")}</select></div><div><label>每日工時</label><select class="input"><option>09:00~18:00，午休 12:00~13:00</option></select></div></div><label>我的工作</label><div class="row two" id="tagOptions">${tagButtons(tagsForRole("採購"))}</div><label>SOP 狀態</label><select id="sop" class="input"><option>目前沒有 SOP，先用職務模型</option><option>有 SOP，之後上傳</option></select><label>工作來源</label><div class="row two">${["Google Drive", "Gmail", "Calendar", "手動紀錄"].map(s => `<button class="btn2 src-btn" data-src="${s}">${s}</button>`).join("")}</div><button class="btn full" id="saveProfile">建立我的工作</button></section>`;
+  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>🪶 初次認識工時營帳</h2><div class="muted">建立「我的工作」後，我就能提供更貼近你的工時建議。</div></div></div><div class="profile-grid"><div><label>你的職務</label><select id="role" class="input">${roles.map(r => `<option>${r}</option>`).join("")}</select></div><div><label>每日工時</label><select class="input"><option>09:00~18:00，午休 12:00~13:00</option></select></div></div><label>我的工作</label><div class="row two" id="tagOptions">${tagButtons(tagsForRole("採購"))}</div><label>SOP 狀態</label><select id="sop" class="input"><option>目前沒有 SOP，先用職務模型</option><option>有 SOP，之後上傳</option></select><label>工作來源</label><div class="row two">${["Google Drive", "手動紀錄"].map(s => `<button class="btn2 src-btn" data-src="${s}">${s}</button>`).join("")}</div><button class="btn full" id="saveProfile">建立我的工作</button></section>`;
 }
 
 function onboarding() {
-  return `<div class="wrap"><div class="card"><div class="top"><div><div class="muted">🪶 初次認識</div><h1>你好，我是 Mr. KM</h1><div class="muted">我想先了解你的工作，之後才能產生更貼近你的每日工作建議卡。</div></div><div class="header-right">${userBadge()}<div class="tag">${VERSION}</div></div></div><section class="panel" style="margin-top:18px"><div class="profile-grid"><div><label>你的職務</label><select id="role" class="input">${roles.map(r => `<option>${r}</option>`).join("")}</select></div><div><label>每日工時</label><select class="input"><option>09:00~18:00，午休 12:00~13:00</option></select></div></div><label>我的工作</label><div class="row two" id="tagOptions">${tagButtons(tagsForRole("採購"))}</div><label>SOP 狀態</label><select id="sop" class="input"><option>目前沒有 SOP，先用職務模型</option><option>有 SOP，之後上傳</option></select><label>工作來源</label><div class="row two">${["Google Drive", "Gmail", "Calendar", "手動紀錄"].map(s => `<button class="btn2 src-btn" data-src="${s}">${s}</button>`).join("")}</div><button class="btn full" id="saveProfile">建立我的工作</button></section></div></div>`;
+  return `<div class="wrap"><div class="card"><div class="top"><div><div class="muted">🪶 初次認識</div><h1>你好，我是 Mr. KM</h1><div class="muted">我想先了解你的工作，之後才能產生更貼近你的每日工作建議卡。</div></div><div class="header-right">${userBadge()}<div class="tag">${VERSION}</div></div></div><section class="panel" style="margin-top:18px"><div class="profile-grid"><div><label>你的職務</label><select id="role" class="input">${roles.map(r => `<option>${r}</option>`).join("")}</select></div><div><label>每日工時</label><select class="input"><option>09:00~18:00，午休 12:00~13:00</option></select></div></div><label>我的工作</label><div class="row two" id="tagOptions">${tagButtons(tagsForRole("採購"))}</div><label>SOP 狀態</label><select id="sop" class="input"><option>目前沒有 SOP，先用職務模型</option><option>有 SOP，之後上傳</option></select><label>工作來源</label><div class="row two">${["Google Drive", "手動紀錄"].map(s => `<button class="btn2 src-btn" data-src="${s}">${s}</button>`).join("")}</div><button class="btn full" id="saveProfile">建立我的工作</button></section></div></div>`;
 }
 
 function calendarPanel() {
@@ -2826,11 +2861,9 @@ function sync() {
   const checkedDate = new Date().toLocaleDateString("zh-TW", { year: "numeric", month: "2-digit", day: "2-digit" });
   const authButton = state => state.includes("⚪") ? `<button class="btn2 service-action">授權</button>` : "";
   const services = [
-    ["🟢 AI OS 健康度", "100%", "7 / 7 服務正常", "", "summary"],
+    ["🟢 AI OS 健康度", "100%", "核心服務正常", "", "summary"],
     ["Google 帳號", session ? "🟢 已登入" : "⚪ 尚未登入", session ? `最後驗證：${checkedAt}` : "需要先完成 Google Login", ""],
     ["Google Drive", googleState.replace("尚未連接", "尚未授權"), `最後檢查：${checkedAt}`, authButton(googleState)],
-    ["Gmail", googleState.replace("尚未連接", "尚未授權"), `最後檢查：${checkedAt}`, authButton(googleState)],
-    ["Calendar", googleState.replace("尚未連接", "尚未授權"), `最後檢查：${checkedAt}`, authButton(googleState)],
     ["Cloud Sync", cloudSyncLabel(), cloudSyncDetail(), ""],
     ["AI 引擎", "🟢 正常", "目前模型：GPT-5.5", ""],
     ["Supabase", session ? "🟢 已連線" : "⚪ 尚未登入", session ? "Auth Session OK" : "需要先完成 Google Login", ""],
@@ -3240,9 +3273,11 @@ function libraryLearningView() {
   const title = item.title || "新的工作知識";
   const fileName = item.filename || item.sourceName || "您提供的文件";
   const step = knowledgeLearningStep || "reading";
-  const heading = step === "complete" ? "🪶 我讀完了" : step === "error" ? "🪶 這次學習遇到問題" : "🪶 我正在閱讀這份文件...";
+  const heading = step === "complete" ? "🪶 我讀完了" : step === "error" ? "🪶 這次學習遇到問題" : "🪶 Mr. KM 正在閱讀";
   const message = step === "complete" ? "我已整理好理解結果，接下來請你確認。" : step === "error" ? (knowledgeLearningError || "請稍後再試，或調整文件後重新學習。") : "我正在把它轉換成之後可以協助你完成工時的工作。";
-  return `<section class="panel knowledge-learning-panel" style="margin-top:18px"><div class="panel-head"><div><h2>${heading}</h2><div class="muted">${escapeHtml(message)}</div></div></div><div class="entry"><div class="entry-main"><b>${escapeHtml(title)}</b><div class="source-path">${escapeHtml(fileName)}</div><small>${escapeHtml(item.description || "我會先理解內容，再請你確認我理解得對不對。")}</small></div></div><div class="entry"><b>我正在學習</b><ul class="knowledge-result-list knowledge-progress-list">${knowledgeLearningProgress(step)}</ul></div><div class="muted">${step === "complete" ? "請按返回查看我的理解。" : "請稍候，完成後我會請你確認我的理解。"}</div></section>`;
+  const active = !["complete", "error"].includes(step);
+  const leaveAction = active ? `<button class="btn2" type="button" data-library-learning-back="1">返回藏書閣</button>` : `<button class="btn2" type="button" data-library-back="1">返回藏書閣</button>`;
+  return `<section class="panel knowledge-learning-panel ${active ? "is-learning" : ""}" style="margin-top:18px"><div class="panel-head"><div><h2>${heading}</h2><div class="muted" aria-live="polite">${escapeHtml(message)}</div></div>${leaveAction}</div>${active ? `<div class="knowledge-learning-warning" role="status"><span class="knowledge-spinner" aria-hidden="true"></span><b>文件仍在閱讀中，請勿離開此頁</b><small>離開可能中斷處理；完成後我會請你確認我的理解。</small></div>` : ""}<div class="entry"><div class="entry-main"><b>${escapeHtml(title)}</b><div class="source-path">${escapeHtml(fileName)}</div><small>${escapeHtml(item.description || "我會先理解內容，再請你確認我理解得對不對。")}</small></div></div><div class="entry"><b>目前進度</b><ul class="knowledge-result-list knowledge-progress-list" aria-live="polite">${knowledgeLearningProgress(step)}</ul></div><div class="muted">${step === "complete" ? "請按返回查看我的理解。" : step === "error" ? "請查看錯誤後重新學習或返回藏書閣。" : "請稍候，完成後我會請你確認我的理解。"}</div></section>`;
 }
 
 function libraryIntelligenceView(id = null) {
@@ -3832,7 +3867,7 @@ function bindOnboarding() {
   document.querySelectorAll(".src-btn").forEach(b => b.onclick = () => { src.includes(b.dataset.src) ? src = src.filter(x => x !== b.dataset.src) : src.push(b.dataset.src); b.classList.toggle("selected", src.includes(b.dataset.src)); });
   document.getElementById("saveProfile").onclick = async () => {
     const role = document.getElementById("role").value;
-    profile = { role, tags: tags.length ? tags : tagsForRole(role), sources: src.length ? src : ["Google Drive", "Gmail", "Calendar", "手動紀錄"], workHours: "09:00~18:00", lunch: "12:00~13:00", sop: document.getElementById("sop").value };
+    profile = { role, tags: tags.length ? tags : tagsForRole(role), sources: src.length ? src : ["Google Drive", "手動紀錄"], workHours: "09:00~18:00", lunch: "12:00~13:00", sop: document.getElementById("sop").value };
     setWorkModels(profile.tags);
     saveAll();
     await DataService.saveProfileSettingsOnly();
@@ -3987,14 +4022,20 @@ async function acceptWorkMemoryMergeSuggestion(suggestion, nextName = "", nextDe
   const keepName = String(nextName || suggestion.keep || "").trim();
   if (!keepName) return toast("請輸入要保留的工作名稱");
   const objects = workMemoryObjects();
-  const keepObject = objects.find(item => item.name === suggestion.keep || item.name === keepName) || normalizeWorkMemoryObject(keepName);
+  const keepObject = objects.find(item => item.name === suggestion.keep || item.name === keepName) || normalizeWorkMemoryObject({ name: keepName, category: suggestion.category });
+  const mergedObject = objects.find(item => item.name !== keepObject.name && [suggestion.merge, suggestion.a, suggestion.b].includes(item.name));
+  const allSourceReferences = [...(keepObject.sourceReferences || []), ...(mergedObject?.sourceReferences || []), ...(suggestion.sources || []).map(label => ({ type: "merge", label }))];
+  const allKeywords = [...new Set([...(keepObject.keywords || []), ...(mergedObject?.keywords || [])])];
   const mergedObjects = objects.filter(item => item.name !== suggestion.a && item.name !== suggestion.b);
   const nextObject = normalizeWorkMemoryObject({
     ...keepObject,
     name: keepName,
-    description: nextDescription || keepObject.description || suggestion.description || "",
-    aliases: [...new Set([...(keepObject.aliases || []), suggestion.a, suggestion.b].filter(name => name && name !== keepName))],
-    sourceReferences: [...(keepObject.sourceReferences || []), ...(suggestion.sources || []).map(label => ({ type: "merge", label }))]
+    description: nextDescription || keepObject.description || mergedObject?.description || suggestion.description || "",
+    category: suggestion.category || keepObject.category || mergedObject?.category || "一般工作",
+    aliases: [...new Set([...(keepObject.aliases || []), ...(mergedObject?.aliases || []), ...(suggestion.aliases || []), suggestion.a, suggestion.b].filter(name => name && name !== keepName))],
+    keywords: allKeywords,
+    sourceReferences: allSourceReferences,
+    isActive: Boolean(keepObject.isActive || mergedObject?.isActive)
   }, 0, keepObject);
   const next = [nextObject, ...mergedObjects];
   saveWorkMemoryMergeDecision(suggestion.a, suggestion.b, "accepted");
@@ -4075,12 +4116,31 @@ async function mergeAiSuggestion(item) {
 function bindWorkMemory() {
   const aiSuggestions = workMemoryAiSuggestionItems();
   const search = document.querySelector("[data-work-memory-search]");
-  if (search) search.oninput = event => {
-    workMemoryQuery = event.target.value || "";
-    render();
-    const next = document.querySelector("[data-work-memory-search]");
-    if (next) { next.focus(); next.setSelectionRange(workMemoryQuery.length, workMemoryQuery.length); }
+  const renderWorkMemorySearch = () => {
+    if (workMemorySearchRenderTimer) clearTimeout(workMemorySearchRenderTimer);
+    workMemorySearchRenderTimer = setTimeout(() => {
+      workMemorySearchRenderTimer = null;
+      render();
+      const next = document.querySelector("[data-work-memory-search]");
+      if (next) {
+        next.focus();
+        const caret = next.value.length;
+        next.setSelectionRange(caret, caret);
+      }
+    }, 120);
   };
+  if (search) {
+    search.oncompositionstart = () => { workMemorySearchComposing = true; };
+    search.oncompositionend = event => {
+      workMemorySearchComposing = false;
+      workMemoryQuery = event.target.value || "";
+      renderWorkMemorySearch();
+    };
+    search.oninput = event => {
+      workMemoryQuery = event.target.value || "";
+      if (!workMemorySearchComposing) renderWorkMemorySearch();
+    };
+  }
   const categoryFilter = document.querySelector("[data-work-memory-category]");
   if (categoryFilter) categoryFilter.onchange = event => { workMemoryCategoryFilter = event.target.value || "all"; render(); };
   const sort = document.querySelector("[data-work-memory-sort]");
@@ -4305,6 +4365,10 @@ function bindCapture(editId = null) {
   const editingEntry = editId ? entries.find(e => e.id === editId) : null;
   const suggestionSeed = !editingEntry && captureSeed ? { ...captureSeed } : null;
   let selectedH = editingEntry ? Number(editingEntry.hours) : Number(suggestionSeed?.hours || 1);
+  // A suggestion seed may already carry an automatically resolved time. Keep
+  // it recalculable until the user edits the datetime field, so changing 1h
+  // to 30m can stay in the current day's remaining tail.
+  let automaticTime = !editingEntry && (!suggestionSeed?.at || suggestionSeed?.timeResolution === "earliest_gap" || suggestionSeed?.autoScheduled);
   document.querySelectorAll("[data-capture-back],[data-capture-cancel]").forEach(b => b.onclick = () => { view = "center"; editingEntryId = null; captureSeed = null; saveAll(); render(); });
   const titleInput = document.getElementById("title");
   const bindDescriptionSuggestions = () => {
@@ -4389,10 +4453,17 @@ function bindCapture(editId = null) {
     toast("已新增 ECP 任務");
   };
   const dateTimeInput = document.getElementById("dt");
+  if (dateTimeInput) {
+    dateTimeInput.oninput = () => { automaticTime = false; };
+    dateTimeInput.onchange = () => { automaticTime = false; };
+  }
   document.querySelectorAll(".hour").forEach(b => b.onclick = () => {
     selectedH = Number(b.dataset.h);
     document.querySelectorAll(".hour").forEach(x => x.classList.remove("selected"));
     b.classList.add("selected");
+    if (automaticTime && dateTimeInput) {
+      dateTimeInput.value = captureDefaultStart(selectedH);
+    }
   });
   document.getElementById("saveEntry").onclick = async () => {
     const at = document.getElementById("dt").value;
@@ -4442,13 +4513,43 @@ async function runLegacyKnowledgeMigrationPreview() {
 }
 
 function bindLibrary() {
-  const search = document.querySelector("[data-library-search]");
-  if (search) search.oninput = event => {
-    knowledgeLibraryQuery = event.target.value || "";
+  document.querySelectorAll("[data-library-learning-back]").forEach(button => button.onclick = () => {
+    if (["reading", "analyzing", "understanding", "organizing"].includes(knowledgeLearningStep)) {
+      if (!confirm("文件仍在閱讀中，離開可能中斷處理，是否確定離開？")) return;
+    }
+    learningKnowledgeDraft = null;
+    viewingKnowledgeId = null;
+    knowledgeLearningError = "";
+    view = "library";
+    saveAll();
     render();
-    const next = document.querySelector("[data-library-search]");
-    if (next) { next.focus(); next.setSelectionRange(knowledgeLibraryQuery.length, knowledgeLibraryQuery.length); }
+  });
+  const search = document.querySelector("[data-library-search]");
+  const renderKnowledgeSearch = () => {
+    if (knowledgeLibrarySearchRenderTimer) clearTimeout(knowledgeLibrarySearchRenderTimer);
+    knowledgeLibrarySearchRenderTimer = setTimeout(() => {
+      knowledgeLibrarySearchRenderTimer = null;
+      render();
+      const next = document.querySelector("[data-library-search]");
+      if (next) {
+        next.focus();
+        const caret = next.value.length;
+        next.setSelectionRange(caret, caret);
+      }
+    }, 120);
   };
+  if (search) {
+    search.oncompositionstart = () => { knowledgeLibrarySearchComposing = true; };
+    search.oncompositionend = event => {
+      knowledgeLibrarySearchComposing = false;
+      knowledgeLibraryQuery = event.target.value || "";
+      renderKnowledgeSearch();
+    };
+    search.oninput = event => {
+      knowledgeLibraryQuery = event.target.value || "";
+      if (!knowledgeLibrarySearchComposing) renderKnowledgeSearch();
+    };
+  }
   const category = document.querySelector("[data-library-category]");
   if (category) category.onchange = event => { knowledgeLibraryCategory = event.target.value || "all"; render(); };
   const sort = document.querySelector("[data-library-sort]");
