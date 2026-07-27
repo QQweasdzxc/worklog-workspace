@@ -14,8 +14,8 @@ const DRIVE_DEBUG_MODE = (() => {
 const GOOGLE_DRIVE_OAUTH_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
 // Google Picker configuration is intentionally public-client configuration. Keep secrets out of this file.
 // Set these values per deployment; an empty value keeps the Picker action disabled with a clear message.
-const GOOGLE_PICKER_API_KEY = "";
-const GOOGLE_PICKER_APP_ID = "";
+const GOOGLE_PICKER_API_KEY = "AIzaSyBqKb6rxJLvtT9Rb1sLJU6zuNDOTlEh10U";
+const GOOGLE_PICKER_APP_ID = "887242434449";
 const PDFJS_LIB_URL = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.269/build/pdf.mjs";
 const PDFJS_WORKER_URL = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.269/build/pdf.worker.mjs";
 const root = document.getElementById("app");
