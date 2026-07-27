@@ -465,6 +465,11 @@ const KnowledgeIntelligence = {
       const extracted = await extractKnowledgeText(item, options.file || null);
       onProgress("analyzing");
       const result = buildKnowledgeIntelligence(item, extracted);
+      onProgress("understanding");
+      // Work understanding is intentionally a separate observable phase.  The
+      // discovery/DNA work above is the point at which Mr. KM turns extracted
+      // text into named work, purpose, process, and candidate relationships.
+      await Promise.resolve();
       onProgress("organizing");
       const saved = await DataService.saveKnowledgeIntelligenceResult(item, result);
       onProgress("complete");

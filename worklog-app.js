@@ -2254,9 +2254,24 @@ function workMemoryItems() {
   });
 }
 
+function workMemoryItemsForView() {
+  const query = String(workMemoryQuery || "").trim().toLocaleLowerCase("zh-TW");
+  const filtered = workMemoryItems().filter(item => {
+    if (workMemoryCategoryFilter !== "all" && item.category !== workMemoryCategoryFilter) return false;
+    if (!query) return true;
+    return [item.name, item.description, item.category, ...(item.aliases || []), ...(item.sources || [])]
+      .join(" ").toLocaleLowerCase("zh-TW").includes(query);
+  });
+  return filtered.sort((a, b) => {
+    if (workMemorySort === "name") return a.name.localeCompare(b.name, "zh-Hant");
+    if (workMemorySort === "usage") return Number(b.usageCount || 0) - Number(a.usageCount || 0) || a.name.localeCompare(b.name, "zh-Hant");
+    return String(a.category || "其他").localeCompare(String(b.category || "其他"), "zh-Hant") || a.name.localeCompare(b.name, "zh-Hant");
+  });
+}
+
 function workMemoryPage(options = {}) {
   const compact = !!options.compact;
-  const items = workMemoryItems();
+  const items = workMemoryItemsForView();
   const aiSuggestionCount = workMemoryAiSuggestionItems().length;
   const aiSuggestionButton = aiSuggestionCount
     ? `<button class="btn" data-open-workspace="aiSuggestions">🪶 查看 AI 建議（${aiSuggestionCount}）</button>`
@@ -2264,10 +2279,18 @@ function workMemoryPage(options = {}) {
   const cloudNotice = workMemoryFoundationNotInitialized
     ? `<div class="empty work-memory-cloud-notice"><b>🟡 Work Memory Cloud 尚未初始化</b><div class="muted">目前畫面只顯示本機快取，不能視為正式記憶。請先執行 ${escapeHtml(WORK_MEMORY_SCHEMA_SQL)}。</div></div>`
     : "";
-  const cards = items.length ? items.map(item => `<div class="entry work-memory-card work-memory-confirmed-card"><div class="entry-main"><div class="work-memory-confirmed-label">已採用工作</div><b>${escapeHtml(item.name)}</b><small>${escapeHtml(item.description)}</small></div><div class="work-memory-confirmed-category"><span class="mobile-field-label">分類</span>${escapeHtml(item.category)}</div><div class="work-memory-enabled-status ${item.enabled ? "" : "disabled"}"><span class="mobile-field-label">啟用狀態</span><span class="status-dot ${item.enabled ? "ok" : "off"}"></span>${item.enabled ? "已啟用" : "已停用"}</div><div class="work-memory-confirmed-action"><button class="btn2" type="button" data-edit-work-memory="${escapeHtml(item.name)}">✏️ 編輯</button></div></div>`).join("") : `<div class="empty"><b>目前還沒有已採用工作</b><div class="muted">你可以新增工作，或查看 Mr. KM 整理好的 AI 建議。</div></div>`;
+  const groups = [...new Set(items.map(item => item.category || "其他"))];
+  const cards = items.length ? groups.map(category => {
+    const categoryItems = items.filter(item => (item.category || "其他") === category);
+    return `<section class="work-memory-folder"><div class="work-memory-folder-head"><div><span class="work-memory-folder-icon">📁</span><b>${escapeHtml(category)}</b><small>${categoryItems.length} 項工作</small></div><span class="muted">Mr. KM 已整理</span></div><div class="work-memory-card-grid">${categoryItems.map(item => `<article class="work-memory-card work-memory-confirmed-card"><div class="work-memory-card-top"><span class="work-memory-confirmed-label">已採用工作</span><span class="status-dot ${item.enabled ? "ok" : "off"}" title="${item.enabled ? "已啟用" : "已停用"}"></span></div><b class="work-memory-card-title">${escapeHtml(item.name)}</b><small>${escapeHtml(item.description)}</small><div class="work-memory-card-meta"><span>熟悉度 ${escapeHtml(workMemoryFamiliarityBars(item.familiarityScore))}</span><span>${item.usageCount ? `使用 ${item.usageCount} 次` : "尚未使用"}</span></div><button class="btn2" type="button" data-edit-work-memory="${escapeHtml(item.name)}">✏️ 編輯</button></article>`).join("")}</div></section>`;
+  }).join("") : `<div class="empty"><b>${workMemoryItems().length ? "找不到符合條件的工作" : "目前還沒有已採用工作"}</b><div class="muted">${workMemoryItems().length ? "請調整搜尋或分類條件。" : "你可以新增工作，或查看 Mr. KM 整理好的 AI 建議。"}</div></div>`;
   const editingItem = items.find(item => item.name === editingWorkMemoryName);
   const editor = editingItem ? `<div class="quick-add-dialog work-memory-editor"><div class="quick-add-card"><div class="panel-head"><div><h3>✏️ 編輯工作</h3><div class="muted">修改後，Mr. KM 會依照新的內容提供工時建議。</div></div><button class="btn2" type="button" data-cancel-work-memory-edit="1">關閉</button></div><label>工作名稱</label><input class="input" id="workMemoryEditName" value="${escapeHtml(editingItem.name)}"><label>工作說明</label><textarea id="workMemoryEditDescription">${escapeHtml(editingItem.description)}</textarea><label>分類</label><input class="input" id="workMemoryEditCategory" value="${escapeHtml(editingItem.category)}"><label>啟用狀態</label><select class="input" id="workMemoryEditEnabled"><option value="1" ${editingItem.enabled ? "selected" : ""}>啟用</option><option value="0" ${editingItem.enabled ? "" : "selected"}>停用</option></select><div class="form-actions"><button class="btn2 danger" type="button" data-delete-work-memory="${escapeHtml(editingItem.name)}">刪除</button><button class="btn" type="button" data-save-work-memory-edit="${escapeHtml(editingItem.name)}">儲存修改</button></div></div></div>` : "";
-  const content = `<div class="panel-head"><div><h2>🪶 我的工作</h2><div class="muted">這裡只放你已經確認的工作，也是工時建議的正式來源。</div></div><div class="actions compact work-memory-head-actions"><button class="btn" data-add-work-memory="1">＋ 新增工作</button>${aiSuggestionButton}</div></div>${cloudNotice}<div class="work-memory-list-head"><span>工作名稱</span><span>分類</span><span>啟用狀態</span><span>管理</span></div><div class="library-list">${cards}</div>${editor}`;
+  const categories = [...new Set(workMemoryItems().map(item => item.category || "其他"))].sort((a, b) => a.localeCompare(b, "zh-Hant"));
+  const filters = `<div class="work-memory-toolbar"><input class="input" type="search" data-work-memory-search placeholder="搜尋我的工作、別名或來源" value="${escapeHtml(workMemoryQuery)}"><select class="input" data-work-memory-category><option value="all" ${workMemoryCategoryFilter === "all" ? "selected" : ""}>全部分類</option>${categories.map(category => `<option value="${escapeHtml(category)}" ${category === workMemoryCategoryFilter ? "selected" : ""}>${escapeHtml(category)}</option>`).join("")}</select><select class="input" data-work-memory-sort><option value="category" ${workMemorySort === "category" ? "selected" : ""}>依分類</option><option value="name" ${workMemorySort === "name" ? "selected" : ""}>名稱</option><option value="usage" ${workMemorySort === "usage" ? "selected" : ""}>最近使用</option></select></div>`;
+  const mergePreview = workMemoryMergeSuggestions(2);
+  const mergeNotice = mergePreview.length ? `<div class="work-memory-ai-notice"><b>🪶 我發現 ${mergePreview.length} 組工作可能可以整理</b><span>${mergePreview.map(item => `${escapeHtml(item.a)} ↔ ${escapeHtml(item.b)}`).join("、")}</span><button class="btn2" data-open-workspace="aiSuggestions">查看 AI 建議</button></div>` : "";
+  const content = `<div class="panel-head"><div><h2>🪶 我的工作</h2><div class="muted">這裡只放你已經確認的工作，也是工時建議的正式來源。</div></div><div class="actions compact work-memory-head-actions"><button class="btn" data-add-work-memory="1">＋ 新增工作</button>${aiSuggestionButton}</div></div>${cloudNotice}${mergeNotice}${filters}<div class="work-memory-count muted">顯示 ${items.length} / ${workMemoryItems().length} 項工作</div><div class="work-memory-folder-grid">${cards}</div>${editor}`;
   return compact ? `<div class="work-memory-page">${content}</div>` : `<section class="panel work-memory-page" style="margin-top:18px">${content}</section>`;
 }
 
@@ -3173,10 +3196,11 @@ function knowledgeVersionHistory(item = {}) {
 
 function knowledgeLearningProgress(step = "idle") {
   const steps = [
-    ["reading", "📖 閱讀文件"],
-    ["analyzing", "🔎 分析工作"],
-    ["organizing", "🧩 整理成我的工作"],
-    ["complete", "✅ 完成，等待確認"]
+    ["reading", "📄 正在讀取文件"],
+    ["analyzing", "🔍 正在分析內容"],
+    ["understanding", "🧠 正在理解工作流程"],
+    ["organizing", "📝 正在建立 Knowledge"],
+    ["complete", "✅ 等待你的確認"]
   ];
   const activeIndex = Math.max(0, steps.findIndex(([key]) => key === step));
   return steps.map(([key, label], index) => {
@@ -4050,6 +4074,17 @@ async function mergeAiSuggestion(item) {
 
 function bindWorkMemory() {
   const aiSuggestions = workMemoryAiSuggestionItems();
+  const search = document.querySelector("[data-work-memory-search]");
+  if (search) search.oninput = event => {
+    workMemoryQuery = event.target.value || "";
+    render();
+    const next = document.querySelector("[data-work-memory-search]");
+    if (next) { next.focus(); next.setSelectionRange(workMemoryQuery.length, workMemoryQuery.length); }
+  };
+  const categoryFilter = document.querySelector("[data-work-memory-category]");
+  if (categoryFilter) categoryFilter.onchange = event => { workMemoryCategoryFilter = event.target.value || "all"; render(); };
+  const sort = document.querySelector("[data-work-memory-sort]");
+  if (sort) sort.onchange = event => { workMemorySort = event.target.value || "category"; render(); };
   const add = document.querySelector("[data-add-work-memory]");
   if (add) add.onclick = async () => {
     const name = prompt("想讓我記住哪一項工作？");

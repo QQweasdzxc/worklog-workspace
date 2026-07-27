@@ -65,8 +65,14 @@
         return stored?.provider_token || "";
       });
       this.knowledgeEngine = options.knowledgeEngine || global.KnowledgeEngine;
-      this.pickerApiKey = options.pickerApiKey || global.GOOGLE_PICKER_API_KEY || "";
-      this.pickerAppId = options.pickerAppId || global.GOOGLE_PICKER_APP_ID || "";
+      this.pickerApiKey = options.pickerApiKey
+        || global.GOOGLE_PICKER_API_KEY
+        || (typeof GOOGLE_PICKER_API_KEY !== "undefined" ? GOOGLE_PICKER_API_KEY : "")
+        || "";
+      this.pickerAppId = options.pickerAppId
+        || global.GOOGLE_PICKER_APP_ID
+        || (typeof GOOGLE_PICKER_APP_ID !== "undefined" ? GOOGLE_PICKER_APP_ID : "")
+        || "";
       if (typeof this.fetchImpl !== "function") throw new Error("Google Drive Service 需要 Fetch API");
     }
 
@@ -152,13 +158,38 @@
             else reject(new GoogleDriveServiceError("Google Picker 載入失敗", { code: "GOOGLE_PICKER_UNAVAILABLE" }));
           };
           if (global.gapi?.load) {
-            global.gapi.load("picker", finish);
+            let settled = false;
+            const complete = () => {
+              if (settled) return;
+              settled = true;
+              finish();
+            };
+            global.gapi.load("picker", complete);
+            setTimeout(() => {
+              if (settled) return;
+              settled = true;
+              reject(new GoogleDriveServiceError("Google Picker 載入逾時，請確認 Google JS API 可由目前網域載入", { code: "GOOGLE_PICKER_LOAD_TIMEOUT" }));
+            }, 15000);
             return;
           }
           const script = document.createElement("script");
           script.src = "https://apis.google.com/js/api.js";
           script.async = true;
-          script.onload = () => global.gapi?.load ? global.gapi.load("picker", finish) : finish();
+          script.onload = () => {
+            if (!global.gapi?.load) return finish();
+            let settled = false;
+            const complete = () => {
+              if (settled) return;
+              settled = true;
+              finish();
+            };
+            global.gapi.load("picker", complete);
+            setTimeout(() => {
+              if (settled) return;
+              settled = true;
+              reject(new GoogleDriveServiceError("Google Picker 載入逾時，請確認 Google JS API 可由目前網域載入", { code: "GOOGLE_PICKER_LOAD_TIMEOUT" }));
+            }, 15000);
+          };
           script.onerror = () => reject(new GoogleDriveServiceError("Google Picker 載入失敗", { code: "GOOGLE_PICKER_UNAVAILABLE" }));
           document.head.appendChild(script);
         });
@@ -166,9 +197,19 @@
       return global.__zhugeGooglePickerPromise;
     }
 
+    pickerConfiguration() {
+      return {
+        configured: Boolean(String(this.pickerApiKey || "").trim() && String(this.pickerAppId || "").trim()),
+        apiKeyConfigured: Boolean(String(this.pickerApiKey || "").trim()),
+        appIdConfigured: Boolean(String(this.pickerAppId || "").trim()),
+        appId: String(this.pickerAppId || "")
+      };
+    }
+
     async pickFile(options = {}) {
-      if (!this.pickerApiKey || !this.pickerAppId) {
-        throw new GoogleDriveServiceError("Google Picker 尚未完成設定，請先設定 Picker API Key 與 App ID", { code: "GOOGLE_PICKER_CONFIG_REQUIRED" });
+      const pickerConfig = this.pickerConfiguration();
+      if (!pickerConfig.configured) {
+        throw new GoogleDriveServiceError(`Google Picker 設定不完整（API Key：${pickerConfig.apiKeyConfigured ? "已載入" : "缺少"}；App ID：${pickerConfig.appIdConfigured ? "已載入" : "缺少"}）`, { code: "GOOGLE_PICKER_CONFIG_REQUIRED" });
       }
       const picker = await this.loadPickerApi();
       const token = this.accessToken();
@@ -179,7 +220,7 @@
         .setMimeTypes([...SUPPORTED_SOURCE_MIMES].join(","));
       return new Promise((resolve, reject) => {
         const instance = new picker.PickerBuilder()
-          .setAppId(this.pickerAppId)
+          .setAppId(String(this.pickerAppId))
           .setDeveloperKey(this.pickerApiKey)
           .setOAuthToken(token)
           .addView(view)
