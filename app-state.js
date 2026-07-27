@@ -47,6 +47,7 @@ let workMemoryMergeCompletedNotice = (() => {
   catch { return ""; }
 })();
 let workMemorySuggestionItemsCache = null;
+let workMemorySuggestionRebuildInProgress = false;
 let workMemorySearchComposing = false;
 let workMemorySearchRenderTimer = null;
 let editingEntryId = null;

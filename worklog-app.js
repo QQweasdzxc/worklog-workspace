@@ -473,8 +473,19 @@ function workMemoryObjects() {
   return source.map((item, index) => normalizeWorkMemoryObject(item, index)).filter(item => item.name);
 }
 
+// Canonical dataset for all ordinary Work Memory and Copilot behavior.
+// Inactive rows remain in workMemoryObjects() for history/rollback only.
+function activeWorkMemoryObjects() {
+  const seen = new Set();
+  return workMemoryObjects().filter(item => {
+    if (item.isActive === false || seen.has(item.name)) return false;
+    seen.add(item.name);
+    return true;
+  });
+}
+
 function workModels() {
-  return [...new Set(workMemoryObjects().filter(item => item.isActive).map(item => item.name))];
+  return [...new Set(activeWorkMemoryObjects().map(item => item.name))];
 }
 
 function systemReference(model = {}, type = "") {
@@ -514,9 +525,11 @@ function roleProfileFor(model = {}) {
 }
 
 function recordSuggestionMetric(modelName = "", event = "suggested", entry = null) {
+  // Update the active row in the full object list so inactive history rows
+  // survive metric writes and remain available to rollback/history.
   const models = workMemoryObjects();
   const index = models.findIndex(model => model.name === String(modelName || ""));
-  if (index < 0) return;
+  if (index < 0 || models[index].isActive === false) return;
   const model = { ...models[index] };
   const current = suggestionMetricsFor(model);
   const today = key(new Date());
@@ -1999,7 +2012,7 @@ function comingSoonWorkspace(id) {
 function workMemorySourcesFor(name = "") {
   const target = String(name || "").trim();
   if (!target) return [];
-  const formal = workMemoryObjects().find(item => item.name === target);
+  const formal = activeWorkMemoryObjects().find(item => item.name === target);
   const formalSources = (formal?.sourceReferences || []).map(reference => reference.label || reference.title || reference.name || "").filter(Boolean);
   if (formalSources.length) return [...new Set(formalSources)];
   const sources = [];
@@ -2147,7 +2160,7 @@ function workMemorySemanticGroup(name = "") {
   if (!value) return null;
   return WORK_MEMORY_SEMANTIC_GROUPS.find(group => group.aliases.some(alias => {
     const left = String(alias || "").trim();
-    return value === left || value.includes(left) || left.includes(value);
+    return value === left;
   })) || null;
 }
 
@@ -2199,7 +2212,7 @@ function workMemoryAiSuggestionItems(options = {}) {
       generalized: item.generalized
     };
   }).filter(Boolean);
-  const renameItems = workMemoryObjects().map(model => {
+  const renameItems = activeWorkMemoryObjects().map(model => {
     const suggestedName = workMemoryRenameSuggestion(model.name);
     if (!suggestedName || suggestedName === model.name) return null;
     const key = `rename:${model.name}:${suggestedName}`;
@@ -2217,7 +2230,7 @@ function workMemoryAiSuggestionItems(options = {}) {
       defaultDuration: ""
     };
   }).filter(Boolean);
-  const categoryItems = workMemoryObjects().map(model => {
+  const categoryItems = activeWorkMemoryObjects().map(model => {
     const suggestedCategory = workMemoryCategorySuggestion(model.name, model.category);
     if (!suggestedCategory) return null;
     const key = `category:${model.name}:${suggestedCategory}`;
@@ -2281,7 +2294,7 @@ function workMemoryMergeSuggestions(limit = 3) {
 function workMemoryMergeSuggestionForNames(names = []) {
   const members = [...new Set(arrayFromInput(names).map(name => String(name || "").trim()).filter(Boolean))];
   if (members.length < 2) return null;
-  const models = workMemoryObjects();
+  const models = activeWorkMemoryObjects();
   const selected = members.map(name => models.find(model => model.name === name)).filter(Boolean);
   if (selected.length < 2) return null;
   const semanticGroups = selected.map(model => workMemorySemanticGroup(model.name)).filter(Boolean);
@@ -2323,7 +2336,7 @@ function workMemoryMergePreviewMarkup(suggestion = {}) {
 }
 
 function workMemoryItems() {
-  return workMemoryObjects().map(model => {
+  return activeWorkMemoryObjects().map(model => {
     const usage = workMemoryUsageFor(model.name);
     const sources = workMemorySourcesFor(model.name);
     return {
@@ -2358,7 +2371,8 @@ function workMemoryItemsForView() {
 
 function workMemoryMergeCompletedBanner() {
   if (!workMemoryMergeCompletedNotice) return "";
-  return `<div class="entry work-memory-merge-completed" role="status"><b>✓ Merge Completed</b><div class="muted">${escapeHtml(workMemoryMergeCompletedNotice)}</div><div class="actions compact"><button class="btn" type="button" data-rebuild-work-memory-suggestions="1">🔄 重新分析 AI</button><button class="btn2" type="button" data-dismiss-work-memory-merge-notice="1">關閉</button></div></div>`;
+  const rebuilding = workMemorySuggestionRebuildInProgress;
+  return `<div class="entry work-memory-merge-completed" role="status"><b>✓ Merge Completed</b><div class="muted">${escapeHtml(workMemoryMergeCompletedNotice)}</div><div class="actions compact"><button class="btn" type="button" data-rebuild-work-memory-suggestions="1" ${rebuilding ? "disabled aria-busy=\"true\"" : ""}>${rebuilding ? "⏳ 重新分析中…" : "🔄 重新分析 AI"}</button><button class="btn2" type="button" data-dismiss-work-memory-merge-notice="1" ${rebuilding ? "disabled" : ""}>關閉</button></div></div>`;
 }
 
 function setWorkMemoryMergeNotice(message = "") {
@@ -2369,11 +2383,25 @@ function setWorkMemoryMergeNotice(message = "") {
   } catch {}
 }
 
-function rebuildWorkMemorySuggestions() {
-  const items = workMemoryAiSuggestionItems({ force: true });
-  setWorkMemoryMergeNotice("");
-  toast(`AI 建議已重新分析（${items.length} 項）`);
+async function rebuildWorkMemorySuggestions() {
+  if (workMemorySuggestionRebuildInProgress) return;
+  workMemorySuggestionRebuildInProgress = true;
   render();
+  try {
+    await DataService.reloadWorkModels();
+    workMemorySuggestionItemsCache = null;
+    const items = workMemoryAiSuggestionItems({ force: true });
+    setWorkMemoryMergeNotice("");
+    toast(`AI 建議已重新分析（${items.length} 項）`);
+    return items;
+  } catch (error) {
+    console.error("Rebuild Work Memory suggestions failed", error);
+    toast("Work Memory 尚未完成 Cloud 重新同步，請稍後再試");
+    return [];
+  } finally {
+    workMemorySuggestionRebuildInProgress = false;
+    render();
+  }
 }
 
 function workMemoryPage(options = {}) {
@@ -2660,8 +2688,7 @@ function suggestionPriority(model = {}) {
 
 function makeSuggestions() {
   if (!profile) return [];
-  return workMemoryObjects()
-    .filter(model => model.isActive)
+  return activeWorkMemoryObjects()
     .map(model => {
       const ranking = suggestionPriority(model);
       const learnedConfidence = (model.sourceReferences || []).reduce((highest, reference) => Math.max(highest, Number(reference?.confidence || 0)), 0);
@@ -4035,20 +4062,45 @@ function bind() {
   if (activeWorkspace === "settings") bindSettings();
 }
 
-async function persistWorkMemory(nextModels = [], message = "我的工作已更新") {
+async function persistWorkMemory(nextModels = [], message = "我的工作已更新", options = {}) {
   setWorkModels(nextModels);
   saveAll({ skipSync: true });
   try {
     await DataService.saveWorkModelsOnly({ requireCloud: true });
+    const cloudModels = options.reloadCloud === false ? workMemoryObjects() : await DataService.reloadWorkModels();
     toast(message);
     render();
-    return true;
+    return { success: true, models: cloudModels };
   } catch (error) {
     console.error("Persist Work Memory failed", { error, models: workMemoryObjects() });
     toast(workMemoryFoundationNotInitialized ? "Work Memory Cloud 尚未初始化" : "我的工作尚未同步，請稍後重試");
     render();
-    return false;
+    return { success: false, error, models: workMemoryObjects() };
   }
+}
+
+function verifyWorkMemoryMergeResult(beforeActiveCount = 0, members = [], canonical = "", cloudModels = []) {
+  const rows = (Array.isArray(cloudModels) ? cloudModels : workMemoryObjects())
+    .map((item, index) => normalizeWorkMemoryObject(item, index))
+    .filter(item => item.name);
+  const active = rows.filter(item => item.isActive !== false);
+  const activeNames = [...new Set(active.map(item => item.name))];
+  const sourceNames = [...new Set(arrayFromInput(members).filter(name => String(name) !== String(canonical)))];
+  const deactivated = sourceNames.filter(name => rows.some(item => item.name === name && item.isActive === false));
+  const canonicalIsNew = !arrayFromInput(members).some(name => String(name) === String(canonical));
+  const expectedAfterActiveCount = Math.max(0, Number(beforeActiveCount || 0) - sourceNames.length + (canonicalIsNew ? 1 : 0));
+  const success = activeNames.includes(String(canonical || "").trim())
+    && deactivated.length === sourceNames.length
+    && activeNames.length === expectedAfterActiveCount;
+  return {
+    success,
+    beforeActiveCount: Number(beforeActiveCount || 0),
+    afterActiveCount: activeNames.length,
+    canonical: String(canonical || "").trim(),
+    deactivated,
+    activeNames,
+    error: success ? "" : "Cloud Merge 驗證未通過"
+  };
 }
 
 function closestWorkMemoryMatch(name = "", excludeNames = [], models = workModels()) {
@@ -4073,13 +4125,13 @@ function confirmWorkMemorySimilarity(name = "", options = {}) {
 }
 
 function workMemoryObjectByName(name = "") {
-  return workMemoryObjects().find(item => item.name === String(name || "").trim()) || null;
+  return activeWorkMemoryObjects().find(item => item.name === String(name || "").trim()) || null;
 }
 
 async function rememberWorkMemoryAlias(targetName = "", alias = "", source = "") {
   const objects = workMemoryObjects();
   const index = objects.findIndex(item => item.name === targetName);
-  if (index < 0) return false;
+  if (index < 0 || objects[index].isActive === false) return false;
   const target = { ...objects[index] };
   target.aliases = [...new Set([...target.aliases, alias].filter(Boolean))];
   if (source) {
@@ -4092,13 +4144,19 @@ async function rememberWorkMemoryAlias(targetName = "", alias = "", source = "")
 }
 
 async function acceptWorkMemoryMergeSuggestion(suggestion, nextName = "", nextDescription = "") {
-  if (!suggestion) return;
+  if (!suggestion) return { success: false, error: "找不到合併建議" };
   const keepName = String(nextName || suggestion.keep || "").trim();
-  if (!keepName) return toast("請輸入要保留的工作名稱");
-  const objects = workMemoryObjects();
+  if (!keepName) { toast("請輸入要保留的工作名稱"); return { success: false, error: "缺少 canonical name" }; }
+  const beforeActiveCount = activeWorkMemoryObjects().length;
+  const objects = activeWorkMemoryObjects();
   const members = [...new Set(arrayFromInput(suggestion.members || [suggestion.a, suggestion.b]).filter(Boolean))];
   const selectedObjects = objects.filter(item => members.includes(item.name));
   const keepObject = selectedObjects.find(item => item.name === suggestion.keep || item.name === keepName) || normalizeWorkMemoryObject({ name: keepName, category: suggestion.category });
+  // Keep the source rows as inactive history records.  They must disappear
+  // from the ordinary Workspace, but remain available to rollback/history and
+  // must be persisted to Cloud with is_active=false.
+  const deactivatedSources = selectedObjects.map(item => ({ ...item, isActive: false }));
+  const inactiveHistory = workMemoryObjects().filter(item => item.isActive === false && item.name !== keepName && !members.includes(item.name));
   const mergedObjects = objects.filter(item => !members.includes(item.name));
   const allSourceReferences = [...selectedObjects.flatMap(item => item.sourceReferences || []), ...(suggestion.sources || []).map(label => ({ type: "merge", label }))];
   const allKeywords = [...new Set(selectedObjects.flatMap(item => item.keywords || []))];
@@ -4113,16 +4171,32 @@ async function acceptWorkMemoryMergeSuggestion(suggestion, nextName = "", nextDe
     sourceReferences: allSourceReferences,
     isActive: selectedObjects.some(item => item.isActive)
   }, 0, keepObject);
-  const next = [nextObject, ...mergedObjects];
+  const next = [nextObject, ...mergedObjects, ...deactivatedSources, ...inactiveHistory];
   for (let index = 0; index < members.length; index += 1) {
     for (let nextIndex = index + 1; nextIndex < members.length; nextIndex += 1) saveWorkMemoryMergeDecision(members[index], members[nextIndex], "accepted");
   }
   bumpWorkMemoryMergeStat(nextName && nextName !== suggestion.keep ? "renamed" : "merged");
-  const persisted = await persistWorkMemory(next, "我已記住這次整理方式");
-  if (persisted) {
+  const persisted = await persistWorkMemory(next, "我已記住這次整理方式", { reloadCloud: true });
+  if (!persisted.success) {
+    workMemoryManualMergeSuggestion = suggestion;
+    setWorkMemoryMergeNotice("");
+    toast("Merge 尚未同步完成，請確認 Cloud 後再試");
+    render();
+    return { success: false, error: persisted.error?.message || "Cloud save failed" };
+  }
+  const transaction = verifyWorkMemoryMergeResult(beforeActiveCount, members, keepName, persisted.models);
+  if (!transaction.success) {
+    workMemoryManualMergeSuggestion = suggestion;
+    setWorkMemoryMergeNotice("");
+    toast("Merge Cloud 驗證失敗，尚未顯示完成");
+    render();
+    return transaction;
+  }
+  if (transaction.success) {
     setWorkMemoryMergeNotice(`已將 ${members.join("、")} 整理為「${keepName}」。`);
     render();
   }
+  return transaction;
 }
 
 async function adoptAiSuggestion(item, override = {}) {
@@ -4130,7 +4204,7 @@ async function adoptAiSuggestion(item, override = {}) {
   if (item.type === "rename" || item.type === "category") {
     const objects = workMemoryObjects();
     const index = objects.findIndex(model => model.name === (item.renameFrom || item.workName || ""));
-    if (index < 0) return toast("找不到要整理的正式工作");
+    if (index < 0 || objects[index].isActive === false) return toast("找不到要整理的正式工作");
     const next = [...objects];
     const current = { ...next[index] };
     if (item.type === "rename") {

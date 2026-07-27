@@ -544,6 +544,20 @@ const DataService = {
       if (options.requireCloud) throw error;
     }
   },
+  async reloadWorkModels() {
+    if (!hasGoogleOAuthSession() || dataServiceHydrating || migrationRunning) throw new Error("Cloud Sync 尚未就緒");
+    this.setStatus("syncing");
+    try {
+      const rows = await SupabaseRepository.loadWorkModels();
+      setWorkModels(Array.isArray(rows) ? rows : []);
+      LocalCache.saveAll();
+      this.setStatus("synced");
+      return Array.isArray(rows) ? rows : [];
+    } catch (error) {
+      this.setStatus("failed", error.message || "Work Memory reload failed");
+      throw error;
+    }
+  },
   async deleteWorkModel(item = {}) {
     if (!hasGoogleOAuthSession() || dataServiceHydrating || migrationRunning) throw new Error("Cloud Sync 尚未就緒");
     this.setStatus("syncing");
