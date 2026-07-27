@@ -1,7 +1,7 @@
 # Sprint 4 PM UAT Guide
 
 **Version:** `0.9.0-alpha.4`  
-**Build:** `20260727-1654`  
+**Build:** `20260727-1723`  
 **Estimated time:** 10–15 minutes
 
 ## Recommended order
@@ -13,9 +13,10 @@
 5. If a merge suggestion exists, open **AI 建議** and verify the visual `工作 A + 工作 B → 合併結果` preview, category, aliases, and retention statement.
 6. Confirm AI suggestions are collapsed initially; open one and verify actions appear after the explanatory content.
 7. In **我的工作**, click **🔀 合併**, select two cards, choose **下一步**, and verify the same Merge Preview appears before confirmation.
-8. After a merge, verify **✅ Merge Completed** and click **🔄 重新分析 AI 建議**; confirm the suggestion view refreshes.
-8. Start one Knowledge learning flow and verify visible reading/progress states and the completion/error state.
-9. Refresh the page and confirm Knowledge and Work Memory remain available.
+8. After a merge, verify **✅ Merge Completed**; confirm it can be rebuilt with **🔄 重新分析 AI 建議** or explicitly closed.
+9. Return to the WorkLog home and navigate between workspaces; verify the page does not flash or duplicate content.
+10. Start one Knowledge learning flow and verify visible reading/progress states and the completion/error state.
+11. Refresh the page and confirm Knowledge and Work Memory remain available.
 
 ## PM checklist
 
@@ -27,6 +28,9 @@
 - [ ] AI suggestions are collapsed by default and actions follow the detail content.
 - [ ] Manual Merge can select at least two Work Memory cards and reaches the shared preview.
 - [ ] Merge completion offers suggestion-cache rebuild.
+- [ ] Merge completion notice remains visible until the user chooses to rebuild or dismiss it.
+- [ ] WorkLog home remains stable while switching pages; no flashing or duplicate DOM appears.
+- [ ] Work Memory card text remains horizontal and contained within each tile.
 - [ ] Alias, Knowledge, and historical usage retention is explained before confirmation.
 - [ ] Learning state is visible while reading and after completion/error.
 - [ ] Desktop and mobile do not introduce horizontal overflow.

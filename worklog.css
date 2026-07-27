@@ -117,6 +117,7 @@ html:has(.standalone-chat-page),body:has(.standalone-chat-page),#app:has(.standa
   .suggestion-scan-footer{display:flex;flex-direction:row;align-items:center;justify-content:space-between;gap:8px}.suggestion-batch-actions{display:grid;grid-template-columns:1fr 1fr;width:auto}.suggestion-batch-actions .btn2{min-width:70px;padding:9px 6px}
 }
 
+
 .knowledge-progress-list{display:grid;gap:10px;margin:0;padding:0;list-style:none}
 .knowledge-progress-step{display:flex;align-items:center;gap:10px;color:var(--muted,#9aa7bb);transition:color .2s ease}
 .knowledge-progress-step span{display:inline-flex;width:24px;height:24px;align-items:center;justify-content:center;border-radius:999px;background:rgba(148,163,184,.12);font-weight:700}
@@ -307,3 +308,13 @@ html:has(.standalone-chat-page),body:has(.standalone-chat-page),#app:has(.standa
   .today-module .today-add-bottom{display:block!important;position:static;width:100%;margin:0;min-height:48px}
   .worklog-created-toast{bottom:max(12px,env(safe-area-inset-bottom));min-width:calc(100vw - 24px);gap:10px}
 }
+
+/* Sprint 4 Alpha.4 hotfix: Work Memory cards are flex tiles. A legacy
+   four-column grid rule was overriding the card layout and squeezing each
+   child into a narrow column, which made text appear vertically stacked. */
+.work-memory-card.work-memory-confirmed-card{
+  display:flex;
+  grid-template-columns:none;
+  align-items:stretch;
+}
+.work-memory-card.work-memory-confirmed-card > *{min-width:0;max-width:100%;}

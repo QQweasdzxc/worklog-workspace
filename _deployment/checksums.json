@@ -1,12 +1,12 @@
 {
-  "_deployment/manifest.json": "40e7623e5ac1e14dafbbc8c34a26844984139a3e9b8cafdd1a934e8ea056b537",
-  "app-config.js": "03aa5a4114923b41acbe997c16f262865dde36a66aa224f834427fd3dbb11cae",
-  "app-state.js": "cdf83a4330fd9ba504c14c42b933fbe3a273931d9df87e0c92b0b8323fb84296",
+  "_deployment/manifest.json": "ceb64dde72a3b0dc5c3e4fbc3a6ef099738aa3293914fa47d3ab4dc587e1fafa",
+  "app-config.js": "e5aff99da34f355be8b3f3083f8148945aafb7b735b2f76adfcd49f4b05d159c",
+  "app-state.js": "c41e9215669e751bf7a2e2264579e6ef8b9434a557e896bbe5185a5c43baa911",
   "auth-service.js": "ca9562025a849fe54e264009bae7cd2845e76ab1af4cc00467f49f7064b60dd2",
-  "chat/index.html": "d52e29fb698cb6887d1f5416c6d6348664f44babccb90b11edbc540dbb5a8c37",
+  "chat/index.html": "cc996f1dcd1ae449376f9491b620ce1d71444090e2ea4d6dea1ee0fa73e2ae97",
   "data-service.js": "b2bdfb8d31824382d3fb322a2e4ad06218a88a9b1d13ad6a127f0dedf4b21629",
   "google-drive-service.js": "faf3ea340d5e939869d9344350fdabf19353211ffaa3ac63e7eed4378dd9ea57",
-  "index.html": "668f97499fb9b30bdb02ad13ab0be600eab1eea6637447edbdeb814bb955beb6",
+  "index.html": "99242c9ff658699bbe6b856905ddf23db22f3e00d5477c28cc2089f75873d1a4",
   "knowledge-api.js": "9dd9a6d0d96fd62f2f428097b988734c4489d530b195168dec0ffc9fcf920727",
   "knowledge-engine.js": "6dcdbe644c9fcd7518514ad38cd9b81516306a914f960eb023ae00fefc04fea2",
   "knowledge-ingestion-service.js": "7e8ceab23602dc6fb94e61698a489dfd652d6c9b80c9410c597ab39ff268443b",
@@ -22,8 +22,8 @@
   "suggestion-intelligence.js": "6445abc931a2ddef87ddb2c45c80e1cde644d33201e2e81f2181b17dffac857b",
   "support/index.html": "d6fb01b9f63c5ff0733ae16b32cfbade34a009e403818934b7f826266628f0e2",
   "terms/index.html": "68bf02963ffbc8105c08a6f1b2c7d7428c2695484ae4c6b4941b225a415d8d44",
-  "version.json": "73234a8b66637667fb999f6491e4bf3b0f8124954857ca33bb6722dfdbae510e",
+  "version.json": "36f138f792de8ebeff52ea5380d8a989aa66afe1b449cadc74cf9196e4f042a0",
   "work-intelligence.js": "8fe1e35b2de5bbf68a29759e73b354f41231a56a3f92f6c3a57a2a0743bb2cb3",
-  "worklog-app.js": "5f8e8abecb141a0a57cd1f4266163f844f5071be2ba566e6214a919ce5a27d91",
-  "worklog.css": "a1213e00d33a8e15de75b6e4747ef4720ca5aaa76cbae046993cfe86230e1dcf"
+  "worklog-app.js": "2f5696cb3834544ec515399ea47d6e18fcab637a20f18d64d986e33c430eeec8",
+  "worklog.css": "2318c7351000c2cef6b288fc0255ae1d555986ebcdd6d9c556b9b2ef3e30e847"
 }
