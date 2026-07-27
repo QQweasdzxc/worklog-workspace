@@ -1,45 +1,51 @@
-# Sprint 2.1 — PM UAT Package
+# Sprint 3 PM UAT Guide
 
-## Current UAT Artifact
+## Current PM Artifact
 
-This package contains one `Deployment/` folder. Copy the contents of that
-folder into the root of the `worklog-workspace` GitHub Pages repository.
+- Current UAT: `20260727_1446_ZhugeAIOS_v0.9.0-alpha.3_UAT.zip`
+- Current Source: `20260727_1446_ZhugeAIOS_v0.9.0-alpha.3_Source.zip`
+- Deployment base: `main`
+- Only deploy the `Deployment/` folder from the UAT package.
 
-Do not add an extra `Deployment/` directory level.
+## Start here
 
-## PM Steps
+1. Extract the Current UAT ZIP.
+2. Copy the complete `Deployment/` contents into the `worklog-workspace` repository root.
+3. Commit the replacement files in GitHub Desktop.
+4. Push `main`.
+5. Hard-refresh the GitHub Pages URL.
+6. Sign in with Google and open **藏書閣**.
 
-1. Extract this ZIP.
-2. Open `Deployment/`.
-3. Copy everything inside `Deployment/` into the `worklog-workspace` repository root.
-4. Open GitHub Desktop, commit, and push to `main`.
-5. Open `https://qqweasdzxc.github.io/worklog-workspace/` after Pages finishes deploying.
-6. Force-refresh the page before starting UAT.
+## Acceptance checklist
 
-## PM Acceptance Checklist
+- [ ] Google Login, refresh and session recovery still work.
+- [ ] Upload a PDF or DOCX; the learning panel shows reading → analysis → work understanding → Knowledge creation → confirmation.
+- [ ] Confirm the understanding and verify that the source appears as a Knowledge card.
+- [ ] Search the Knowledge cards, filter by category, and change sort order.
+- [ ] Open the understanding view and confirm the current Knowledge version and version history section.
+- [ ] Re-learn a source, then confirm a prior version is listed and can be rolled back.
+- [ ] If a similar work exists, confirm Mr.KM offers merge/rename/category suggestions and leaves adoption to the user.
+- [ ] Sign in with Google, open **從 Google Drive 選取**, choose one native Google Doc, Sheet or Slide, and import it.
+- [ ] Confirm the selected file becomes a Knowledge source and is available to Mr.KM.
+- [ ] Confirm no Drive folder scan or background synchronization starts.
 
-- [ ] Google Login succeeds.
-- [ ] 藏書閣 → 從 Google Drive 選取 opens Google Picker.
-- [ ] Exactly one supported Drive file can be selected.
-- [ ] Folder selection and multi-select are unavailable.
-- [ ] Import creates a Google Drive Knowledge Source.
-- [ ] Knowledge Repository shows the imported source.
-- [ ] Mr.KM Copilot can use the imported Knowledge.
-- [ ] Refresh preserves the source.
+## Scenario acceptance
 
-## Scope Freeze
+### Scenario 1 — Local learning
 
-This package validates only:
+Login → 藏書閣 → upload → 開始學習 → observe progress → 查看我的理解 → 確認理解 → return to Knowledge cards.
 
-```text
-Google Login → Google Picker → Single Drive File → Import → Knowledge → Repository → Mr.KM
-```
+### Scenario 2 — Knowledge management
 
-It does not add folder scanning, multi-file import, background sync, Gmail,
-Calendar, OCR, or other AI capabilities.
+Search → category filter → sort → open a card → relearn → rollback to a prior version.
 
-## Security Note
+### Scenario 3 — Google Workspace source
 
-The Picker API key is browser-visible configuration and is restricted to the
-approved website origins. It is not an OAuth client secret. Do not disclose or
-commit OAuth client secrets, Supabase service-role keys, or refresh tokens.
+Login → Google Picker → select one Doc/Sheet/Slide → Import → Knowledge Repository → Mr.KM can reference it.
+
+Estimated time: 15–20 minutes.
+
+## Known limitations
+
+- Google API access and OAuth publication remain external environment prerequisites; if Picker cannot open, record the environment error rather than treating local upload as failed.
+- Version history is stored in the Knowledge source metadata and is capped at the ten most recent snapshots.
