@@ -1,13 +1,14 @@
 # Sprint 4 — Product Experience Optimization
 
 **Version:** `0.9.0-alpha.4`  
-**Build:** `20260727-1723`  
+**Build:** `20260727-2112`  
 **Status:** PM UAT candidate
 
 ## Completed
 
 ### Alpha.4 Hotfix
 
+- Root cause review completed for the Work Memory card layout, merge notice lifecycle, and home render flow. Work Memory now has a single `.work-memory-tile` flex-column definition; browser evidence covers computed styles, overlap checks, merge notice persistence/rebuild, and 10-second idle render stability.
 - Merge completion now remains visible as **✅ Merge Completed** in both the Work Memory page and AI Suggestion workspace until the user rebuilds the suggestion cache or explicitly closes it.
 - Root rendering now prevents re-entrant render calls, coalesces queued updates, and clears the application root before inserting a new view.
 - Work Memory confirmed cards now use the intended flex tile layout. A legacy four-column grid rule no longer squeezes card text into vertical columns.

@@ -1,7 +1,7 @@
 # Sprint 4 PM UAT Guide
 
 **Version:** `0.9.0-alpha.4`  
-**Build:** `20260727-1723`  
+**Build:** `20260727-2112`  
 **Estimated time:** 10–15 minutes
 
 ## Recommended order
@@ -35,6 +35,9 @@
 - [ ] Learning state is visible while reading and after completion/error.
 - [ ] Desktop and mobile do not introduce horizontal overflow.
 - [ ] Console has no blocking error during this flow.
+- [ ] Browser regression evidence confirms 9 Work Memory tiles use `display:flex`, `flex-direction:column`, `grid-template-columns:none`, title width ≥100px, and no overlaps.
+- [ ] Browser regression evidence confirms Merge Completed survives a workspace switch and disappears only after suggestion rebuild/dismissal.
+- [ ] Render diagnostics show no additional APP_RENDER events during 10 seconds of idle time.
 - [ ] Landing and reviewer documents identify Mr.KM as an independent developer and the product as a Personal AI Productivity Assistant.
 
 ## Not in this UAT
