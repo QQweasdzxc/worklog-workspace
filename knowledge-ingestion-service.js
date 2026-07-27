@@ -79,7 +79,7 @@
     const persistFile = options.persistFile !== false ? file : null;
     const saved = await dataService.saveKnowledgeSource(item, { file: persistFile, requireCloud: true });
     if (typeof options.onSourceSaved === "function") await options.onSourceSaved(saved);
-    return knowledgeIntelligence.processSource(saved, file ? { file } : {});
+    return knowledgeIntelligence.processSource(saved, file ? { file, onProgress: options.onProgress } : { onProgress: options.onProgress });
   }
 
   async function addUpload(options = {}) {
@@ -153,13 +153,13 @@
     return persistAndProcess(item, blob, { ...options, persistFile: false });
   }
 
-  async function refreshSource(source = {}) {
+  async function refreshSource(source = {}, options = {}) {
     const { knowledgeIntelligence } = requireRuntime();
     const provider = source.sourceProvider || source.source_provider || UPLOAD_PROVIDER;
     if (provider === DRIVE_PROVIDER) {
-      return addDriveFile({ fileId: source.externalFileId || source.external_file_id, refreshExisting: true });
+      return addDriveFile({ fileId: source.externalFileId || source.external_file_id, refreshExisting: true, onProgress: options.onProgress });
     }
-    return knowledgeIntelligence.processSource(source, {});
+    return knowledgeIntelligence.processSource(source, { onProgress: options.onProgress });
   }
 
   async function updateSource(source = {}, patch = {}) {

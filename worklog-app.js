@@ -2105,6 +2105,24 @@ function rawKnowledgeSuggestionCandidates() {
   return rawCandidates;
 }
 
+function workMemoryRenameSuggestion(name = "") {
+  const clean = String(name || "").trim();
+  if (!clean) return "";
+  const mappings = [
+    [/^(檢查|確認|追蹤).*(請款|發票|付款)/, "費用請款"],
+    [/^(檢查|確認|追蹤).*(驗收|交貨|採購)/, "採購案件管理"],
+    [/^(建立|整理|更新).*(報表|分析)/, "採購分析"],
+    [/^(寄送|回收|整理).*(評鑑|評估)/, "供應商績效評鑑"]
+  ];
+  return mappings.find(([pattern]) => pattern.test(clean))?.[1] || "";
+}
+
+function workMemoryCategorySuggestion(name = "", currentCategory = "") {
+  const inferred = workMemoryCategoryFor(name);
+  if (!inferred || inferred === currentCategory || inferred === "其他") return "";
+  return inferred;
+}
+
 function workMemoryAiSuggestionItems() {
   const decisions = readWorkMemoryAiSuggestionDecisions();
   const acceptedNames = workModels().map(name => String(name || "").trim()).filter(Boolean);
@@ -2144,7 +2162,44 @@ function workMemoryAiSuggestionItems() {
       generalized: item.generalized
     };
   }).filter(Boolean);
-  return [...mergeItems, ...knowledgeItems];
+  const renameItems = workMemoryObjects().map(model => {
+    const suggestedName = workMemoryRenameSuggestion(model.name);
+    if (!suggestedName || suggestedName === model.name) return null;
+    const key = `rename:${model.name}:${suggestedName}`;
+    if (decisions[key]?.decision) return null;
+    return {
+      key,
+      type: "rename",
+      title: `將「${model.name}」重新命名`,
+      content: `我建議使用更能代表完整工作的名稱：「${suggestedName}」。`,
+      reason: `「${model.name}」看起來比較像單一步驟，我整理後認為它屬於「${suggestedName}」。`,
+      suggestion: suggestedName,
+      source: "我的工作",
+      renameFrom: model.name,
+      renameTo: suggestedName,
+      defaultDuration: ""
+    };
+  }).filter(Boolean);
+  const categoryItems = workMemoryObjects().map(model => {
+    const suggestedCategory = workMemoryCategorySuggestion(model.name, model.category);
+    if (!suggestedCategory) return null;
+    const key = `category:${model.name}:${suggestedCategory}`;
+    if (decisions[key]?.decision) return null;
+    return {
+      key,
+      type: "category",
+      title: `整理「${model.name}」的分類`,
+      content: `我建議將這項工作歸入「${suggestedCategory}」。`,
+      reason: `依照工作名稱與目前理解，我認為這個分類更容易讓之後的建議找到它。`,
+      suggestion: suggestedCategory,
+      source: "我的工作",
+      workName: model.name,
+      categoryFrom: model.category || "其他",
+      categoryTo: suggestedCategory,
+      defaultDuration: ""
+    };
+  }).filter(Boolean);
+  return [...mergeItems, ...renameItems, ...categoryItems, ...knowledgeItems];
 }
 
 function preferredWorkMemoryName(a = "", b = "") {
@@ -2226,7 +2281,8 @@ function aiSuggestionWorkspace() {
     const familiarityLabel = workMemoryFamiliarityLabel(familiarityScore);
     const recent = usage.latest ? fmt(usage.latest) : "尚未使用";
     const sourceList = sources.length ? sources.map(source => `<li><button class="work-memory-source-link" data-work-memory-source-name="${escapeHtml(source)}" data-work-memory-source-work="${escapeHtml(item.title)}">📄 ${escapeHtml(source)}</button></li>`).join("") : `<li><span class="work-memory-source-empty">尚未連結來源資料</span></li>`;
-    return `<div class="entry ai-suggestion-workspace-card companion-card"><div class="entry-main"><div class="work-memory-title"><b>${escapeHtml(item.title)}</b><span>${item.type === "merge" ? "整理建議" : "新增建議"}</span></div><div class="companion-card-section"><b>🪶 我為什麼建議？</b><p class="muted">${escapeHtml(item.reason)}</p></div><div class="companion-card-section"><b>建議內容</b><div class="source-path">${escapeHtml(item.suggestion)}</div>${item.defaultDuration ? `<small>預設工時：約 ${escapeHtml(formatHumanDuration(item.defaultDuration))}</small>` : ""}</div><div class="companion-card-section"><b>🪶 我是從這些資料學會的：</b><ul class="knowledge-result-list work-memory-source-list">${sourceList}</ul></div><div class="companion-card-grid"><div><span>最近一次陪你完成</span><b>${escapeHtml(recent)}</b></div><div><span>熟悉程度</span><b>${escapeHtml(workMemoryFamiliarityBars(familiarityScore))}</b><small>${escapeHtml(familiarityLabel)}</small></div></div><div class="companion-card-section"><b>採用後，我可以：</b><ul class="knowledge-result-list"><li>✓ 推薦相關工時</li><li>✓ 提醒補工時</li><li>✓ 整理相近工作</li><li>✓ 引用這份經驗協助建立工時</li></ul></div></div><div class="actions compact ai-suggestion-actions"><button class="btn2" data-edit-ai-suggestion="${escapeHtml(item.key)}">✏️ 編輯</button><button class="btn2" data-merge-ai-suggestion="${escapeHtml(item.key)}">🔀 合併</button><button class="btn green" data-adopt-ai-suggestion="${escapeHtml(item.key)}">✅ 採用</button><button class="btn2" data-ignore-ai-suggestion="${escapeHtml(item.key)}">🙈 忽略</button></div></div>`;
+    const actionLabel = item.type === "merge" ? "🔀 合併" : item.type === "rename" ? "✏️ 重新命名" : item.type === "category" ? "🏷️ 分類" : "🔀 整理到既有工作";
+    return `<div class="entry ai-suggestion-workspace-card companion-card"><div class="entry-main"><div class="work-memory-title"><b>${escapeHtml(item.title)}</b><span>${item.type === "merge" ? "整理建議" : item.type === "rename" ? "命名建議" : item.type === "category" ? "分類建議" : "新增建議"}</span></div><div class="companion-card-section"><b>🪶 我為什麼建議？</b><p class="muted">${escapeHtml(item.reason)}</p></div><div class="companion-card-section"><b>建議內容</b><div class="source-path">${escapeHtml(item.suggestion)}</div>${item.defaultDuration ? `<small>預設工時：約 ${escapeHtml(formatHumanDuration(item.defaultDuration))}</small>` : ""}</div><div class="companion-card-section"><b>🪶 我是從這些資料學會的：</b><ul class="knowledge-result-list work-memory-source-list">${sourceList}</ul></div><div class="companion-card-grid"><div><span>最近一次陪你完成</span><b>${escapeHtml(recent)}</b></div><div><span>熟悉程度</span><b>${escapeHtml(workMemoryFamiliarityBars(familiarityScore))}</b><small>${escapeHtml(familiarityLabel)}</small></div></div><div class="companion-card-section"><b>採用後，我可以：</b><ul class="knowledge-result-list"><li>✓ 推薦相關工時</li><li>✓ 提醒補工時</li><li>✓ 整理相近工作</li><li>✓ 引用這份經驗協助建立工時</li></ul></div></div><div class="actions compact ai-suggestion-actions"><button class="btn2" data-edit-ai-suggestion="${escapeHtml(item.key)}">✏️ 編輯</button><button class="btn2" data-merge-ai-suggestion="${escapeHtml(item.key)}">${actionLabel}</button><button class="btn green" data-adopt-ai-suggestion="${escapeHtml(item.key)}">✅ 採用</button><button class="btn2" data-ignore-ai-suggestion="${escapeHtml(item.key)}">🙈 忽略</button></div></div>`;
   }).join("") : `<div class="empty"><b>目前沒有新的 AI 建議</b><div class="muted">如果之後我從文件、歷史工時或相近工作裡發現值得整理的地方，會在這裡提出建議。</div></div>`;
   return `<section class="panel work-memory-ai-suggestions" style="margin-top:18px"><div class="panel-head"><div><h2>🪶 AI 建議</h2><div class="muted">這裡是我的提案，不是正式工作。只有你採用後，才會加入「我的工作」。</div></div><button class="btn2" data-open-workspace="settings">返回我的工作</button></div><div class="entry"><b>AI 建議，使用者決定</b><div class="muted">我可以提出、整理、合併或提醒；真正決定是否採用的人永遠是你。</div></div><div class="library-list">${cards}</div></section>`;
 }
@@ -3087,16 +3143,59 @@ function knowledgeCardSummary(item = {}) {
   return `<div class="source-path">${escapeHtml(summaryLine)}</div><div class="source-path">我整理出｜理解：${counts.summary}｜流程：${counts.process}｜規則：${counts.rule}｜可協助工作：${counts.recommendation}</div>${errorLine}`;
 }
 
+function knowledgeLibraryItemsForView() {
+  const query = String(knowledgeLibraryQuery || "").trim().toLocaleLowerCase("zh-TW");
+  const category = String(knowledgeLibraryCategory || "all");
+  const items = (library || []).map(normalizedLibraryItem).filter(item => {
+    if (category !== "all" && item.category !== category) return false;
+    if (!query) return true;
+    const summary = item.intelligenceSummary || {};
+    const haystack = [
+      item.title, item.description, item.category, item.sourceName, item.sourceProvider,
+      item.sourceType, ...item.tags, ...item.triggers, ...knowledgeCapabilityItems(item, 12),
+      ...arrayFromInput(summary.topics || [])
+    ].join(" ").toLocaleLowerCase("zh-TW");
+    return haystack.includes(query);
+  });
+  const compareText = (a, b) => String(a || "").localeCompare(String(b || ""), "zh-Hant");
+  return items.sort((a, b) => {
+    if (knowledgeLibrarySort === "title_asc") return compareText(a.title, b.title);
+    if (knowledgeLibrarySort === "category") return compareText(a.category, b.category) || compareText(a.title, b.title);
+    if (knowledgeLibrarySort === "status") return compareText(knowledgeLearnedLabel(a.processingStatus), knowledgeLearnedLabel(b.processingStatus)) || compareText(a.title, b.title);
+    return new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0);
+  });
+}
+
+function knowledgeVersionHistory(item = {}) {
+  const history = item.sourceMetadata?.versionHistory;
+  return Array.isArray(history) ? history : [];
+}
+
+function knowledgeLearningProgress(step = "idle") {
+  const steps = [
+    ["reading", "📖 閱讀文件"],
+    ["analyzing", "🔎 分析工作"],
+    ["organizing", "🧩 整理成我的工作"],
+    ["complete", "✅ 完成，等待確認"]
+  ];
+  const activeIndex = Math.max(0, steps.findIndex(([key]) => key === step));
+  return steps.map(([key, label], index) => {
+    const state = step === "error" ? "error" : index < activeIndex ? "done" : index === activeIndex ? "active" : "pending";
+    return `<li class="knowledge-progress-step ${state}"><span>${state === "done" ? "✓" : state === "active" ? "⏳" : state === "error" ? "!" : "○"}</span>${label}</li>`;
+  }).join("");
+}
+
 function libraryView() {
   const addButton = knowledgeFoundationNotInitialized ? "" : `<button class="btn" data-add-library="1">🪶 教我新的工作</button>`;
   const legacyItems = legacyKnowledgeItems();
   const legacyBlock = !knowledgeFoundationNotInitialized && legacyItems.length && !hasLegacyKnowledgeMigrationDone()
     ? `<div class="empty knowledge-migration-preview"><b>偵測到舊版藏書：${legacyItems.length} 筆</b><div class="muted">舊版資料搬移需由使用者確認。若舊資料沒有原始檔，將先搬移資料摘要，原始檔可後續編輯補上傳。</div><button class="btn2" data-preview-legacy-knowledge="1">預覽 / 搬移舊版藏書</button></div>`
     : "";
+  const visibleItems = knowledgeLibraryItemsForView();
+  const filters = !knowledgeFoundationNotInitialized ? `<div class="knowledge-library-toolbar"><label class="knowledge-search-field"><span class="sr-only">搜尋藏書閣</span><input class="input" type="search" data-library-search placeholder="搜尋文件、工作或標籤" value="${escapeHtml(knowledgeLibraryQuery)}"></label><select class="input" data-library-category aria-label="依分類篩選"><option value="all" ${knowledgeLibraryCategory === "all" ? "selected" : ""}>全部分類</option>${KNOWLEDGE_CATEGORIES.map(category => `<option value="${escapeHtml(category)}" ${category === knowledgeLibraryCategory ? "selected" : ""}>${escapeHtml(category)}</option>`).join("")}</select><select class="input" data-library-sort aria-label="排序"><option value="updated_desc" ${knowledgeLibrarySort === "updated_desc" ? "selected" : ""}>最近更新</option><option value="title_asc" ${knowledgeLibrarySort === "title_asc" ? "selected" : ""}>名稱 A–Z</option><option value="category" ${knowledgeLibrarySort === "category" ? "selected" : ""}>分類</option><option value="status" ${knowledgeLibrarySort === "status" ? "selected" : ""}>學習狀態</option></select></div>` : "";
   const body = knowledgeFoundationNotInitialized
     ? knowledgeInitializationNotice()
-    : (library.length ? library.map(raw => {
-      const item = normalizedLibraryItem(raw);
+    : (visibleItems.length ? visibleItems.map(item => {
       const viewDisabled = canViewKnowledgeResult(item.processingStatus) ? "" : "disabled";
       const capabilities = knowledgeCapabilityItems(item, 4);
       const capabilityList = capabilities.length
@@ -3107,16 +3206,19 @@ function libraryView() {
       const sourceAction = item.sourceProvider === "google_drive" ? "重新整理" : knowledgeActionLabel(item.processingStatus);
       const sourceLink = item.sourceUrl ? `<a class="source-path" href="${escapeHtml(item.sourceUrl)}" target="_blank" rel="noopener">查看 Google Drive 來源 ↗</a>` : "";
       const previewButton = item.storagePath ? `<button class="btn2" data-preview-library="${item.id}">預覽原始檔</button>` : sourceLink;
-      return `<div class="entry knowledge-card"><div class="entry-main"><b>🪶 ${escapeHtml(item.title)}</b><div class="muted">${escapeHtml(knowledgeLearnedLabel(item.processingStatus))}｜${escapeHtml(providerLabel)}｜${escapeHtml(knowledgeSourceTypeLabel(item.sourceType))}</div><small>${escapeHtml(item.description || "這份文件會幫我更懂你的工作。")}</small><div class="source-path"><b>我目前理解出的工作：</b></div><ul class="knowledge-result-list">${capabilityList}</ul><div class="source-path">我整理出｜理解 ${counts.summary}｜流程 ${counts.process}｜規則 ${counts.rule}｜可協助工作 ${counts.recommendation}</div>${item.processingStatus === "failed" && item.intelligenceError ? `<div class="source-path">我讀不懂的原因：${escapeHtml(item.intelligenceError)}</div>` : ""}</div><div class="actions compact"><button class="btn2" ${viewDisabled} data-view-knowledge-result="${item.id}">查看我的理解</button><button class="btn2" data-refresh-library="${item.id}">${escapeHtml(sourceAction)}</button>${item.processingStatus === "processed" ? `<button class="btn green" data-verify-library="${item.id}">✓ 接受我的理解</button>` : ""}${previewButton}<button class="btn2" data-edit-library="${item.id}">✏️ 調整我的理解</button><button class="btn2" data-archive-library="${item.id}">封存</button><button class="btn2 danger" data-del-library="${item.id}">刪除</button></div></div>`;
-    }).join("") : `<div class="empty"><b>還沒有教我新的工作</b><div class="muted">請上傳 SOP、Excel 或文件，讓我開始理解你每天會做哪些工作。</div><button class="btn" data-add-library="1">🪶 教我新的工作</button></div>`);
-  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>📚 教 Mr. KM 學會你的工作</h2><div class="muted">上傳 SOP、Excel 或文件後，我會整理出可用於工時建議的工作。之後，我會依照你的工作，提供更貼近的工時建議。</div></div>${addButton}</div>${legacyBlock}<div class="library-list">${body}</div></section>`;
+      return `<article class="entry knowledge-card knowledge-card-tile"><div class="entry-main"><div class="knowledge-card-title"><b>🪶 ${escapeHtml(item.title)}</b><span class="knowledge-card-category">${escapeHtml(item.category)}</span></div><div class="muted">${escapeHtml(knowledgeLearnedLabel(item.processingStatus))}｜${escapeHtml(providerLabel)}｜${escapeHtml(knowledgeSourceTypeLabel(item.sourceType))}</div><small>${escapeHtml(item.description || "這份文件會幫我更懂你的工作。")}</small><div class="source-path"><b>我目前理解出的工作：</b></div><ul class="knowledge-result-list">${capabilityList}</ul><div class="source-path">理解 ${counts.summary}｜流程 ${counts.process}｜規則 ${counts.rule}｜可協助工作 ${counts.recommendation}</div>${item.processingStatus === "failed" && item.intelligenceError ? `<div class="source-path">我讀不懂的原因：${escapeHtml(item.intelligenceError)}</div>` : ""}</div><div class="actions compact knowledge-card-actions"><button class="btn2" ${viewDisabled} data-view-knowledge-result="${item.id}">查看我的理解</button><button class="btn2" data-refresh-library="${item.id}">${escapeHtml(sourceAction)}</button>${item.processingStatus === "processed" ? `<button class="btn green" data-verify-library="${item.id}">✓ 接受我的理解</button>` : ""}${previewButton}<button class="btn2" data-edit-library="${item.id}">✏️ 調整我的理解</button><button class="btn2" data-archive-library="${item.id}">封存</button><button class="btn2 danger" data-del-library="${item.id}">刪除</button></div></article>`;
+    }).join("") : `<div class="empty"><b>${library.length ? "找不到符合條件的知識" : "還沒有教我新的工作"}</b><div class="muted">${library.length ? "請調整搜尋或分類條件。" : "請上傳 SOP、Excel 或文件，讓我開始理解你每天會做哪些工作。"}</div>${library.length ? "" : `<button class="btn" data-add-library="1">🪶 教我新的工作</button>`}</div>`);
+  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>📚 教 Mr. KM 學會你的工作</h2><div class="muted">上傳 SOP、Excel 或文件後，我會整理出可用於工時建議的工作。之後，我會依照你的工作，提供更貼近的工時建議。</div></div>${addButton}</div>${legacyBlock}${filters}<div class="knowledge-library-count muted">顯示 ${visibleItems.length} / ${library.length} 份知識</div><div class="library-list knowledge-card-grid">${body}</div></section>`;
 }
 
 function libraryLearningView() {
   const item = normalizedLibraryItem(learningKnowledgeDraft || library.find(x => x.id === viewingKnowledgeId || x.cloudId === viewingKnowledgeId) || {});
   const title = item.title || "新的工作知識";
   const fileName = item.filename || item.sourceName || "您提供的文件";
-  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>🪶 我正在閱讀這份文件...</h2><div class="muted">我正在把它轉換成之後可以協助你完成工時的工作。</div></div></div><div class="entry"><div class="entry-main"><b>${escapeHtml(title)}</b><div class="source-path">${escapeHtml(fileName)}</div><small>${escapeHtml(item.description || "我會先理解內容，再請你確認我理解得對不對。")}</small></div></div><div class="entry"><b>我正在學習</b><ul class="knowledge-result-list"><li>✓ 讀取檔案</li><li>✓ 擷取文字</li><li>⏳ 理解你的工作</li><li>⏳ 整理成「我的工作」</li><li>⏳ 準備之後可提醒你的工時建議</li></ul></div><div class="muted">請稍候，完成後我會請你確認我的理解。</div></section>`;
+  const step = knowledgeLearningStep || "reading";
+  const heading = step === "complete" ? "🪶 我讀完了" : step === "error" ? "🪶 這次學習遇到問題" : "🪶 我正在閱讀這份文件...";
+  const message = step === "complete" ? "我已整理好理解結果，接下來請你確認。" : step === "error" ? (knowledgeLearningError || "請稍後再試，或調整文件後重新學習。") : "我正在把它轉換成之後可以協助你完成工時的工作。";
+  return `<section class="panel knowledge-learning-panel" style="margin-top:18px"><div class="panel-head"><div><h2>${heading}</h2><div class="muted">${escapeHtml(message)}</div></div></div><div class="entry"><div class="entry-main"><b>${escapeHtml(title)}</b><div class="source-path">${escapeHtml(fileName)}</div><small>${escapeHtml(item.description || "我會先理解內容，再請你確認我理解得對不對。")}</small></div></div><div class="entry"><b>我正在學習</b><ul class="knowledge-result-list knowledge-progress-list">${knowledgeLearningProgress(step)}</ul></div><div class="muted">${step === "complete" ? "請按返回查看我的理解。" : "請稍候，完成後我會請你確認我的理解。"}</div></section>`;
 }
 
 function libraryIntelligenceView(id = null) {
@@ -3169,10 +3271,12 @@ function libraryIntelligenceView(id = null) {
     : "";
   const reprocessAttribute = item.sourceProvider === "google_drive" ? "data-refresh-library" : "data-reprocess-library";
   const reprocessLabel = item.sourceProvider === "google_drive" ? "重新整理" : knowledgeActionLabel(item.processingStatus);
+  const history = knowledgeVersionHistory(item);
+  const versionHistoryBlock = `<details class="knowledge-version-history"><summary>🕘 Knowledge 版本（目前 ${escapeHtml(item.knowledgeVersion || item.version || "v1.0")}）</summary><div class="knowledge-version-current">目前版本：<b>${escapeHtml(item.knowledgeVersion || item.version || "v1.0")}</b></div>${history.length ? history.slice().reverse().map(entry => `<div class="knowledge-version-row"><div><b>${escapeHtml(entry.version || "舊版本")}</b><small>${escapeHtml(formatKnowledgeTime(entry.savedAt || ""))}</small></div><button class="btn2" data-rollback-library="${escapeHtml(item.id)}" data-version="${escapeHtml(entry.version || "")}">還原</button></div>`).join("") : `<div class="muted">重新學習後，這裡會保留最近版本供回復。</div>`}</details>`;
   const resultActions = isFailed
     ? `<button class="btn2" ${reprocessAttribute}="${item.id}">${reprocessLabel}</button><button class="btn2" data-edit-library="${item.id}">✏️ 調整我的理解</button>`
-    : `${acceptWorkActions}<button class="btn2" data-verify-library="${item.id}">✓ 確認理解</button><button class="btn2" data-edit-library="${item.id}">✏️ 調整我的理解</button>`;
-  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>${escapeHtml(resultHeading)}</h2><div class="muted">${escapeHtml(item.knowledgeId)}｜${escapeHtml(knowledgeLearnedLabel(item.processingStatus))}</div></div><button class="btn2" data-library-back="1">返回藏書閣</button></div>${resultPrompt}<div class="entry"><div class="entry-main"><b>${escapeHtml(item.title)}</b><div class="source-path">我閱讀到的品質：${escapeHtml(knowledgeSupportLevelLabel(summary.supportLevel))}</div>${item.intelligenceError ? `<div class="source-path">我讀不懂的原因：${escapeHtml(item.intelligenceError)}</div>` : ""}</div><div class="actions compact"><button class="btn2" ${reprocessAttribute}="${item.id}">${reprocessLabel}</button></div></div><div class="entry"><b>我目前的理解</b><p class="muted">${escapeHtml(companionSummary)}</p></div><div class="work-dna-list">${workDnaCards}</div><details class="work-evidence-panel"><summary>查看我理解工作的依據</summary><div class="profile-grid"><div class="entry"><b>文件中的流程證據</b><ul class="knowledge-result-list">${list(processItems)}</ul></div><div class="entry"><b>文件中的規則證據</b><ul class="knowledge-result-list">${list(ruleItems)}</ul></div></div><div class="entry"><b>文件重點</b><ul class="knowledge-result-list">${list(focusItems)}</ul></div>${autoMeta}<section class="panel" style="margin-top:12px"><h3>可追溯內容（${units.length}）</h3>${units.length ? units.map(unit => `<div class="entry"><div class="entry-main"><b>${escapeHtml(unit.title)}</b><div class="muted">${escapeHtml(knowledgeUnitTypeLabel(unit.unitType))}｜${escapeHtml(unit.pageReference || unit.sectionReference || "")}</div><small>${escapeHtml(unit.summary || unit.content)}</small><div class="library-tag-line">${unit.triggers.map(tag => `<span>${escapeHtml(tag)}</span>`).join("")}</div></div><div class="actions compact"><button class="btn2 danger" data-remove-knowledge-unit="${unit.id}">移除</button></div></div>`).join("") : `<div class="empty">目前沒有可追溯內容。</div>`}</section></details><div class="form-actions">${resultActions}</div></section>`;
+    : `${acceptWorkActions}<button class="btn2" data-verify-library="${item.id}">✓ 確認理解</button><button class="btn2" ${reprocessAttribute}="${item.id}">🔁 重新學習</button><button class="btn2" data-edit-library="${item.id}">✏️ 調整我的理解</button>`;
+  return `<section class="panel" style="margin-top:18px"><div class="panel-head"><div><h2>${escapeHtml(resultHeading)}</h2><div class="muted">${escapeHtml(item.knowledgeId)}｜${escapeHtml(knowledgeLearnedLabel(item.processingStatus))}</div></div><button class="btn2" data-library-back="1">返回藏書閣</button></div>${resultPrompt}<div class="entry"><div class="entry-main"><b>${escapeHtml(item.title)}</b><div class="source-path">我閱讀到的品質：${escapeHtml(knowledgeSupportLevelLabel(summary.supportLevel))}</div>${item.intelligenceError ? `<div class="source-path">我讀不懂的原因：${escapeHtml(item.intelligenceError)}</div>` : ""}</div><div class="actions compact"><button class="btn2" ${reprocessAttribute}="${item.id}">${reprocessLabel}</button></div></div><div class="entry"><b>我目前的理解</b><p class="muted">${escapeHtml(companionSummary)}</p></div><div class="work-dna-list">${workDnaCards}</div><details class="work-evidence-panel"><summary>查看我理解工作的依據</summary><div class="profile-grid"><div class="entry"><b>文件中的流程證據</b><ul class="knowledge-result-list">${list(processItems)}</ul></div><div class="entry"><b>文件中的規則證據</b><ul class="knowledge-result-list">${list(ruleItems)}</ul></div></div><div class="entry"><b>文件重點</b><ul class="knowledge-result-list">${list(focusItems)}</ul></div>${autoMeta}<section class="panel" style="margin-top:12px"><h3>可追溯內容（${units.length}）</h3>${units.length ? units.map(unit => `<div class="entry"><div class="entry-main"><b>${escapeHtml(unit.title)}</b><div class="muted">${escapeHtml(knowledgeUnitTypeLabel(unit.unitType))}｜${escapeHtml(unit.pageReference || unit.sectionReference || "")}</div><small>${escapeHtml(unit.summary || unit.content)}</small><div class="library-tag-line">${unit.triggers.map(tag => `<span>${escapeHtml(tag)}</span>`).join("")}</div></div><div class="actions compact"><button class="btn2 danger" data-remove-knowledge-unit="${unit.id}">移除</button></div></div>`).join("") : `<div class="empty">目前沒有可追溯內容。</div>`}</section></details>${versionHistoryBlock}<div class="form-actions">${resultActions}</div></section>`;
 }
 
 function libraryForm(id = null) {
@@ -3876,6 +3980,27 @@ async function acceptWorkMemoryMergeSuggestion(suggestion, nextName = "", nextDe
 
 async function adoptAiSuggestion(item, override = {}) {
   if (!item) return;
+  if (item.type === "rename" || item.type === "category") {
+    const objects = workMemoryObjects();
+    const index = objects.findIndex(model => model.name === (item.renameFrom || item.workName || ""));
+    if (index < 0) return toast("找不到要整理的正式工作");
+    const next = [...objects];
+    const current = { ...next[index] };
+    if (item.type === "rename") {
+      const nextName = String(override.name || item.renameTo || "").trim();
+      if (!nextName) return toast("請輸入新的工作名稱");
+      current.name = nextName;
+      current.aliases = [...new Set([...(current.aliases || []), item.renameFrom].filter(Boolean))];
+      bumpWorkMemoryMergeStat("renamed");
+    } else {
+      current.category = String(override.category || item.categoryTo || "其他").trim() || "其他";
+      bumpWorkMemoryMergeStat("renamed");
+    }
+    next[index] = normalizeWorkMemoryObject({ ...current, updatedAt: new Date().toISOString() }, index, current);
+    saveWorkMemoryAiSuggestionDecision(item.key, "adopted", { type: item.type, name: current.name, category: current.category });
+    await persistWorkMemory(next, item.type === "rename" ? "我已依照你的決定重新命名工作" : "我已依照你的決定整理工作分類");
+    return;
+  }
   if (item.type === "merge") {
     await acceptWorkMemoryMergeSuggestion(item.mergeSuggestion, override.name || "", override.description || "");
     saveWorkMemoryAiSuggestionDecision(item.key, "adopted", { type: item.type, name: override.name || item.mergeSuggestion?.keep || "" });
@@ -4011,14 +4136,27 @@ function bindWorkMemory() {
   document.querySelectorAll("[data-edit-ai-suggestion]").forEach(button => button.onclick = async () => {
     const item = aiSuggestions.find(suggestion => suggestion.key === button.dataset.editAiSuggestion);
     if (!item) return;
-    const name = prompt("建議加入「我的工作」的名稱", item.type === "merge" ? item.mergeSuggestion?.keep : item.title);
-    if (!String(name || "").trim()) return;
+    const name = item.type === "rename"
+      ? prompt("新的工作名稱", item.renameTo)
+      : prompt("建議加入「我的工作」的名稱", item.type === "merge" ? item.mergeSuggestion?.keep : item.title);
+    if (!String(name || "").trim() && item.type !== "category") return;
     const description = prompt("工作說明", item.content || item.reason || "") || "";
-    const category = item.type === "candidate" ? (prompt("分類", workMemoryCategoryFor(name)) || "") : "";
+    const category = item.type === "category" || item.type === "candidate" ? (prompt("分類", item.categoryTo || workMemoryCategoryFor(name)) || "") : "";
     await adoptAiSuggestion(item, { name, description, category });
   });
   document.querySelectorAll("[data-merge-ai-suggestion]").forEach(button => button.onclick = async () => {
-    await mergeAiSuggestion(aiSuggestions.find(item => item.key === button.dataset.mergeAiSuggestion));
+    const item = aiSuggestions.find(item => item.key === button.dataset.mergeAiSuggestion);
+    if (item?.type === "rename") {
+      const name = prompt("新的工作名稱", item.renameTo);
+      if (String(name || "").trim()) await adoptAiSuggestion(item, { name });
+      return;
+    }
+    if (item?.type === "category") {
+      const category = prompt("新的分類", item.categoryTo);
+      if (String(category || "").trim()) await adoptAiSuggestion(item, { category });
+      return;
+    }
+    await mergeAiSuggestion(item);
   });
   document.querySelectorAll("[data-ignore-ai-suggestion]").forEach(button => button.onclick = () => {
     const item = aiSuggestions.find(suggestion => suggestion.key === button.dataset.ignoreAiSuggestion);
@@ -4269,6 +4407,17 @@ async function runLegacyKnowledgeMigrationPreview() {
 }
 
 function bindLibrary() {
+  const search = document.querySelector("[data-library-search]");
+  if (search) search.oninput = event => {
+    knowledgeLibraryQuery = event.target.value || "";
+    render();
+    const next = document.querySelector("[data-library-search]");
+    if (next) { next.focus(); next.setSelectionRange(knowledgeLibraryQuery.length, knowledgeLibraryQuery.length); }
+  };
+  const category = document.querySelector("[data-library-category]");
+  if (category) category.onchange = event => { knowledgeLibraryCategory = event.target.value || "all"; render(); };
+  const sort = document.querySelector("[data-library-sort]");
+  if (sort) sort.onchange = event => { knowledgeLibrarySort = event.target.value || "updated_desc"; render(); };
   document.querySelectorAll("[data-library-back]").forEach(b => b.onclick = () => {
     editingLibraryId = null;
     viewingKnowledgeId = null;
@@ -4284,6 +4433,12 @@ function bindLibrary() {
   document.querySelectorAll("[data-reprocess-library]").forEach(b => b.onclick = async () => {
     const item = library.find(x => x.id === b.dataset.reprocessLibrary);
     if (!item) return;
+    learningKnowledgeDraft = item;
+    viewingKnowledgeId = item.id;
+    knowledgeLearningStep = "reading";
+    knowledgeLearningError = "";
+    view = "libraryLearning";
+    render();
     try {
       knowledgeDebugLog("warn", "Knowledge Process Call Stack Debug", {
         functionName: "bindLibrary[data-reprocess-library].onclick",
@@ -4292,12 +4447,17 @@ function bindLibrary() {
         cloudId: item.cloudId,
         callStack: new Error("Knowledge reprocess button stack").stack
       });
-      await KnowledgeIntelligence.processSource(item);
+      await KnowledgeIntelligence.processSource(item, {
+        onProgress: step => { knowledgeLearningStep = step; render(); }
+      });
+      knowledgeLearningStep = "complete";
       viewingKnowledgeId = item.id;
       view = "libraryIntelligence";
       saveAll();
       render();
     } catch (error) {
+      knowledgeLearningStep = "error";
+      knowledgeLearningError = error.message || "重新學習失敗";
       console.error("Knowledge reprocess failed", { error, item });
       render();
     }
@@ -4309,20 +4469,42 @@ function bindLibrary() {
     try {
       learningKnowledgeDraft = item;
       viewingKnowledgeId = item.id;
+      knowledgeLearningStep = "reading";
+      knowledgeLearningError = "";
       view = "libraryLearning";
       render();
-      await KnowledgeIngestionAPI.refreshSource(item);
+      await KnowledgeIngestionAPI.refreshSource(item, {
+        onProgress: step => { knowledgeLearningStep = step; render(); }
+      });
+      knowledgeLearningStep = "complete";
       learningKnowledgeDraft = null;
       view = "libraryIntelligence";
       toast("我已重新整理這份來源");
       render();
     } catch (error) {
-      learningKnowledgeDraft = null;
+      knowledgeLearningStep = "error";
+      knowledgeLearningError = error.message || "重新整理失敗";
+      learningKnowledgeDraft = item;
       console.error("Knowledge source refresh failed", { error, item });
       toast(error.message || "重新整理失敗");
       render();
     } finally {
       b.disabled = false;
+    }
+  });
+  document.querySelectorAll("[data-rollback-library]").forEach(b => b.onclick = async () => {
+    const item = library.find(x => x.id === b.dataset.rollbackLibrary || x.cloudId === b.dataset.rollbackLibrary);
+    if (!item) return toast("找不到這份知識來源");
+    const version = b.dataset.version || "";
+    if (!confirm(`確認將「${item.title}」還原至 ${version}？`)) return;
+    try {
+      await DataService.rollbackKnowledgeVersion(item, version);
+      viewingKnowledgeId = item.id || item.cloudId;
+      toast(`已還原至 ${version}`);
+      render();
+    } catch (error) {
+      console.error("Knowledge rollback failed", { error, item, version });
+      toast(error.message || "版本還原失敗");
     }
   });
   document.querySelectorAll("[data-verify-library]").forEach(b => b.onclick = async () => {
@@ -4516,6 +4698,8 @@ function bindLibraryForm(id = null) {
       if (!id && globalThis.KnowledgeIngestionAPI) {
         const onSourceSaved = async source => {
           learningKnowledgeDraft = source;
+          knowledgeLearningStep = "reading";
+          knowledgeLearningError = "";
           viewingKnowledgeId = source.id;
           editingLibraryId = null;
           activeWorkspace = "library";
@@ -4524,9 +4708,10 @@ function bindLibraryForm(id = null) {
           saveAll();
           render();
         };
+        const onProgress = step => { knowledgeLearningStep = step; render(); };
         const result = driveFile
-          ? await KnowledgeIngestionAPI.addDriveFile({ file: driveFile, onSourceSaved })
-          : await KnowledgeIngestionAPI.addUpload({ file, title: titleValue, description: descriptionValue, onSourceSaved });
+          ? await KnowledgeIngestionAPI.addDriveFile({ file: driveFile, onSourceSaved, onProgress })
+          : await KnowledgeIngestionAPI.addUpload({ file, title: titleValue, description: descriptionValue, onSourceSaved, onProgress });
         saved = result?.source || result;
         learningKnowledgeDraft = null;
         viewingKnowledgeId = saved?.id || saved?.cloudId || viewingKnowledgeId;
@@ -4539,13 +4724,16 @@ function bindLibraryForm(id = null) {
       saved = await DataService.saveKnowledgeSource(item, { file, requireCloud: true });
       if (file) {
         learningKnowledgeDraft = saved;
+        knowledgeLearningStep = "reading";
+        knowledgeLearningError = "";
         viewingKnowledgeId = saved.id;
         editingLibraryId = null;
         activeWorkspace = "library";
         view = "libraryLearning";
         saveAll();
         render();
-        await KnowledgeIntelligence.processSource(saved, { file });
+        await KnowledgeIntelligence.processSource(saved, { file, onProgress: step => { knowledgeLearningStep = step; render(); } });
+        knowledgeLearningStep = "complete";
         learningKnowledgeDraft = null;
         viewingKnowledgeId = saved.id;
         editingLibraryId = null; view = "libraryIntelligence"; saveAll(); render();
@@ -4555,6 +4743,8 @@ function bindLibraryForm(id = null) {
     } catch (error) {
       console.error("Knowledge Source save failed", { error, supabase: error.supabase || null });
       learningKnowledgeDraft = null;
+      knowledgeLearningStep = "error";
+      knowledgeLearningError = error.message || "Mr. KM 學習失敗";
       if (saved?.id) {
         viewingKnowledgeId = saved.id;
         view = "libraryIntelligence";

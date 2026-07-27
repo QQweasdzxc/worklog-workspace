@@ -695,6 +695,38 @@ const DataService = {
     const sanitizedSummary = sanitizeKnowledgeValue(result.summary || {});
     const sanitizedUnits = sanitizeKnowledgeValue(result.units || []);
     const sanitizedCandidates = sanitizeKnowledgeValue(result.candidates || []);
+    const existingHistory = Array.isArray(normalized.sourceMetadata?.versionHistory)
+      ? normalized.sourceMetadata.versionHistory
+      : [];
+    const currentVersion = String(normalized.knowledgeVersion || "v1.0");
+    const versionMatch = currentVersion.match(/^v(\d+)(?:\.(\d+))?$/i);
+    const hasPriorKnowledge = Boolean(normalized.extractedText || Object.keys(normalized.intelligenceSummary || {}).length || existingHistory.length);
+    const nextKnowledgeVersion = !hasPriorKnowledge
+      ? currentVersion
+      : versionMatch
+        ? `v${Number(versionMatch[1])}.${Number(versionMatch[2] || 0) + 1}`
+        : "v1.1";
+    const sourceKey = normalized.cloudId || normalized.id;
+    const currentUnits = (typeof knowledgeUnits !== "undefined" ? knowledgeUnits : [])
+      .filter(unit => String(unit.knowledgeSourceId || unit.knowledge_source_id || "") === String(sourceKey));
+    const currentCandidates = (typeof knowledgeRecommendationCandidates !== "undefined" ? knowledgeRecommendationCandidates : [])
+      .filter(candidate => String(candidate.knowledgeSourceId || candidate.knowledge_source_id || "") === String(sourceKey));
+    const versionHistory = [...existingHistory];
+    if (normalized.extractedText || Object.keys(normalized.intelligenceSummary || {}).length || currentUnits.length || currentCandidates.length) {
+      versionHistory.push({
+        version: currentVersion,
+        savedAt: normalized.updatedAt || normalized.processedAt || new Date().toISOString(),
+        extractedText: normalized.extractedText || "",
+        intelligenceSummary: normalized.intelligenceSummary || {},
+        units: currentUnits,
+        candidates: currentCandidates
+      });
+    }
+    const sourceMetadata = {
+      ...(normalized.sourceMetadata || {}),
+      versionHistory: versionHistory.slice(-10),
+      lastLearningAt: new Date().toISOString()
+    };
     knowledgeDebugLog("warn", "Knowledge Process Call Stack Debug", {
       functionName: "DataService.saveKnowledgeIntelligenceResult",
       knowledgeId: normalized.knowledgeId,
@@ -721,10 +753,11 @@ const DataService = {
         processingStatus: "processed",
         extractedText: sanitizedExtractedText,
         intelligenceSummary: sanitizedSummary,
+        sourceMetadata,
         intelligenceError: null,
         processedAt,
         indexedAt: processedAt,
-        knowledgeVersion: normalized.knowledgeVersion || "v1.0"
+        knowledgeVersion: nextKnowledgeVersion
       });
       const cloudItem = knowledgeFromCloud(source);
       const savedUnits = await KnowledgeRepository.replaceUnits(cloudItem, sanitizedUnits);
@@ -757,6 +790,44 @@ const DataService = {
       this.setStatus("failed", error.message || "Knowledge Intelligence sync failed");
       throw error;
     }
+  },
+  async rollbackKnowledgeVersion(item, requestedVersion = "") {
+    const normalized = normalizedLibraryItem(item);
+    const history = Array.isArray(normalized.sourceMetadata?.versionHistory)
+      ? normalized.sourceMetadata.versionHistory
+      : [];
+    const snapshot = history.find(entry => String(entry.version || "") === String(requestedVersion))
+      || history[Number(requestedVersion)]
+      || null;
+    if (!snapshot) throw new Error("找不到要還原的 Knowledge 版本");
+    if (!hasGoogleOAuthSession() || dataServiceHydrating || migrationRunning) throw new Error("Cloud Sync 尚未就緒");
+    const remainingHistory = history.filter(entry => entry !== snapshot);
+    const metadata = {
+      ...(normalized.sourceMetadata || {}),
+      versionHistory: remainingHistory,
+      rollbackFrom: normalized.knowledgeVersion || normalized.version || "",
+      rollbackAt: new Date().toISOString()
+    };
+    const source = await KnowledgeRepository.updateSourceProcessing(normalized, {
+      processingStatus: "processed",
+      extractedText: snapshot.extractedText || "",
+      intelligenceSummary: snapshot.intelligenceSummary || {},
+      sourceMetadata: metadata,
+      intelligenceError: null,
+      processedAt: new Date().toISOString(),
+      indexedAt: new Date().toISOString(),
+      knowledgeVersion: snapshot.version || "v1.0"
+    });
+    const cloudItem = knowledgeFromCloud(source);
+    const savedUnits = await KnowledgeRepository.replaceUnits(cloudItem, snapshot.units || []);
+    const units = (savedUnits || []).map(knowledgeUnitFromCloud);
+    const savedCandidates = await KnowledgeRepository.replaceRecommendationCandidates(cloudItem, snapshot.candidates || [], units);
+    const candidates = (savedCandidates || []).map(knowledgeRecommendationCandidateFromCloud);
+    setLibrary([cloudItem, ...library.filter(x => x.id !== normalized.id && x.cloudId !== cloudItem.cloudId)]);
+    knowledgeUnits = [...knowledgeUnits.filter(x => x.knowledgeSourceId !== cloudItem.cloudId), ...units];
+    knowledgeRecommendationCandidates = [...knowledgeRecommendationCandidates.filter(x => x.knowledgeSourceId !== cloudItem.cloudId), ...candidates];
+    LocalCache.saveAll();
+    return { source: cloudItem, units, candidates };
   },
   async verifyKnowledgeSource(item) {
     const verifiedAt = new Date().toISOString();

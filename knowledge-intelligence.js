@@ -446,6 +446,7 @@ function buildKnowledgeIntelligence(source = {}, extracted = {}) {
 const KnowledgeIntelligence = {
   async processSource(source = {}, options = {}) {
     const item = normalizedLibraryItem(source);
+    const onProgress = typeof options.onProgress === "function" ? options.onProgress : () => {};
     knowledgeDebugLog("warn", "Knowledge Process Call Stack Debug", {
       functionName: "KnowledgeIntelligence.processSource",
       knowledgeId: item.knowledgeId,
@@ -455,17 +456,23 @@ const KnowledgeIntelligence = {
       callStack: new Error("KnowledgeIntelligence.processSource stack").stack
     });
     try {
+      onProgress("queued");
       toast("我準備開始閱讀這份文件");
       await DataService.updateKnowledgeProcessing(item, { processingStatus: "queued", intelligenceError: null });
+      onProgress("reading");
       toast("我正在理解你的工作");
       await DataService.updateKnowledgeProcessing(item, { processingStatus: "processing", intelligenceError: null });
       const extracted = await extractKnowledgeText(item, options.file || null);
+      onProgress("analyzing");
       const result = buildKnowledgeIntelligence(item, extracted);
+      onProgress("organizing");
       const saved = await DataService.saveKnowledgeIntelligenceResult(item, result);
+      onProgress("complete");
       const workCount = Array.isArray(result.summary?.works) ? result.summary.works.length : 0;
       toast(workCount ? `我理解出 ${workCount} 項工作，請確認我的理解` : "我沒有辨識出足夠完整的工作，請協助我確認");
       return saved;
     } catch (error) {
+      onProgress("error", error);
       console.error("Knowledge Intelligence processing failed", { error, source: item });
       await DataService.updateKnowledgeProcessing(item, {
         processingStatus: "failed",
