@@ -1,12 +1,12 @@
 {
-  "_deployment/manifest.json": "65556cfb344739b7dcbe498130acf5214e2af18436a461faeba6cb1bdb960f59",
+  "_deployment/manifest.json": "96a47f5d4b2b1ec14a00a42a2d0b46bd5dcf3d9edc23b076b6c826b9823c030f",
   "app-config.js": "37a1c479579d29b2efeb15488e6172b7bcd9e5b5dc1ebe2c8cc5bce77596bd92",
-  "app-state.js": "12a26a172cfc74e559f0817ef4b167268c03b087ab8a9d8f0cd2d699e605dfa9",
+  "app-state.js": "e58edf95bca2f71f5301f4ee70b50a77dd134989558fd3b92ef1e5b80e91d3a6",
   "auth-service.js": "ca9562025a849fe54e264009bae7cd2845e76ab1af4cc00467f49f7064b60dd2",
   "chat/index.html": "ee2964c65f3bf7798cfb55afa5867b13626c992db14f7ea06dd8fe042ea3f7b5",
   "data-service.js": "b2bdfb8d31824382d3fb322a2e4ad06218a88a9b1d13ad6a127f0dedf4b21629",
   "google-drive-service.js": "faf3ea340d5e939869d9344350fdabf19353211ffaa3ac63e7eed4378dd9ea57",
-  "index.html": "48fbc27d5d9fc4cd8ad73480bb8c2ff2734bae34e7c2f14d9fc3041b53e3ef42",
+  "index.html": "8484bcc7267e11c4c4ab272d7249b22116e36aa8f67be02ff9c1e8d4d0d47393",
   "knowledge-api.js": "9dd9a6d0d96fd62f2f428097b988734c4489d530b195168dec0ffc9fcf920727",
   "knowledge-engine.js": "6dcdbe644c9fcd7518514ad38cd9b81516306a914f960eb023ae00fefc04fea2",
   "knowledge-ingestion-service.js": "7e8ceab23602dc6fb94e61698a489dfd652d6c9b80c9410c597ab39ff268443b",
@@ -22,8 +22,8 @@
   "suggestion-intelligence.js": "6445abc931a2ddef87ddb2c45c80e1cde644d33201e2e81f2181b17dffac857b",
   "support/index.html": "d6fb01b9f63c5ff0733ae16b32cfbade34a009e403818934b7f826266628f0e2",
   "terms/index.html": "68bf02963ffbc8105c08a6f1b2c7d7428c2695484ae4c6b4941b225a415d8d44",
-  "version.json": "2f384f395adef09465f34df17d9f75911f3f17bc7ece9e8239e2171e5a44f74b",
+  "version.json": "49fdf632003f9b47b7df5233c087a27acfb275b72770af5ec4c6dc99d07166c0",
   "work-intelligence.js": "8fe1e35b2de5bbf68a29759e73b354f41231a56a3f92f6c3a57a2a0743bb2cb3",
-  "worklog-app.js": "9b24925885e23f4934235115a68f5117ae7e07d47dc02f467a91c07a166512de",
+  "worklog-app.js": "59a8773d258eb137ef9f964370b70bedc7b44709a6c319df8d0d3e9603da2ba0",
   "worklog.css": "6b0055ba4ca7639cbb681d05082d9d5c44ddd0454dc01bacfd5077e5bb72a893"
 }

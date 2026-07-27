@@ -37,10 +37,16 @@ let knowledgeLearningStep = "idle";
 let knowledgeLearningError = "";
 let workMemoryQuery = "";
 let workMemoryCategoryFilter = "all";
-let workMemorySort = "category";
+let workMemorySort = "name";
 let workMemoryMergeMode = false;
 let workMemoryMergeSelection = [];
 let workMemoryManualMergeSuggestion = null;
+const WORK_MEMORY_MERGE_NOTICE_SESSION_KEY = "zhuge_work_memory_merge_notice_session_v1";
+let workMemoryMergeCompletedNotice = (() => {
+  try { return sessionStorage.getItem(WORK_MEMORY_MERGE_NOTICE_SESSION_KEY) || ""; }
+  catch { return ""; }
+})();
+let workMemorySuggestionItemsCache = null;
 let workMemorySearchComposing = false;
 let workMemorySearchRenderTimer = null;
 let editingEntryId = null;
