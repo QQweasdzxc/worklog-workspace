@@ -6,9 +6,11 @@
   const MIME = Object.freeze({
     GOOGLE_DOC: "application/vnd.google-apps.document",
     GOOGLE_SHEET: "application/vnd.google-apps.spreadsheet",
+    GOOGLE_SLIDE: "application/vnd.google-apps.presentation",
     PDF: "application/pdf",
     DOCX: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     XLSX: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    PPTX: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     TEXT: "text/plain",
     MARKDOWN: "text/markdown",
     CSV: "text/csv"
@@ -32,9 +34,11 @@
     const extension = extensionOf(document.name || document.title);
     if (mimeType === MIME.GOOGLE_DOC) return "google-doc";
     if (mimeType === MIME.GOOGLE_SHEET) return "google-sheet";
+    if (mimeType === MIME.GOOGLE_SLIDE) return "google-slide";
     if (mimeType === MIME.PDF || extension === "pdf") return "pdf";
     if (mimeType === MIME.DOCX || extension === "docx") return "word";
     if (mimeType === MIME.XLSX || extension === "xlsx") return "excel";
+    if (mimeType === MIME.PPTX || extension === "pptx") return "powerpoint";
     if (mimeType === MIME.MARKDOWN || ["md", "markdown"].includes(extension)) return "markdown";
     if (mimeType === MIME.CSV || extension === "csv") return "csv";
     if (String(mimeType).startsWith("text/") || extension === "txt") return "text";
@@ -146,6 +150,21 @@
       }
       const entries = await global.parseOfficeZip(await asArrayBuffer(input.data));
       return { content: global.excelText(entries), supportLevel: "office-xml" };
+    }
+  });
+
+  registry.register({
+    id: "office-pptx-xml",
+    canParse: input => input.mimeType === MIME.PPTX || extensionOf(input.name) === "pptx",
+    parse: async input => {
+      if (typeof global.parseOfficeZip !== "function" || typeof global.officeEntryText !== "function") {
+        throw new Error("PowerPoint Parser 尚未載入");
+      }
+      const entries = await global.parseOfficeZip(await asArrayBuffer(input.data));
+      return {
+        content: global.officeEntryText(entries, /^ppt\/slides\/slide\d+\.xml$/),
+        supportLevel: "office-xml"
+      };
     }
   });
 

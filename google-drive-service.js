@@ -7,10 +7,12 @@
   const FOLDER_MIME = "application/vnd.google-apps.folder";
   const GOOGLE_DOC_MIME = "application/vnd.google-apps.document";
   const GOOGLE_SHEET_MIME = "application/vnd.google-apps.spreadsheet";
+  const GOOGLE_SLIDE_MIME = "application/vnd.google-apps.presentation";
   const PDF_MIME = "application/pdf";
   const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
   const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-  const SUPPORTED_SOURCE_MIMES = new Set([GOOGLE_DOC_MIME, GOOGLE_SHEET_MIME, PDF_MIME, DOCX_MIME, XLSX_MIME]);
+  const PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+  const SUPPORTED_SOURCE_MIMES = new Set([GOOGLE_DOC_MIME, GOOGLE_SHEET_MIME, GOOGLE_SLIDE_MIME, PDF_MIME, DOCX_MIME, XLSX_MIME, PPTX_MIME]);
 
   class GoogleDriveServiceError extends Error {
     constructor(message, options = {}) {
@@ -240,7 +242,7 @@
 
     isSupported(file = {}) {
       if (SUPPORTED_SOURCE_MIMES.has(file.mimeType)) return true;
-      return /\.(pdf|docx|xlsx)$/i.test(file.name || "");
+      return /\.(pdf|docx|xlsx|pptx|gdoc|gsheet|gslide)$/i.test(file.name || "");
     }
 
     downloadDescriptor(file = {}) {
@@ -249,6 +251,9 @@
       }
       if (file.mimeType === GOOGLE_SHEET_MIME) {
         return { mode: "export", mimeType: XLSX_MIME, name: `${file.name}.xlsx` };
+      }
+      if (file.mimeType === GOOGLE_SLIDE_MIME) {
+        return { mode: "export", mimeType: PPTX_MIME, name: `${file.name}.pptx` };
       }
       return { mode: "download", mimeType: file.mimeType || "application/octet-stream", name: file.name || file.id };
     }
