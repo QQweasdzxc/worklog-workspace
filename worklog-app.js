@@ -2343,7 +2343,7 @@ function workMemoryItemsForView() {
   return filtered.sort((a, b) => {
     if (workMemorySort === "name") return a.name.localeCompare(b.name, "zh-Hant");
     if (workMemorySort === "usage") return Number(b.usageCount || 0) - Number(a.usageCount || 0) || a.name.localeCompare(b.name, "zh-Hant");
-    return String(a.category || "其他").localeCompare(String(b.category || "其他"), "zh-Hant") || a.name.localeCompare(b.name, "zh-Hant");
+    return a.name.localeCompare(b.name, "zh-Hant");
   });
 }
 
@@ -2360,20 +2360,17 @@ function workMemoryPage(options = {}) {
   const cloudNotice = workMemoryFoundationNotInitialized
     ? `<div class="empty work-memory-cloud-notice"><b>🟡 Work Memory Cloud 尚未初始化</b><div class="muted">目前畫面只顯示本機快取，不能視為正式記憶。請先執行 ${escapeHtml(WORK_MEMORY_SCHEMA_SQL)}。</div></div>`
     : "";
-  const groups = [...new Set(items.map(item => item.category || "其他"))];
-  const cards = items.length ? groups.map(category => {
-    const categoryItems = items.filter(item => (item.category || "其他") === category);
-    return `<section class="work-memory-folder"><div class="work-memory-folder-head"><div><span class="work-memory-folder-icon">📁</span><b>${escapeHtml(category)}</b><small>${categoryItems.length} 項工作</small></div><span class="muted">Mr. KM 已整理</span></div><div class="work-memory-card-grid">${categoryItems.map(item => { const selected = workMemoryMergeSelection.includes(item.name); const cardAction = workMemoryMergeMode ? `<button class="btn2 ${selected ? "selected" : ""}" type="button" data-toggle-work-memory-merge="${escapeHtml(item.name)}">${selected ? "✓ 已選取" : "＋ 選取合併"}</button>` : `<div class="work-memory-card-actions"><button class="btn2" type="button" data-edit-work-memory="${escapeHtml(item.name)}">✏️ 編輯</button><button class="btn2" type="button" data-start-work-memory-merge="${escapeHtml(item.name)}">🔀 合併</button></div>`; return `<article class="work-memory-card work-memory-confirmed-card ${selected ? "is-merge-selected" : ""}"><div class="work-memory-card-top"><span class="work-memory-confirmed-label">已採用工作</span><span class="status-dot ${item.enabled ? "ok" : "off"}" title="${item.enabled ? "已啟用" : "已停用"}"></span></div><b class="work-memory-card-title">${escapeHtml(item.name)}</b><small>${escapeHtml(item.description)}</small><div class="work-memory-card-meta"><span>熟悉度 ${escapeHtml(workMemoryFamiliarityBars(item.familiarityScore))}</span><span>${item.usageCount ? `使用 ${item.usageCount} 次` : "尚未使用"}</span></div>${cardAction}</article>`; }).join("")}</div></section>`;
-  }).join("") : `<div class="empty"><b>${workMemoryItems().length ? "找不到符合條件的工作" : "目前還沒有已採用工作"}</b><div class="muted">${workMemoryItems().length ? "請調整搜尋或分類條件。" : "你可以新增工作，或查看 Mr. KM 整理好的 AI 建議。"}</div></div>`;
+  const cards = items.length ? `<div class="work-memory-card-grid">${items.map(item => { const selected = workMemoryMergeSelection.includes(item.name); const cardAction = workMemoryMergeMode ? `<button class="btn2 ${selected ? "selected" : ""}" type="button" data-toggle-work-memory-merge="${escapeHtml(item.name)}">${selected ? "✓ 已選取" : "＋ 選取合併"}</button>` : `<div class="work-memory-card-actions"><button class="btn2" type="button" data-edit-work-memory="${escapeHtml(item.name)}">✏️ 編輯</button><button class="btn2" type="button" data-start-work-memory-merge="${escapeHtml(item.name)}">🔀 合併</button></div>`; return `<article class="work-memory-card work-memory-confirmed-card ${selected ? "is-merge-selected" : ""}"><div class="work-memory-card-top"><span class="work-memory-confirmed-label">已採用工作</span><span class="work-memory-card-tag">${escapeHtml(item.category || "其他")}</span><span class="status-dot ${item.enabled ? "ok" : "off"}" title="${item.enabled ? "已啟用" : "已停用"}></span></div><b class="work-memory-card-title">${escapeHtml(item.name)}</b><small>${escapeHtml(item.description)}</small><div class="work-memory-card-meta"><span>熟悉度 ${escapeHtml(workMemoryFamiliarityBars(item.familiarityScore))}</span><span>${item.usageCount ? `使用 ${item.usageCount} 次` : "尚未使用"}</span></div>${cardAction}</article>`; }).join("")}</div>` : `<div class="empty"><b>${workMemoryItems().length ? "找不到符合條件的工作" : "目前還沒有已採用工作"}</b><div class="muted">${workMemoryItems().length ? "請調整搜尋或分類條件。" : "你可以新增工作，或查看 Mr. KM 整理好的 AI 建議。"}</div></div>`;
   const editingItem = items.find(item => item.name === editingWorkMemoryName);
   const editor = editingItem ? `<div class="quick-add-dialog work-memory-editor"><div class="quick-add-card"><div class="panel-head"><div><h3>✏️ 編輯工作</h3><div class="muted">修改後，Mr. KM 會依照新的內容提供工時建議。</div></div><button class="btn2" type="button" data-cancel-work-memory-edit="1">關閉</button></div><label>工作名稱</label><input class="input" id="workMemoryEditName" value="${escapeHtml(editingItem.name)}"><label>工作說明</label><textarea id="workMemoryEditDescription">${escapeHtml(editingItem.description)}</textarea><label>分類</label><input class="input" id="workMemoryEditCategory" value="${escapeHtml(editingItem.category)}"><label>啟用狀態</label><select class="input" id="workMemoryEditEnabled"><option value="1" ${editingItem.enabled ? "selected" : ""}>啟用</option><option value="0" ${editingItem.enabled ? "" : "selected"}>停用</option></select><div class="form-actions"><button class="btn2 danger" type="button" data-delete-work-memory="${escapeHtml(editingItem.name)}">刪除</button><button class="btn" type="button" data-save-work-memory-edit="${escapeHtml(editingItem.name)}">儲存修改</button></div></div></div>` : "";
   const categories = [...new Set(workMemoryItems().map(item => item.category || "其他"))].sort((a, b) => a.localeCompare(b, "zh-Hant"));
-  const filters = `<div class="work-memory-toolbar"><input class="input" type="search" data-work-memory-search placeholder="搜尋我的工作、別名或來源" value="${escapeHtml(workMemoryQuery)}"><select class="input" data-work-memory-category><option value="all" ${workMemoryCategoryFilter === "all" ? "selected" : ""}>全部分類</option>${categories.map(category => `<option value="${escapeHtml(category)}" ${category === workMemoryCategoryFilter ? "selected" : ""}>${escapeHtml(category)}</option>`).join("")}</select><select class="input" data-work-memory-sort><option value="category" ${workMemorySort === "category" ? "selected" : ""}>依分類</option><option value="name" ${workMemorySort === "name" ? "selected" : ""}>名稱</option><option value="usage" ${workMemorySort === "usage" ? "selected" : ""}>最近使用</option></select></div>`;
+  const filters = `<div class="work-memory-toolbar"><input class="input" type="search" data-work-memory-search placeholder="搜尋我的工作、別名或來源" value="${escapeHtml(workMemoryQuery)}"><select class="input" data-work-memory-category><option value="all" ${workMemoryCategoryFilter === "all" ? "selected" : ""}>全部分類</option>${categories.map(category => `<option value="${escapeHtml(category)}" ${category === workMemoryCategoryFilter ? "selected" : ""}>${escapeHtml(category)}</option>`).join("")}</select><select class="input" data-work-memory-sort><option value="name" ${workMemorySort === "name" ? "selected" : ""}>名稱</option><option value="usage" ${workMemorySort === "usage" ? "selected" : ""}>最近使用</option></select></div>`;
   const mergePreview = workMemoryMergeSuggestions(2);
   const mergeNotice = mergePreview.length && !workMemoryMergeMode ? `<div class="work-memory-ai-notice"><b>🪶 我發現 ${mergePreview.length} 組工作可能可以整理</b><span>${mergePreview.map(item => `${escapeHtml(item.a)} ↔ ${escapeHtml(item.b)}`).join("、")}</span><button class="btn2" data-open-workspace="aiSuggestions">查看 AI 建議</button></div>` : "";
   const mergeModeNotice = workMemoryMergeMode ? `<div class="work-memory-merge-mode"><b>🔀 手動合併工作</b><span>請選擇至少兩項工作；下一步會使用與 AI 建議相同的 Merge Preview。</span><strong>已選 ${workMemoryMergeSelection.length} 項</strong></div>` : "";
+  const mergeCompletedNotice = workMemoryMergeCompletedNotice ? `<div class="work-memory-merge-completed"><b>✅ Merge Completed</b><span>${escapeHtml(workMemoryMergeCompletedNotice)}</span><button class="btn2" data-rebuild-work-memory-suggestions="1">🔄 重新分析 AI 建議</button></div>` : "";
   const manualPreview = workMemoryManualMergeSuggestion ? `<div class="work-memory-manual-merge-preview">${workMemoryMergePreviewMarkup(workMemoryManualMergeSuggestion)}<div class="merge-preview-actions"><button class="btn green" data-confirm-work-memory-merge="1">✅ 採用合併</button><button class="btn2" data-cancel-work-memory-merge="1">先保留</button></div></div>` : "";
-  const content = `<div class="panel-head"><div><h2>🪶 我的工作</h2><div class="muted">這裡只放你已經確認的工作，也是工時建議的正式來源。</div></div><div class="actions compact work-memory-head-actions">${headActions}</div></div>${cloudNotice}${mergeModeNotice}${manualPreview}${mergeNotice}${filters}<div class="work-memory-count muted">顯示 ${items.length} / ${workMemoryItems().length} 項工作</div><div class="work-memory-folder-grid">${cards}</div>${editor}`;
+  const content = `<div class="panel-head"><div><h2>🪶 我的工作</h2><div class="muted">這裡是單一工作 Workspace；分類只作為 Tag 與篩選，不會把工作切成不同清單。</div></div><div class="actions compact work-memory-head-actions">${headActions}</div></div>${cloudNotice}${mergeCompletedNotice}${mergeModeNotice}${manualPreview}${mergeNotice}${filters}<div class="work-memory-count muted">顯示 ${items.length} / ${workMemoryItems().length} 項工作</div>${cards}${editor}`;
   return compact ? `<div class="work-memory-page">${content}</div>` : `<section class="panel work-memory-page" style="margin-top:18px">${content}</section>`;
 }
 
@@ -4093,6 +4090,7 @@ async function acceptWorkMemoryMergeSuggestion(suggestion, nextName = "", nextDe
     for (let nextIndex = index + 1; nextIndex < members.length; nextIndex += 1) saveWorkMemoryMergeDecision(members[index], members[nextIndex], "accepted");
   }
   bumpWorkMemoryMergeStat(nextName && nextName !== suggestion.keep ? "renamed" : "merged");
+  workMemoryMergeCompletedNotice = `我已把 ${members.join("、")} 整理成「${keepName}」。建議快取尚未重新計算。`;
   await persistWorkMemory(next, "我已記住這次整理方式");
 }
 
@@ -4172,6 +4170,13 @@ function resetWorkMemoryManualMerge() {
   workMemoryManualMergeSuggestion = null;
 }
 
+function rebuildWorkMemorySuggestionCache() {
+  localStorage.setItem(scopedLocalKey(WORK_MEMORY_SUGGESTION_CACHE_KEY), new Date().toISOString());
+  workMemoryMergeCompletedNotice = "";
+  toast("我已重新分析 AI 建議");
+  render();
+}
+
 function startWorkMemoryManualMerge(name = "") {
   const clean = String(name || "").trim();
   if (!clean || !workMemoryObjectByName(clean)) return toast("找不到這項工作");
@@ -4230,7 +4235,7 @@ function bindWorkMemory() {
   const categoryFilter = document.querySelector("[data-work-memory-category]");
   if (categoryFilter) categoryFilter.onchange = event => { workMemoryCategoryFilter = event.target.value || "all"; render(); };
   const sort = document.querySelector("[data-work-memory-sort]");
-  if (sort) sort.onchange = event => { workMemorySort = event.target.value || "category"; render(); };
+  if (sort) sort.onchange = event => { workMemorySort = event.target.value || "name"; render(); };
   document.querySelectorAll("[data-start-work-memory-merge]").forEach(button => button.onclick = () => startWorkMemoryManualMerge(button.dataset.startWorkMemoryMerge));
   document.querySelectorAll("[data-toggle-work-memory-merge]").forEach(button => button.onclick = () => toggleWorkMemoryManualMerge(button.dataset.toggleWorkMemoryMerge));
   document.querySelectorAll("[data-next-work-memory-merge]").forEach(button => button.onclick = () => prepareWorkMemoryManualMerge());
@@ -4241,6 +4246,7 @@ function bindWorkMemory() {
     resetWorkMemoryManualMerge();
     await acceptWorkMemoryMergeSuggestion(suggestion);
   });
+  document.querySelectorAll("[data-rebuild-work-memory-suggestions]").forEach(button => button.onclick = () => rebuildWorkMemorySuggestionCache());
   const add = document.querySelector("[data-add-work-memory]");
   if (add) add.onclick = async () => {
     const name = prompt("想讓我記住哪一項工作？");

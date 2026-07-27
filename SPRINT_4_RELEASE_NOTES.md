@@ -1,7 +1,7 @@
 # Sprint 4 — Product Experience Optimization
 
 **Version:** `0.9.0-alpha.4`  
-**Build:** `20260727-1619`  
+**Build:** `20260727-1654`  
 **Status:** PM UAT candidate
 
 ## Completed
@@ -11,9 +11,12 @@
 - AI Merge preview now presents **工作 A + 工作 B → 合併結果**, with canonical name, category, retained aliases, and an explicit confirmation reminder for historical WorkLog and Knowledge relationships.
 - AI suggestions are collapsed by default; detail content and decision actions appear after **查看建議內容**.
 - 我的工作 cards now offer direct **🔀 合併** entry; manual selection and AI suggestions share the same Merge Preview and confirmation engine.
-- Existing Work Memory folders, search, category filter, and sort remain available as the Dashboard-style「我的工作」surface.
+- Work Memory is now a single workspace. Categories remain visible as tags and filters, while name/usage sorting spans the full set of work.
+- Merge completion shows a clear success state and a **🔄 重新分析 AI 建議** action that rebuilds the suggestion cache and similarity view.
+- Manual Merge and AI Merge continue to share one preview/confirmation engine.
 - Learning states retain explicit reading, analysis, understanding, organizing, completion, and error feedback.
 - Google OAuth verification package added under `docs/Google_Verification/`.
+- Landing, Privacy, Terms, and OAuth reviewer materials now identify Zhuge AI OS as a Personal AI Productivity Assistant developed by Mr.KM.
 
 ## Scope guard
 
