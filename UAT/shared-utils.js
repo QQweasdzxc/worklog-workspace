@@ -265,6 +265,7 @@ function legacyInventory() {
   const legacyProfile = readJson("wl_profile", null);
   const legacyFeedback = readJson("wl_feedback", {});
   const legacyLibrary = readJson("wl_library", []);
+  const legacyTasks = readJson("zhuge_worklog_tasks_v1", []);
   const workModels = Array.isArray(legacyProfile?.tags) ? legacyProfile.tags.filter(Boolean) : [];
   const ecpTasksSource = Array.isArray(legacyProfile?.ecpTasks) ? legacyProfile.ecpTasks : (legacyProfile?.ecpTask ? [legacyProfile.ecpTask] : []);
   const ecpTasksCount = [...new Set(ecpTasksSource.map(x => String(x || "").trim()).filter(Boolean))].length;
@@ -275,7 +276,8 @@ function legacyInventory() {
     ecpSettings: !!(legacyProfile?.ecpOwner || legacyProfile?.ecpDepartment),
     feedback: legacyFeedback && typeof legacyFeedback === "object" ? Object.keys(legacyFeedback).length : 0,
     library: Array.isArray(legacyLibrary) ? legacyLibrary.length : 0,
-    hasCoreData: !!legacyProfile || (Array.isArray(legacyEntries) && legacyEntries.length > 0) || ecpTasksCount > 0
+    tasks: Array.isArray(legacyTasks) ? legacyTasks.length : 0,
+    hasCoreData: !!legacyProfile || (Array.isArray(legacyEntries) && legacyEntries.length > 0) || ecpTasksCount > 0 || (Array.isArray(legacyTasks) && legacyTasks.length > 0)
   };
 }
 

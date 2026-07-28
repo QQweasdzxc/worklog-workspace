@@ -5,9 +5,9 @@
   "deployable": false,
   "uatReady": true,
   "pickerConfigured": true,
-  "buildTime": "20260728-2218",
+  "buildTime": "20260728-2325",
   "commitSha": "deferred-simple-first",
-  "productVersion": "0.9.0-alpha.6.1",
+  "productVersion": "0.9.0-alpha.6.2",
   "unresolvedKeys": [
     "ROOT_DOMAIN",
     "WEBSITE_URL",
