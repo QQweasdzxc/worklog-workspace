@@ -8,6 +8,7 @@ let autoSaveTimer = null;
 let autoSaveInFlight = false;
 const autoSaveDirtyScopes = new Set();
 let knowledgeFoundationNotInitialized = cloudSync.status === "knowledge_uninitialized";
+let taskFoundationNotInitialized = false;
 let conversationFoundationNotInitialized = false;
 let migrationRequired = false;
 let migrationPreview = null;
@@ -31,6 +32,7 @@ const LocalCache = {
     this.save("work_models", Array.isArray(DataService.workModelsState) ? DataService.workModelsState : profile?.tags || []);
     this.save("ecp_settings", { ecpOwner: profile?.ecpOwner || "", ecpDepartment: profile?.ecpDepartment || "" });
     this.save("ecp_tasks", Array.isArray(DataService.ecpTasksState) ? DataService.ecpTasksState : profile?.ecpTasks || []);
+    this.save("tasks", Array.isArray(tasks) ? tasks.map(normalizeTask) : []);
     this.save("library", library);
     this.save("knowledge_units", knowledgeUnits);
     this.save("knowledge_recommendation_candidates", knowledgeRecommendationCandidates);
@@ -122,6 +124,10 @@ const DataService = {
         const rows = await SupabaseRepository.saveEcpTasks(ecpTasks());
         setEcpTasks(Array.isArray(rows) ? rows.map(row => row.name).filter(Boolean) : ecpTasks());
       }
+      if (scopes.has("tasks")) {
+        const rows = await SupabaseRepository.saveTasks(tasks);
+        setTasksFromCloud(rows);
+      }
       LocalCache.saveAll();
       this.setStatus(autoSaveDirtyScopes.size ? "pending" : "synced");
       if (autoSaveDirtyScopes.size) {
@@ -134,6 +140,9 @@ const DataService = {
       if (scopes.has("workModels") && isWorkMemoryNotInitializedError(error)) {
         workMemoryFoundationNotInitialized = true;
         this.setStatus("work_memory_uninitialized", `請先執行 ${WORK_MEMORY_SCHEMA_SQL}`);
+      } else if (scopes.has("tasks") && isTasksNotInitializedError(error)) {
+        taskFoundationNotInitialized = true;
+        this.setStatus("tasks_uninitialized", `請先執行 ${TASKS_SCHEMA_SQL}`);
       } else this.setStatus("failed", error.message || "Smart Auto Save failed");
     } finally {
       autoSaveInFlight = false;
@@ -144,6 +153,7 @@ const DataService = {
       autoSaveDirtyScopes.add("profile");
       autoSaveDirtyScopes.add("workModels");
       autoSaveDirtyScopes.add("ecpTasks");
+      autoSaveDirtyScopes.add("tasks");
     }
     if (autoSaveTimer) clearTimeout(autoSaveTimer);
     autoSaveTimer = setTimeout(() => this.flushAutoSaveQueue(), 0);
@@ -325,6 +335,12 @@ const DataService = {
             console.warn("Work Memory Cloud Foundation not initialized", { setupSql: WORK_MEMORY_SCHEMA_SQL, error });
             return fallback;
           }
+          if (label === "tasks" && isTasksNotInitializedError(error)) {
+            taskFoundationNotInitialized = true;
+            failedLoads.add(label);
+            console.warn("Task Cloud Foundation not initialized", { setupSql: TASKS_SCHEMA_SQL, error });
+            return fallback;
+          }
           errors.push(`${label}: ${error.message || error}`);
           failedLoads.add(label);
           console.error(`Cloud Sync ${label} load failed`, error);
@@ -336,6 +352,7 @@ const DataService = {
       const cloudWorkProfile = await safeLoad("work_profile", () => SupabaseRepository.loadWorkProfile(), null);
       let workModelsRows = await safeLoad("work_models", () => SupabaseRepository.loadWorkModels(), []);
       const ecpTaskRows = await safeLoad("ecp_tasks", () => SupabaseRepository.loadEcpTasks(), []);
+      const taskRows = await safeLoad("tasks", () => SupabaseRepository.loadTasks(), []);
       const entryRows = await safeLoad("entries", () => SupabaseRepository.loadEntries(selectedMonth), []);
       const knowledgeRows = await safeLoad("knowledge", () => KnowledgeRepository.loadSources(), []);
       const knowledgeUnitRows = await safeLoad("knowledge_units", () => KnowledgeRepository.loadUnits(), []);
@@ -357,6 +374,10 @@ const DataService = {
       workProfile = workProfileFromCloud(cloudWorkProfile, exportSettings, ecpTaskRows || [], profile);
       applyWorkProfileToProfile(workProfile);
       if (!failedLoads.has("entries")) setEntries(Array.isArray(entryRows) ? entryRows.map(entryFromCloud) : []);
+      if (!failedLoads.has("tasks")) {
+        taskFoundationNotInitialized = false;
+        setTasksFromCloud(taskRows);
+      }
       if (!failedLoads.has("knowledge")) {
         knowledgeFoundationNotInitialized = false;
         setLibrary(Array.isArray(knowledgeRows) ? knowledgeRows.map(knowledgeFromCloud) : []);
@@ -370,6 +391,7 @@ const DataService = {
       LocalCache.saveAll();
       if (errors.length) this.setStatus("failed", errors.join(" | "));
       else if (workMemoryFoundationNotInitialized) this.setStatus("work_memory_uninitialized", "Work Memory Cloud 尚未初始化");
+      else if (taskFoundationNotInitialized) this.setStatus("tasks_uninitialized", "Tasks Cloud 尚未初始化");
       else if (knowledgeFoundationNotInitialized) this.setStatus("knowledge_uninitialized", "Knowledge Library 尚未初始化");
       else this.setStatus("synced");
     } catch (error) {
@@ -411,6 +433,8 @@ const DataService = {
     this.setStatus("migrating");
     try {
       entries = readJson("wl_entries", []);
+      const legacyTasks = readJson("zhuge_worklog_tasks_v1", []).map(normalizeTask).filter(item => item.title);
+      if (!tasks.length && legacyTasks.length) tasks = legacyTasks;
       profile = readJson("wl_profile", profile);
       normalizeEntries();
       if (profile) {
@@ -420,6 +444,7 @@ const DataService = {
         await SupabaseRepository.upsertWorkProfile(workProfile);
         await SupabaseRepository.saveWorkModels(workMemoryObjects(), profile);
         await SupabaseRepository.saveEcpTasks(ecpTasks());
+        await SupabaseRepository.saveTasks(tasks);
       }
       for (const entry of entries.filter(e => e.status !== "deleted")) {
         const saved = await SupabaseRepository.saveEntry(entry);
@@ -459,6 +484,7 @@ const DataService = {
         await SupabaseRepository.upsertWorkProfile(workProfile);
         await SupabaseRepository.saveWorkModels(workMemoryObjects(), profile);
         await SupabaseRepository.saveEcpTasks(ecpTasks());
+        await SupabaseRepository.saveTasks(tasks);
       }
       for (const entry of entries.filter(e => e.status !== "deleted")) {
         const saved = await SupabaseRepository.saveEntry(entry);

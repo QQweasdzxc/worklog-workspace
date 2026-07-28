@@ -234,24 +234,40 @@ function taskStorageKey() {
 
 function normalizeTask(item = {}) {
   const title = String(item.title || item.name || "").trim();
+  const clientId = item.legacy_id || item.clientId || item.client_id || item.id || uid("task");
   return {
-    id: String(item.id || uid("task")),
+    id: String(clientId),
+    cloudId: String(item.cloudId || item.cloud_id || (item.legacy_id ? item.id || "" : "")),
     title,
     note: String(item.note || "").trim(),
-    dueDate: String(item.dueDate || "").slice(0, 10),
+    dueDate: String(item.dueDate || item.due_date || "").slice(0, 10),
     status: item.status === "completed" ? "completed" : "open",
+    priority: typeof PriorityEngine !== "undefined" ? PriorityEngine.normalizePriority(item.priority) : String(item.priority || "medium").toLowerCase(),
+    priorityScore: Number(item.priorityScore ?? item.priority_score ?? 0) || 0,
+    userPinned: item.userPinned === true || item.user_pinned === true,
+    estimatedMinutes: Number(item.estimatedMinutes ?? item.estimated_minutes ?? 0) || 0,
     createdAt: item.createdAt || new Date().toISOString(),
-    updatedAt: item.updatedAt || item.createdAt || new Date().toISOString(),
-    completedAt: item.completedAt || ""
+    updatedAt: item.updatedAt || item.updated_at || item.createdAt || new Date().toISOString(),
+    completedAt: item.completedAt || item.completed_at || ""
   };
 }
 
 function loadTasksForSession() {
-  tasks = currentUserUuid() ? readJson(taskStorageKey(), []).map(normalizeTask).filter(item => item.title) : [];
+  // LocalStorage is a cache only.  The authoritative task list is hydrated by
+  // DataService from Supabase before the authenticated workspace is trusted.
+  tasks = [];
 }
 
 function saveTasks() {
-  if (currentUserUuid()) writeJson(taskStorageKey(), tasks.map(normalizeTask));
+  if (!currentUserUuid()) return;
+  LocalCache.save("tasks", tasks.map(normalizeTask));
+  if (typeof DataService !== "undefined") DataService.queueAutoSave("tasks");
+}
+
+function setTasksFromCloud(rows = []) {
+  tasks = (Array.isArray(rows) ? rows : []).map(normalizeTask).filter(item => item.title);
+  LocalCache.save("tasks", tasks);
+  return tasks;
 }
 
 function taskListItems() {
@@ -677,6 +693,7 @@ function cloudSyncLabel() {
   if (cloudSync.status === "pending") return "🔄 尚未同步";
   if (cloudSync.status === "knowledge_uninitialized") return "🟡 Knowledge 未初始化";
   if (cloudSync.status === "work_memory_uninitialized") return "🟡 Work Memory 未初始化";
+  if (cloudSync.status === "tasks_uninitialized") return "🟡 Tasks Cloud 未初始化";
   if (cloudSync.status === "migration_required") return "🟡 等待資料搬移";
   if (cloudSync.status === "migrating") return "🟡 資料搬移中";
   if (cloudSync.status === "failed") return "🔴 同步失敗";
@@ -689,6 +706,7 @@ function cloudSyncDetail() {
   if (cloudSync.status === "syncing") return "同步中...";
   if (cloudSync.status === "knowledge_uninitialized") return "請先建立 Knowledge Database 與 Storage Bucket";
   if (cloudSync.status === "work_memory_uninitialized") return `請先執行 ${WORK_MEMORY_SCHEMA_SQL}`;
+  if (cloudSync.status === "tasks_uninitialized") return `請先執行 ${TASKS_SCHEMA_SQL}`;
   if (cloudSync.status === "migration_required") return "請先確認 Migration Preview";
   if (cloudSync.status === "migrating") return "正在搬移 RC3.3 本機資料";
   if (!cloudSync.lastSyncedAt) return "等待 Cloud Sync";
@@ -753,6 +771,11 @@ function isWorkProfileNotInitializedError(error) {
 function isWorkMemoryNotInitializedError(error) {
   const text = `${error?.supabase?.status || ""} ${error?.supabase?.code || ""} ${error?.supabase?.message || ""} ${error?.supabase?.body || ""} ${error?.message || ""}`;
   return /user_work_models/i.test(text) && /description|category|aliases|source_references|keywords|familiarity|last_used_at|schema cache|column/i.test(text);
+}
+
+function isTasksNotInitializedError(error) {
+  const text = `${error?.supabase?.status || ""} ${error?.supabase?.code || ""} ${error?.supabase?.message || ""} ${error?.supabase?.body || ""} ${error?.message || ""}`;
+  return /user_tasks/i.test(text) && (/404|42P01|relation|schema cache|column|not found/i.test(text));
 }
 
 function minutesFromTime(value = "09:00") {
@@ -2042,7 +2065,7 @@ function worklogWelcomeScreen() {
 
 function migrationScreen() {
   const p = migrationPreview || legacyInventory();
-  return `<div class="wrap"><div class="card"><div class="top"><div><div class="muted">☁ RC3.4A Cloud Sync</div><h1>資料上雲確認</h1><div class="muted">系統偵測到 RC3.3 本機資料。請確認後執行一次性搬移，完成後正式資料將以 Supabase 為準，LocalStorage 僅保留安全備份與快取。</div></div><div class="header-right">${userBadge()}</div></div><section class="panel" style="margin-top:18px"><h2>Migration Preview</h2><div class="dashboard-grid"><div class="entry"><b>工時</b><div class="muted">${p.entries} 筆</div></div><div class="entry"><b>工作模型</b><div class="muted">${p.workModels} 筆</div></div><div class="entry"><b>ECP 任務</b><div class="muted">${p.ecpTasks} 筆</div></div><div class="entry"><b>ECP 設定</b><div class="muted">${p.ecpSettings ? "有" : "無"}</div></div><div class="entry"><b>AI Feedback</b><div class="muted">${p.feedback} 筆，本階段僅盤點</div></div><div class="entry"><b>藏書閣</b><div class="muted">${p.library} 筆，本階段僅盤點</div></div></div>${migrationError ? `<div class="empty" style="margin-top:12px"><b>Migration 失敗</b><div class="muted">${escapeHtml(migrationError)}</div></div>` : ""}<div class="form-actions"><button class="btn2" data-logout="1">先不要，登出</button><button class="btn" data-run-migration="1" ${migrationRunning ? "disabled" : ""}>${migrationRunning ? "搬移中..." : "開始 Cloud Sync Migration"}</button></div><div class="muted" style="margin-top:10px">失敗時不會清除 legacy LocalStorage。請確認 Supabase Phase 1 SQL 已套用。</div></section></div></div>`;
+  return `<div class="wrap"><div class="card"><div class="top"><div><div class="muted">☁ RC3.4A Cloud Sync</div><h1>資料上雲確認</h1><div class="muted">系統偵測到 RC3.3 本機資料。請確認後執行一次性搬移，完成後正式資料將以 Supabase 為準，LocalStorage 僅保留安全備份與快取。</div></div><div class="header-right">${userBadge()}</div></div><section class="panel" style="margin-top:18px"><h2>Migration Preview</h2><div class="dashboard-grid"><div class="entry"><b>工時</b><div class="muted">${p.entries} 筆</div></div><div class="entry"><b>工作模型</b><div class="muted">${p.workModels} 筆</div></div><div class="entry"><b>ECP 任務</b><div class="muted">${p.ecpTasks} 筆</div></div><div class="entry"><b>待辦</b><div class="muted">${p.tasks || 0} 筆</div></div><div class="entry"><b>ECP 設定</b><div class="muted">${p.ecpSettings ? "有" : "無"}</div></div><div class="entry"><b>AI Feedback</b><div class="muted">${p.feedback} 筆，本階段僅盤點</div></div><div class="entry"><b>藏書閣</b><div class="muted">${p.library} 筆，本階段僅盤點</div></div></div>${migrationError ? `<div class="empty" style="margin-top:12px"><b>Migration 失敗</b><div class="muted">${escapeHtml(migrationError)}</div></div>` : ""}<div class="form-actions"><button class="btn2" data-logout="1">先不要，登出</button><button class="btn" data-run-migration="1" ${migrationRunning ? "disabled" : ""}>${migrationRunning ? "搬移中..." : "開始 Cloud Sync Migration"}</button></div><div class="muted" style="margin-top:10px">失敗時不會清除 legacy LocalStorage。請確認 Supabase Phase 1 SQL 與 Tasks Cloud SQL 已套用。</div></section></div></div>`;
 }
 
 function zhugeDashboard() {

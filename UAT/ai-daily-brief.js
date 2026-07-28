@@ -48,31 +48,18 @@
   }
 
   function briefPendingTasks() {
-    return (typeof tasks !== "undefined" && Array.isArray(tasks) ? tasks : [])
+    const source = typeof tasks !== "undefined" && Array.isArray(tasks) ? tasks : [];
+    return typeof PriorityEngine !== "undefined" ? PriorityEngine.rank(source) : source
       .filter(task => task && task.status !== "completed" && task.done !== true && task.completed !== true)
       .sort((a, b) => briefTaskPriorityScore(b) - briefTaskPriorityScore(a));
   }
 
   function briefTaskPriorityScore(task = {}) {
-    const todayKey = briefDateKey(new Date());
-    const due = String(task.dueDate || task.due_date || "").slice(0, 10);
-    const priority = String(task.priority || "").toLowerCase();
-    const priorityScore = { urgent: 500, high: 400, 高: 400, 重要: 400, medium: 200, 中: 200, low: 100, 低: 100 }[priority] || 0;
-    const dueScore = due ? (due < todayKey ? 700 : due === todayKey ? 600 : due <= briefDateKey(new Date(Date.now() + 7 * 86400000)) ? 300 : 50) : 0;
-    const age = Date.parse(task.createdAt || task.created_at || task.updatedAt || task.updated_at || "") || Date.now();
-    const oldestScore = Math.max(0, Math.round((Date.now() - age) / 86400000));
-    return priorityScore + dueScore + oldestScore;
+    return typeof PriorityEngine !== "undefined" ? PriorityEngine.score(task) : 0;
   }
 
   function briefTaskReason(task = {}) {
-    const todayKey = briefDateKey(new Date());
-    const due = String(task.dueDate || task.due_date || "").slice(0, 10);
-    const priority = String(task.priority || "").toLowerCase();
-    if (due && due < todayKey) return "因為已逾期。";
-    if (due === todayKey) return "因為今天截止。";
-    if (["urgent", "high", "高", "重要"].includes(priority)) return "因為優先級較高。";
-    if (due) return `因為 ${due.replace(/-/g, "/")} 到期。`;
-    return "因為它是目前最久未完成的工作。";
+    return typeof PriorityEngine !== "undefined" ? PriorityEngine.reason(task) : "依目前工作優先順序。";
   }
 
   function briefAdvice(todayHours = 0, missingHours = 0, topTask = null, pendingCount = 0) {

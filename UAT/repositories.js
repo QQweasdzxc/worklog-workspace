@@ -308,6 +308,43 @@ const SupabaseRepository = {
   saveEcpTasks(names) {
     return this.syncNameList("user_ecp_tasks", names);
   },
+  loadTasks() {
+    return this.select("user_tasks", "?select=*&deleted_at=is.null&order=status.asc,due_date.asc,updated_at.desc");
+  },
+  async saveTasks(items = []) {
+    const current = await this.loadTasks() || [];
+    const normalized = (items || []).map(item => normalizeTask(item)).filter(item => item.title);
+    const retainedIds = new Set();
+    for (const item of normalized) {
+      const existing = current.find(row => (item.cloudId && row.id === item.cloudId) || row.legacy_id === item.id);
+      const payload = {
+        user_uuid: currentUserUuid(),
+        legacy_id: item.id,
+        title: item.title,
+        note: item.note || "",
+        due_date: item.dueDate || null,
+        status: item.status === "completed" ? "completed" : "open",
+        priority: typeof PriorityEngine !== "undefined" ? PriorityEngine.normalizePriority(item.priority) : item.priority || "medium",
+        priority_score: Number(item.priorityScore || 0) || 0,
+        user_pinned: item.userPinned === true,
+        estimated_minutes: Number(item.estimatedMinutes || 0) || null,
+        completed_at: item.completedAt || null,
+        deleted_at: null,
+        updated_at: item.updatedAt || new Date().toISOString()
+      };
+      if (existing) {
+        await this.patch("user_tasks", `?id=eq.${encodeURIComponent(existing.id)}`, payload);
+        retainedIds.add(existing.id);
+      } else {
+        const inserted = await this.insert("user_tasks", payload);
+        if (inserted?.[0]?.id) retainedIds.add(inserted[0].id);
+      }
+    }
+    for (const row of current) {
+      if (!retainedIds.has(row.id)) await this.patch("user_tasks", `?id=eq.${encodeURIComponent(row.id)}`, { deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+    }
+    return this.loadTasks();
+  },
   async ensureAssistantConversation() {
     if (!currentUserUuid() || !currentAccessToken()) throw new Error("Cloud Sync 尚未就緒");
     const payload = {
@@ -366,6 +403,7 @@ const SupabaseRepository = {
       this.select("user_profiles", "?select=user_uuid&limit=1"),
       this.select("user_work_models", "?select=id&limit=1"),
       this.select("user_ecp_tasks", "?select=id&limit=1"),
+      this.select("user_tasks", "?select=id&limit=1"),
       this.select("user_export_settings", "?select=id&limit=1"),
       this.select("work_entries", "?select=id&status=neq.deleted&limit=1")
     ]);

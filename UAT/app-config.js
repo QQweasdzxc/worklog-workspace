@@ -1,7 +1,7 @@
 // P5.2A-1 Foundation Split: configuration and static constants.
-const VERSION = "0.9.0-alpha.6.1";
+const VERSION = "0.9.0-alpha.6.2";
 const RELEASE_VERSION = VERSION;
-const BUILD_TIME = "20260728-2218";
+const BUILD_TIME = "20260728-2325";
 const DEPLOY_SOURCE = `worklog-app.js?v=${BUILD_TIME}`;
 const KNOWLEDGE_DEBUG_MODE = (() => {
   try { return new URLSearchParams(location.search).has("debugKnowledge") || localStorage.getItem("zhuge_debug_knowledge") === "1"; }
@@ -39,6 +39,7 @@ const WORK_MEMORY_MERGE_DECISIONS_KEY = "zhuge_work_memory_merge_decisions_v1";
 const WORK_MEMORY_MERGE_STATS_KEY = "zhuge_work_memory_merge_stats_v1";
 const WORK_MEMORY_AI_SUGGESTION_DECISIONS_KEY = "zhuge_work_memory_ai_suggestion_decisions_v1";
 const TASKS_KEY = "zhuge_worklog_tasks_v1";
+const TASKS_SCHEMA_SQL = "docs/supabase/20260728_sprint_6_1_priority_cloud_first_schema.sql";
 const LEGACY_WORK_MEMORY_METADATA_KEY = "zhuge_work_memory_merge_notes_v1";
 const WORK_MEMORY_CLOUD_MIGRATION_KEY = "p5_6_work_memory_cloud_migrated_v1";
 const WORK_MEMORY_SCHEMA_SQL = "docs/supabase/20260714_p5_6_work_memory_cloud_foundation_schema.sql";
