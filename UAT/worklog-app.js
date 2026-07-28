@@ -1888,6 +1888,17 @@ function header() {
   return `<div class="top"><div class="brand-row"><button class="mini adaptive-menu" data-toggle-sidebar="1">☰</button><div class="brand-stack"><h1><span class="brand-mark" aria-hidden="true">🪶</span> Zhuge AI OS</h1><span class="brand-companion">by Mr. KM</span></div></div><div class="header-right">${headerWorkIdentityStatus()}</div></div>`;
 }
 
+/*
+ * Root Dashboard and module workspaces intentionally have different shells.
+ * The root brand/hero belongs only to the portal; child views get a compact
+ * context bar on narrow screens so the sidebar can still be opened without
+ * re-introducing the Root Hero into the WorkLog workspace.
+ */
+function workspaceContextBar() {
+  const workspace = workspaceDef(activeWorkspace);
+  return `<div class="workspace-context-bar"><div class="workspace-context-inner"><button class="mini adaptive-menu" data-toggle-sidebar="1" aria-label="開啟工作區選單">☰</button><div class="workspace-context-title"><span aria-hidden="true">${workspace.icon}</span> ${escapeHtml(workspace.label)}</div>${headerWorkIdentityStatus()}</div></div>`;
+}
+
 function authScreen() {
   const oauthError = getStoredOAuthError();
   const errorBlock = oauthError ? `<div class="empty" role="alert" style="margin:14px 0;border-color:#d97878"><b>Google 登入未完成</b><div class="muted">${escapeHtml(oauthError.message || "請稍後再試")}</div><small>錯誤代碼：${escapeHtml(oauthError.code || "unknown")}</small></div>` : "";
@@ -2478,7 +2489,9 @@ function workspaceContent() {
 
 function osShell() {
   normalizeWorkspaceState();
-  return `<div class="os-shell workspace-${escapeHtml(activeWorkspace)} ${sidebarOpen ? "sidebar-open" : ""}"><div class="os-topbar">${header()}</div><div class="os-body">${osSidebar()}<div class="sidebar-backdrop" data-close-sidebar="1"></div><main class="os-main">${workspaceTabs()}<div class="workspace-canvas">${workspaceContent()}</div></main></div>${floatingAssistantWidget()}</div>`;
+  const isRootDashboard = activeWorkspace === "dashboard";
+  const shellHeader = isRootDashboard ? `<div class="os-topbar">${header()}</div>` : workspaceContextBar();
+  return `<div class="os-shell workspace-${escapeHtml(activeWorkspace)} ${sidebarOpen ? "sidebar-open" : ""}">${shellHeader}<div class="os-body">${osSidebar()}<div class="sidebar-backdrop" data-close-sidebar="1"></div><main class="os-main">${workspaceTabs()}<div class="workspace-canvas">${workspaceContent()}</div></main></div>${floatingAssistantWidget()}</div>`;
 }
 
 function onboardingWorkspace() {
