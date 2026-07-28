@@ -309,7 +309,7 @@ const SupabaseRepository = {
     return this.syncNameList("user_ecp_tasks", names);
   },
   loadTasks() {
-    return this.select("user_tasks", "?select=*&deleted_at=is.null&order=status.asc,due_date.asc,updated_at.desc");
+    return this.select("user_tasks", "?select=*&deleted_at=is.null");
   },
   async saveTasks(items = []) {
     const current = await this.loadTasks() || [];
@@ -323,9 +323,12 @@ const SupabaseRepository = {
         title: item.title,
         note: item.note || "",
         due_date: item.dueDate || null,
+        deadline: item.dueDate || null,
         status: item.status === "completed" ? "completed" : "open",
-        priority: typeof PriorityEngine !== "undefined" ? PriorityEngine.normalizePriority(item.priority) : item.priority || "medium",
+        priority: typeof PriorityEngine !== "undefined" ? PriorityEngine.normalizePriority(item.priority) : item.priority || "p2",
         priority_score: Number(item.priorityScore || 0) || 0,
+        sort_score: typeof PriorityEngine !== "undefined" ? PriorityEngine.calculateScore(item) : Number(item.sortScore || 0) || 0,
+        pin: item.userPinned === true,
         user_pinned: item.userPinned === true,
         estimated_minutes: Number(item.estimatedMinutes || 0) || null,
         completed_at: item.completedAt || null,

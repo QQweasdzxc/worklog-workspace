@@ -235,16 +235,20 @@ function taskStorageKey() {
 function normalizeTask(item = {}) {
   const title = String(item.title || item.name || "").trim();
   const clientId = item.legacy_id || item.clientId || item.client_id || item.id || uid("task");
+  const priority = typeof PriorityEngine !== "undefined"
+    ? PriorityEngine.normalizePriority(item.priority)
+    : String(item.priority || "p2").toLowerCase();
   return {
     id: String(clientId),
     cloudId: String(item.cloudId || item.cloud_id || (item.legacy_id ? item.id || "" : "")),
     title,
     note: String(item.note || "").trim(),
-    dueDate: String(item.dueDate || item.due_date || "").slice(0, 10),
+    dueDate: String(item.dueDate || item.deadline || item.due_date || "").slice(0, 10),
     status: item.status === "completed" ? "completed" : "open",
-    priority: typeof PriorityEngine !== "undefined" ? PriorityEngine.normalizePriority(item.priority) : String(item.priority || "medium").toLowerCase(),
+    priority,
     priorityScore: Number(item.priorityScore ?? item.priority_score ?? 0) || 0,
-    userPinned: item.userPinned === true || item.user_pinned === true,
+    sortScore: Number(item.sortScore ?? item.sort_score ?? 0) || 0,
+    userPinned: item.pin === true || item.userPinned === true || item.user_pinned === true,
     estimatedMinutes: Number(item.estimatedMinutes ?? item.estimated_minutes ?? 0) || 0,
     createdAt: item.createdAt || new Date().toISOString(),
     updatedAt: item.updatedAt || item.updated_at || item.createdAt || new Date().toISOString(),
@@ -272,21 +276,36 @@ function setTasksFromCloud(rows = []) {
 
 function taskListItems() {
   const search = taskSearch.trim().toLowerCase();
-  return tasks
+  const filtered = tasks
     .filter(task => taskFilter === "all" || task.status === taskFilter)
-    .filter(task => !search || `${task.title} ${task.note}`.toLowerCase().includes(search))
-    .sort((a, b) => {
-      if (a.status !== b.status) return a.status === "open" ? -1 : 1;
-      return String(a.dueDate || "9999-12-31").localeCompare(String(b.dueDate || "9999-12-31")) || String(b.updatedAt).localeCompare(String(a.updatedAt));
-    });
+    .filter(task => !search || `${task.title} ${task.note}`.toLowerCase().includes(search));
+  return typeof PriorityEngine !== "undefined"
+    ? PriorityEngine.rank(filtered, { includeCompleted: true })
+    : filtered;
+}
+
+function taskPriorityOptions(selected = "p2") {
+  const options = [
+    ["p1", "🔴 P1", "最高優先"],
+    ["p2", "🟠 P2", "優先"],
+    ["p3", "🟡 P3", "一般"],
+    ["p4", "⚪ P4", "低優先"]
+  ];
+  return options.map(([value, label, hint]) => `<label class="task-priority-option"><input type="radio" name="taskPriority" value="${value}" ${selected === value ? "checked" : ""}><span>${label}</span><small>${hint}</small></label>`).join("");
+}
+
+function taskPriorityBadge(task = {}) {
+  const meta = typeof PriorityEngine !== "undefined" ? PriorityEngine.getPriorityMeta(task.priority) : { label: "P2", icon: "🟠" };
+  const reason = typeof PriorityEngine !== "undefined" ? PriorityEngine.getReason(task) : "依目前工作優先順序。";
+  return `<span class="task-priority-badge task-priority-${meta.label.toLowerCase()}" title="${escapeHtml(reason)}">${meta.icon} ${meta.label}</span>`;
 }
 
 function taskWorkspace() {
   const editing = tasks.find(task => task.id === editingTaskId) || null;
   const list = taskListItems();
-  const form = `<section class="task-form"><div class="panel-head"><div><h3>${editing ? "✏️ 編輯任務" : "＋ 新增任務"}</h3><div class="muted">把需要完成的事情留下來，完成後再標記即可。</div></div></div><label>任務名稱</label><input class="input" id="taskTitle" value="${escapeHtml(editing?.title || "")}" placeholder="例如：寄出採購資料"><label>備註（選填）</label><textarea class="input" id="taskNote" rows="2" placeholder="補充說明">${escapeHtml(editing?.note || "")}</textarea><label>期限（選填）</label><input class="input" id="taskDueDate" type="date" value="${escapeHtml(editing?.dueDate || "")}"><div class="form-actions"><button class="btn2" type="button" data-task-cancel="1" ${editing ? "" : "disabled"}>取消</button><button class="btn" type="button" data-task-save="1">${editing ? "儲存修改" : "建立任務"}</button></div></section>`;
-  const rows = list.length ? list.map(task => `<div class="entry task-row ${task.status === "completed" ? "task-completed" : ""}"><div class="entry-main"><b>${task.status === "completed" ? "✅" : "⬜"} ${escapeHtml(task.title)}</b><small>${task.dueDate ? `期限：${escapeHtml(task.dueDate)}` : "無期限"}${task.note ? `｜${escapeHtml(task.note)}` : ""}</small></div><div class="actions compact"><button class="btn2" type="button" data-task-toggle="${escapeHtml(task.id)}">${task.status === "completed" ? "恢復" : "完成"}</button><button class="btn2" type="button" data-task-edit="${escapeHtml(task.id)}">編輯</button><button class="btn2 danger" type="button" data-task-delete="${escapeHtml(task.id)}">刪除</button></div></div>`).join("") : `<div class="empty"><b>${taskSearch ? "找不到符合的任務" : "目前還沒有任務"}</b><div class="muted">可以從上方建立第一個任務，或在 Mr. KM 對話中說：「提醒我寄採購資料」。</div></div>`;
-  return `<section class="panel tasks-workspace" style="margin-top:18px"><div class="panel-head"><div><h2>✅ 任務</h2><div class="muted">目前 ${tasks.length} 項｜未完成 ${tasks.filter(task => task.status === "open").length} 項</div></div><button class="btn2" type="button" data-task-new="1">＋ 新增任務</button></div>${form}<section class="task-list-section"><div class="task-toolbar"><div class="task-filters">${["all", "open", "completed"].map(filter => `<button class="btn2 ${taskFilter === filter ? "selected" : ""}" type="button" data-task-filter="${filter}">${filter === "all" ? "全部" : filter === "open" ? "未完成" : "已完成"}</button>`).join("")}</div><div class="task-search"><input class="input" id="taskSearch" value="${escapeHtml(taskSearch)}" placeholder="搜尋任務"><button class="btn2" type="button" data-task-search-submit="1">搜尋</button></div></div><div class="task-list">${rows}</div></section></section>`;
+  const form = `<section class="task-form"><div class="panel-head"><div><h3>${editing ? "✏️ 編輯待辦事項" : "＋ 新增待辦事項"}</h3><div class="muted">把需要完成的事情留下來，完成後再標記即可。</div></div></div><label>待辦事項名稱</label><input class="input" id="taskTitle" value="${escapeHtml(editing?.title || "")}" placeholder="例如：寄出採購資料"><label>備註（選填）</label><textarea class="input" id="taskNote" rows="2" placeholder="補充說明">${escapeHtml(editing?.note || "")}</textarea><label>期限（選填）</label><input class="input" id="taskDueDate" type="date" value="${escapeHtml(editing?.dueDate || "")}"><fieldset class="task-priority-fieldset"><legend>Priority</legend><div class="task-priority-options">${taskPriorityOptions(editing?.priority || "p2")}</div><label class="task-pin-option"><input type="checkbox" id="taskPinned" ${editing?.userPinned ? "checked" : ""}> 📌 置頂</label></fieldset><div class="form-actions"><button class="btn2" type="button" data-task-cancel="1" ${editing ? "" : "disabled"}>取消</button><button class="btn" type="button" data-task-save="1">${editing ? "儲存修改" : "建立待辦事項"}</button></div></section>`;
+  const rows = list.length ? list.map(task => `<div class="entry task-row ${task.status === "completed" ? "task-completed" : ""}"><div class="entry-main"><div class="task-row-title">${taskPriorityBadge(task)} <b>${task.status === "completed" ? "✅" : "⬜"} ${escapeHtml(task.title)}</b></div><small>${task.dueDate ? `期限：${escapeHtml(task.dueDate)}` : "無期限"}｜${escapeHtml(typeof PriorityEngine !== "undefined" ? PriorityEngine.getReason(task) : "依目前工作優先順序。")}${task.note ? `｜${escapeHtml(task.note)}` : ""}</small></div><div class="actions compact"><button class="btn2" type="button" data-task-toggle="${escapeHtml(task.id)}">${task.status === "completed" ? "恢復" : "完成"}</button><button class="btn2" type="button" data-task-edit="${escapeHtml(task.id)}">編輯</button><button class="btn2 danger" type="button" data-task-delete="${escapeHtml(task.id)}">刪除</button></div></div>`).join("") : `<div class="empty"><b>${taskSearch ? "找不到符合的待辦事項" : "目前還沒有待辦事項"}</b><div class="muted">可以從上方建立第一個待辦事項，或在 Mr. KM 對話中說：「提醒我寄採購資料」。</div></div>`;
+  return `<section class="panel tasks-workspace" style="margin-top:18px"><div class="panel-head"><div><h2>✅ 待辦事項</h2><div class="muted">目前 ${tasks.length} 項｜未完成 ${tasks.filter(task => task.status === "open").length} 項</div></div><button class="btn2" type="button" data-task-new="1">＋ 新增待辦事項</button></div>${form}<section class="task-list-section"><div class="task-toolbar"><div class="task-filters">${["all", "open", "completed"].map(filter => `<button class="btn2 ${taskFilter === filter ? "selected" : ""}" type="button" data-task-filter="${filter}">${filter === "all" ? "全部" : filter === "open" ? "未完成" : "已完成"}</button>`).join("")}</div><div class="task-search"><input class="input" id="taskSearch" value="${escapeHtml(taskSearch)}" placeholder="搜尋待辦事項"><button class="btn2" type="button" data-task-search-submit="1">搜尋</button></div></div><div class="task-list">${rows}</div></section></section>`;
 }
 
 function toast(t) {
@@ -706,7 +725,7 @@ function cloudSyncDetail() {
   if (cloudSync.status === "syncing") return "同步中...";
   if (cloudSync.status === "knowledge_uninitialized") return "請先建立 Knowledge Database 與 Storage Bucket";
   if (cloudSync.status === "work_memory_uninitialized") return `請先執行 ${WORK_MEMORY_SCHEMA_SQL}`;
-  if (cloudSync.status === "tasks_uninitialized") return `請先執行 ${TASKS_SCHEMA_SQL}`;
+  if (cloudSync.status === "tasks_uninitialized") return `請先執行 ${PRIORITY_ENGINE_SCHEMA_SQL}`;
   if (cloudSync.status === "migration_required") return "請先確認 Migration Preview";
   if (cloudSync.status === "migrating") return "正在搬移 RC3.3 本機資料";
   if (!cloudSync.lastSyncedAt) return "等待 Cloud Sync";
@@ -1408,13 +1427,13 @@ const assistantSuggestionPool = [
 
 const assistantGreetingPool = [
   "👋 您好！我是 Mr. KM。\n\n今天我們一起完成工作吧。",
-  "您好，我是 Mr. KM，您的工作搭檔與 Knowledge Manager。\n\n今天需要先建立工時、補登工時月曆，還是整理一個任務？",
+  "您好，我是 Mr. KM，您的工作搭檔與 Knowledge Manager。\n\n今天需要先建立工時、補登工時月曆，還是整理一個待辦事項？",
   "👋 您好。\n\n我已經在這裡了。可以直接告訴我今天要記錄的工作，例如：今天下午三點到四點開會。"
 ];
 
 const assistantMorningPool = [
   "☀️ 早安！今天我們一起完成工作吧。\n\n要先建立今天第一筆工時，還是補登工時月曆？",
-  "早安，我是 Mr. KM。\n\n我可以先協助您整理今天的工時、工時月曆或任務。"
+  "早安，我是 Mr. KM。\n\n我可以先協助您整理今天的工時、工時月曆或待辦事項。"
 ];
 
 const assistantNightPool = [
@@ -1424,7 +1443,7 @@ const assistantNightPool = [
 
 const assistantThanksPool = [
   "😊 不客氣！\n\n今天還有需要我幫忙建立工時嗎？",
-  "不客氣。\n\n如果還有工時、工時月曆或任務，也可以直接告訴我。"
+  "不客氣。\n\n如果還有工時、工時月曆或待辦事項，也可以直接告訴我。"
 ];
 
 const assistantGoodbyePool = [
@@ -1433,14 +1452,14 @@ const assistantGoodbyePool = [
 ];
 
 const assistantUnknownPool = [
-  "😊 這個問題我目前還無法直接判斷。\n\n不過如果它和今天的工作有關，我可以先幫您記成工時或任務。",
+  "😊 這個問題我目前還無法直接判斷。\n\n不過如果它和今天的工作有關，我可以先幫您記成工時或待辦事項。",
   "這部分我還在學習中。\n\n如果今天有相關工作，例如研究、開會或整理資料，我可以先幫您留下工作紀錄。",
-  "目前這件事超出我能處理的範圍。\n\n但如果您要把它變成今天的工作安排，我可以接著協助建立工時或任務。"
+  "目前這件事超出我能處理的範圍。\n\n但如果您要把它變成今天的工作安排，我可以接著協助建立工時或待辦事項。"
 ];
 
 const assistantCapabilityPool = [
-  "我是 Mr. KM，您的工作搭檔與 Knowledge Manager。\n\n目前我最擅長協助您處理：\n\n• 工時：新增、補登、查詢今日 / 本週進度\n• 工時月曆：把自然語言整理成正式工時紀錄\n• 任務：先建立待辦草稿\n\n您可以直接用一句話告訴我，例如：今天下午三點到四點開會。",
-  "我是您的 Mr. KM，不是通用聊天機器人。\n\n我會逐步理解您的工作身分、WorkLog、工時月曆、任務與個人知識。若不確定怎麼開始，可以直接說：「我今天做了什麼？」或「幫我補一筆下午開會」。"
+  "我是 Mr. KM，您的工作搭檔與 Knowledge Manager。\n\n目前我最擅長協助您處理：\n\n• 工時：新增、補登、查詢今日 / 本週進度\n• 工時月曆：把自然語言整理成正式工時紀錄\n• 待辦事項：先建立待辦草稿\n\n您可以直接用一句話告訴我，例如：今天下午三點到四點開會。",
+  "我是您的 Mr. KM，不是通用聊天機器人。\n\n我會逐步理解您的工作身分、WorkLog、工時月曆、待辦事項與個人知識。若不確定怎麼開始，可以直接說：「我今天做了什麼？」或「幫我補一筆下午開會」。"
 ];
 
 function assistantWithSuggestion(text = "") {
@@ -1954,7 +1973,7 @@ async function executeWorklogCommand(intent) {
     return assistantResult(assistantDurationQuestion("worklog", intent.parsedCommand), { type: "duration_prompt", intent: "worklog", command: intent.parsedCommand });
   }
   if (intent.type === "task_draft") {
-    return assistantResult("我先幫您整理成任務紀錄：", { type: "task_draft", payload: intent.parsedCommand });
+    return assistantResult("我先幫您整理成待辦事項紀錄：", { type: "task_draft", payload: intent.parsedCommand });
   }
   if (intent.type === "confirm_calendar") {
     const command = resolveAssistantCommandTime(intent.parsedCommand);
@@ -2042,7 +2061,7 @@ function needsWorklogWelcome() {
 function worklogWelcomeScreen() {
   const completionPending = localStorage.getItem(scopedLocalKey(WORK_IDENTITY_COMPLETION_KEY)) === "1";
   if (completionPending && isWorkProfileReady(workProfile)) {
-    return `<div class="wrap"><div class="card"><section class="panel welcome-panel work-identity-complete" style="margin-top:18px"><h1>🎉 工作身分建立完成！</h1><p>之後您只需要用自然語言，例如：</p><div class="work-identity-example">今天下午開會兩小時</div><p>我就可以協助您：</p><ul class="work-identity-list"><li>✅ 建立工時</li><li>✅ 寫入工時月曆</li><li>✅ 建立任務</li></ul><div class="form-actions"><button class="btn" data-enter-ai-os="1">開始使用</button></div></section></div></div>`;
+    return `<div class="wrap"><div class="card"><section class="panel welcome-panel work-identity-complete" style="margin-top:18px"><h1>🎉 工作身分建立完成！</h1><p>之後您只需要用自然語言，例如：</p><div class="work-identity-example">今天下午開會兩小時</div><p>我就可以協助您：</p><ul class="work-identity-list"><li>✅ 建立工時</li><li>✅ 寫入工時月曆</li><li>✅ 建立待辦事項</li></ul><div class="form-actions"><button class="btn" data-enter-ai-os="1">開始使用</button></div></section></div></div>`;
   }
   const step = localStorage.getItem(scopedLocalKey(WORK_IDENTITY_SETUP_STEP_KEY)) || "welcome";
   const draft = normalizeWorkProfile(readJson(scopedLocalKey(WORK_IDENTITY_SETUP_DRAFT_KEY), workProfile || {}), profile);
@@ -2840,7 +2859,7 @@ function suggestionPriority(model = {}) {
 
 function makeSuggestions() {
   if (!profile) return [];
-  return activeWorkMemoryObjects()
+  const suggestions = activeWorkMemoryObjects()
     .map(model => {
       const ranking = suggestionPriority(model);
       const learnedConfidence = (model.sourceReferences || []).reduce((highest, reference) => Math.max(highest, Number(reference?.confidence || 0)), 0);
@@ -2852,13 +2871,16 @@ function makeSuggestions() {
         at: resolveWorklogTime({ dateKey: key(), hours: 1 }).at,
         ecpTask: defaultEcpTaskName(model.name),
         sourceLabel: `📂 來源：${model.name}`,
-        priority: ranking.score,
+        priority: model.priority || "p2",
+        aiScore: ranking.score,
         reason: ranking.reason,
         confidence: learnedConfidence > 0 ? learnedConfidence : 0.85,
         sortOrder: model.sortOrder
       };
-    })
-    .sort((a, b) => b.priority - a.priority || a.sortOrder - b.sortOrder || a.title.localeCompare(b.title, "zh-Hant"));
+    });
+  return typeof PriorityEngine !== "undefined"
+    ? PriorityEngine.rank(suggestions, { includeCompleted: true })
+    : suggestions;
 }
 
 function suggestionCardMarkup(item = {}) {
@@ -2934,7 +2956,7 @@ function mobileWorklogTabs() {
 function renderAssistantCard(card = null) {
   if (!card) return "";
   if (card.type === "quick_suggestions") {
-    return `<div class="assistant-command-card assistant-quick-card"><div class="assistant-card-title">可以從這裡開始</div><div class="assistant-quick-row"><button class="btn2" type="button" data-assistant-quick="worklog">💼 建立工時</button><button class="btn2" type="button" data-assistant-quick="calendar">🗓 補登工時</button><button class="btn2" type="button" data-assistant-quick="task">✅ 建立任務</button></div></div>`;
+  return `<div class="assistant-command-card assistant-quick-card"><div class="assistant-card-title">可以從這裡開始</div><div class="assistant-quick-row"><button class="btn2" type="button" data-assistant-quick="worklog">💼 建立工時</button><button class="btn2" type="button" data-assistant-quick="calendar">🗓 補登工時</button><button class="btn2" type="button" data-assistant-quick="task">✅ 建立待辦事項</button></div></div>`;
   }
   if (card.type === "confirm_entry") {
     const p = card.payload || {};
@@ -2954,7 +2976,7 @@ function renderAssistantCard(card = null) {
   }
   if (card.type === "task_draft") {
     const p = card.payload || {};
-    return `<div class="assistant-command-card"><div class="assistant-card-title">✅ 任務建議</div><div class="assistant-card-grid"><span>任務</span><b>${escapeHtml(p.title || "待辦")}</b><span>狀態</span><b>等待你確認</b></div><div class="assistant-card-actions"><button class="btn green" type="button" data-assistant-create-task="1">建立任務</button><button class="btn2" type="button" data-assistant-edit-task="1">調整</button></div></div>`;
+    return `<div class="assistant-command-card"><div class="assistant-card-title">✅ 待辦事項建議</div><div class="assistant-card-grid"><span>待辦事項</span><b>${escapeHtml(p.title || "待辦")}</b><span>狀態</span><b>等待你確認</b></div><div class="assistant-card-actions"><button class="btn green" type="button" data-assistant-create-task="1">建立待辦事項</button><button class="btn2" type="button" data-assistant-edit-task="1">調整</button></div></div>`;
   }
   if (card.type === "calendar_draft") {
     const p = card.payload || {};
@@ -3940,8 +3962,8 @@ function bindWorklogAssistant() {
         assistant: "可以。請告訴我日期、時間與工作內容，例如：明天上午處理紀念品。"
       },
       task: {
-        user: "建立任務",
-        assistant: "可以。請告訴我要提醒或整理的任務，例如：提醒我寄採購資料。"
+        user: "建立待辦事項",
+        assistant: "可以。請告訴我要提醒或整理的待辦事項，例如：提醒我寄採購資料。"
       }
     };
     const item = map[kind];
@@ -3969,7 +3991,7 @@ function bindWorklogAssistant() {
     const message = button.closest(".assistant-command-card");
     const title = message?.querySelector(".assistant-card-grid b")?.textContent?.trim() || "待辦";
     createTask(title);
-    addConversationMessage("assistant", `已建立任務：「${title}」。`);
+    addConversationMessage("assistant", `已建立待辦事項：「${title}」。`);
     activeWorkspace = "tasks";
     if (!openTabs.includes("tasks")) openTabs.push("tasks");
     rememberWorkspace("tasks");
@@ -4107,8 +4129,14 @@ function bindGlobal() {
     if (cloudSync.status === "failed") DataService.retryAutoSave();
   });
 }
-function createTask(title = "", note = "", dueDate = "") {
-  const normalized = normalizeTask({ title, note, dueDate });
+function createTask(title = "", note = "", dueDate = "", options = {}) {
+  const normalized = normalizeTask({
+    title,
+    note,
+    dueDate,
+    priority: options.priority || "p2",
+    userPinned: options.userPinned === true
+  });
   if (!normalized.title) return null;
   const existing = tasks.find(task => task.status === "open" && task.title === normalized.title);
   if (existing) return existing;
@@ -4127,15 +4155,17 @@ function bindTasks() {
   document.querySelectorAll("[data-task-cancel]").forEach(button => button.onclick = () => { editingTaskId = null; render(); });
   document.querySelectorAll("[data-task-save]").forEach(button => button.onclick = () => {
     const title = document.getElementById("taskTitle")?.value?.trim() || "";
-    if (!title) return toast("請輸入任務名稱");
+    if (!title) return toast("請輸入待辦事項名稱");
     const note = document.getElementById("taskNote")?.value?.trim() || "";
     const dueDate = document.getElementById("taskDueDate")?.value || "";
+    const priority = document.querySelector("input[name=taskPriority]:checked")?.value || "p2";
+    const userPinned = document.getElementById("taskPinned")?.checked === true;
     if (editingTaskId) {
-      tasks = tasks.map(task => task.id === editingTaskId ? normalizeTask({ ...task, title, note, dueDate, updatedAt: new Date().toISOString() }) : task);
-      toast("任務已更新");
+      tasks = tasks.map(task => task.id === editingTaskId ? normalizeTask({ ...task, title, note, dueDate, priority, userPinned, updatedAt: new Date().toISOString() }) : task);
+      toast("待辦事項已更新");
     } else {
-      createTask(title, note, dueDate);
-      toast("任務已建立");
+      createTask(title, note, dueDate, { priority, userPinned });
+      toast("待辦事項已建立");
     }
     editingTaskId = null;
     saveTasks();
@@ -4144,16 +4174,16 @@ function bindTasks() {
   document.querySelectorAll("[data-task-toggle]").forEach(button => button.onclick = () => {
     tasks = tasks.map(task => task.id === button.dataset.taskToggle ? normalizeTask({ ...task, status: task.status === "completed" ? "open" : "completed", completedAt: task.status === "completed" ? "" : new Date().toISOString(), updatedAt: new Date().toISOString() }) : task);
     saveTasks();
-    toast("任務狀態已更新");
+    toast("待辦事項狀態已更新");
     render();
   });
   document.querySelectorAll("[data-task-edit]").forEach(button => button.onclick = () => { editingTaskId = button.dataset.taskEdit; render(); });
   document.querySelectorAll("[data-task-delete]").forEach(button => button.onclick = () => {
     const task = tasks.find(item => item.id === button.dataset.taskDelete);
-    if (!task || !confirm(`確定刪除任務「${task.title}」？`)) return;
+    if (!task || !confirm(`確定刪除待辦事項「${task.title}」？`)) return;
     tasks = tasks.filter(item => item.id !== task.id);
     saveTasks();
-    toast("任務已刪除");
+    toast("待辦事項已刪除");
     render();
   });
 }

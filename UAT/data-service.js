@@ -142,7 +142,7 @@ const DataService = {
         this.setStatus("work_memory_uninitialized", `請先執行 ${WORK_MEMORY_SCHEMA_SQL}`);
       } else if (scopes.has("tasks") && isTasksNotInitializedError(error)) {
         taskFoundationNotInitialized = true;
-        this.setStatus("tasks_uninitialized", `請先執行 ${TASKS_SCHEMA_SQL}`);
+        this.setStatus("tasks_uninitialized", `請先執行 ${PRIORITY_ENGINE_SCHEMA_SQL}`);
       } else this.setStatus("failed", error.message || "Smart Auto Save failed");
     } finally {
       autoSaveInFlight = false;
@@ -338,7 +338,7 @@ const DataService = {
           if (label === "tasks" && isTasksNotInitializedError(error)) {
             taskFoundationNotInitialized = true;
             failedLoads.add(label);
-            console.warn("Task Cloud Foundation not initialized", { setupSql: TASKS_SCHEMA_SQL, error });
+            console.warn("Task Cloud Foundation not initialized", { setupSql: PRIORITY_ENGINE_SCHEMA_SQL, error });
             return fallback;
           }
           errors.push(`${label}: ${error.message || error}`);

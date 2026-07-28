@@ -49,17 +49,17 @@
 
   function briefPendingTasks() {
     const source = typeof tasks !== "undefined" && Array.isArray(tasks) ? tasks : [];
-    return typeof PriorityEngine !== "undefined" ? PriorityEngine.rank(source) : source
-      .filter(task => task && task.status !== "completed" && task.done !== true && task.completed !== true)
-      .sort((a, b) => briefTaskPriorityScore(b) - briefTaskPriorityScore(a));
+    return typeof PriorityEngine !== "undefined"
+      ? PriorityEngine.rank(source)
+      : source.filter(task => task && task.status !== "completed" && task.done !== true && task.completed !== true);
   }
 
   function briefTaskPriorityScore(task = {}) {
-    return typeof PriorityEngine !== "undefined" ? PriorityEngine.score(task) : 0;
+    return typeof PriorityEngine !== "undefined" ? PriorityEngine.calculateScore(task) : 0;
   }
 
   function briefTaskReason(task = {}) {
-    return typeof PriorityEngine !== "undefined" ? PriorityEngine.reason(task) : "依目前工作優先順序。";
+    return typeof PriorityEngine !== "undefined" ? PriorityEngine.getReason(task) : "依目前工作優先順序。";
   }
 
   function briefAdvice(todayHours = 0, missingHours = 0, topTask = null, pendingCount = 0) {
@@ -122,7 +122,7 @@
         : "這是目前今天最值得注意的工作資訊。";
     const cta = mode === "closing" && missingHours > 0 ? "立即完成今天工時" : "開始今天的工作";
     const taskList = topTask
-      ? `<div class="ai-daily-brief-focus-copy"><span>🎯 今日重點</span><button type="button" class="ai-daily-brief-task-link" data-ai-brief-task="1" data-ai-brief-task-title="${escapeHtml(topTask.title || topTask.name || "未命名任務")}">📋 ${escapeHtml(topTask.title || topTask.name || "未命名任務")}</button><small>${escapeHtml(briefTaskReason(topTask))}</small>${pending.length > 1 ? `<em>另外還有 ${pending.length - 1} 項待辦</em>` : ""}<p class="ai-daily-brief-advice">${escapeHtml(briefAdvice(todayHours, missingHours, topTask, pending.length))}</p></div>`
+      ? `<div class="ai-daily-brief-focus-copy"><span>🎯 今日重點</span><button type="button" class="ai-daily-brief-task-link" data-ai-brief-task="1" data-ai-brief-task-title="${escapeHtml(topTask.title || topTask.name || "未命名待辦事項")}">📋 ${escapeHtml(topTask.title || topTask.name || "未命名待辦事項")}</button><small>${escapeHtml(briefTaskReason(topTask))}</small>${pending.length > 1 ? `<em>另外還有 ${pending.length - 1} 項待辦</em>` : ""}<p class="ai-daily-brief-advice">${escapeHtml(briefAdvice(todayHours, missingHours, topTask, pending.length))}</p></div>`
       : `<div class="ai-daily-brief-focus-copy"><span>🎯 今日重點</span><p class="ai-daily-brief-empty">🎉 今天沒有待辦事項<br><span>可以開始新增今天第一個工作。</span></p><p class="ai-daily-brief-advice">${escapeHtml(briefAdvice(todayHours, missingHours, null, 0))}</p></div>`;
     const taskMetricValue = topTask ? (topTask.title || topTask.name || "未命名任務") : "沒有待辦";
     const taskMetricDetail = pending.length > 1 ? `另外還有 ${pending.length - 1} 項待辦` : topTask ? briefTaskReason(topTask) : "可以開始新增今天第一個工作";
@@ -130,7 +130,7 @@
       <div class="ai-daily-brief-head"><div><span class="ai-daily-brief-kicker">Mr. KM · AI Daily Brief</span><h2 id="ai-daily-brief-title">${escapeHtml(title)}</h2><p>${escapeHtml(lead)}</p></div><time datetime="${briefDateKey(today)}">${escapeHtml(briefDateLabel(today))}</time></div>
       <div class="ai-daily-brief-metrics">
         ${briefMetric("今日工時", `${briefDuration(todayHours)} / 8h`, missingHours > 0 ? `尚缺 ${briefDuration(missingHours)}` : "今日已完成 ✅")}
-        ${briefMetric("📋 今日待辦", taskMetricValue, taskMetricDetail)}
+        ${briefMetric("📋 今日待辦事項", taskMetricValue, taskMetricDetail)}
         ${briefMetric("Mr. KM 建議", `${suggestionCount} 項`, "依目前工作模型整理")}
         ${briefMetric("新 Knowledge", `${recentKnowledge} 份`, "今天更新或加入")}
       </div>
