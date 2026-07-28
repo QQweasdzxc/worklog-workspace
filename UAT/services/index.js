@@ -20,6 +20,7 @@
     ConversationService: lazy("DataService"),
     KnowledgeService: lazy("DataService"),
     TaskService: lazy("DataService"),
+    PriorityEngine: global.PriorityEngine,
     ControlCenterService: lazy("DataService"),
     SettingsService: lazy("DataService")
   });
