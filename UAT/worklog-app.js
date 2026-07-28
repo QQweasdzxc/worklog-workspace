@@ -719,6 +719,20 @@ function refreshCloudSyncStatusDisplay() {
   box.innerHTML = `<div>${escapeHtml(cloudSyncLabel())}</div><div>${escapeHtml(cloudSyncDetail())}</div><div>${escapeHtml(conversationSyncLabel())}</div><div>${escapeHtml(conversationSyncDetail())}</div>`;
 }
 
+function refreshAuthenticatedSurface(reason = "navigation-refresh") {
+  if (!hasGoogleOAuthSession() || !document.querySelector(".os-shell")) {
+    render(reason);
+    return;
+  }
+  if (typeof RenderEngine !== "undefined") {
+    RenderEngine.partial(reason, () => {
+      refreshCloudSyncStatusDisplay();
+      return true;
+    });
+  } else refreshCloudSyncStatusDisplay();
+  refreshConversationFromCloud(true);
+}
+
 function isKnowledgeNotInitializedError(error) {
   const text = `${error?.supabase?.status || ""} ${error?.supabase?.message || ""} ${error?.supabase?.body || ""} ${error?.message || ""}`;
   return (/404/.test(text) && /knowledge_sources|knowledge_units|knowledge_recommendation_candidates/i.test(text))
@@ -5699,12 +5713,12 @@ document.addEventListener("visibilitychange", () => {
 window.addEventListener("popstate", () => {
   if (!hasGoogleOAuthSession()) return;
   clearStoredOAuthError();
-  render();
+  refreshAuthenticatedSurface("browser-back");
 });
 window.addEventListener("pageshow", event => {
   if (event.persisted && hasGoogleOAuthSession()) {
     clearStoredOAuthError();
-    render();
+    refreshAuthenticatedSurface("browser-pageshow");
   }
   refreshConversationFromCloud(true);
 });

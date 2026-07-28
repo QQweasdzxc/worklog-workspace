@@ -444,7 +444,7 @@ const DataService = {
       toast("Migration 失敗，legacy data 已保留");
     } finally {
       migrationRunning = false;
-      render();
+      render("migration-complete");
     }
   },
   async syncAll() {
