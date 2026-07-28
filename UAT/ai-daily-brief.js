@@ -50,7 +50,29 @@
   function briefPendingTasks() {
     return (typeof tasks !== "undefined" && Array.isArray(tasks) ? tasks : [])
       .filter(task => task && task.status !== "completed" && task.done !== true && task.completed !== true)
-      .slice(0, 3);
+      .sort((a, b) => briefTaskPriorityScore(b) - briefTaskPriorityScore(a));
+  }
+
+  function briefTaskPriorityScore(task = {}) {
+    const todayKey = briefDateKey(new Date());
+    const due = String(task.dueDate || task.due_date || "").slice(0, 10);
+    const priority = String(task.priority || "").toLowerCase();
+    const priorityScore = { urgent: 500, high: 400, 高: 400, 重要: 400, medium: 200, 中: 200, low: 100, 低: 100 }[priority] || 0;
+    const dueScore = due ? (due < todayKey ? 700 : due === todayKey ? 600 : due <= briefDateKey(new Date(Date.now() + 7 * 86400000)) ? 300 : 50) : 0;
+    const age = Date.parse(task.createdAt || task.created_at || task.updatedAt || task.updated_at || "") || Date.now();
+    const oldestScore = Math.max(0, Math.round((Date.now() - age) / 86400000));
+    return priorityScore + dueScore + oldestScore;
+  }
+
+  function briefTaskReason(task = {}) {
+    const todayKey = briefDateKey(new Date());
+    const due = String(task.dueDate || task.due_date || "").slice(0, 10);
+    const priority = String(task.priority || "").toLowerCase();
+    if (due && due < todayKey) return "因為已逾期。";
+    if (due === todayKey) return "因為今天截止。";
+    if (["urgent", "high", "高", "重要"].includes(priority)) return "因為優先級較高。";
+    if (due) return `因為 ${due.replace(/-/g, "/")} 到期。`;
+    return "因為它是目前最久未完成的工作。";
   }
 
   function briefSuggestionCount() {
@@ -88,6 +110,7 @@
     const todayHours = briefTodayHours(today);
     const missingHours = Math.max(0, Math.round((WORKDAY_HOURS - todayHours) * 10) / 10);
     const pending = briefPendingTasks();
+    const topTask = pending[0] || null;
     const suggestionCount = briefSuggestionCount();
     const recentKnowledge = briefRecentKnowledgeCount(today);
     const mode = briefMode(today, todayHours);
@@ -99,14 +122,16 @@
         ? "今天的工作狀態已整理好，從一個最重要的工作開始。"
         : "這是目前今天最值得注意的工作資訊。";
     const cta = mode === "closing" && missingHours > 0 ? "立即完成今天工時" : "開始今天的工作";
-    const taskList = pending.length
-      ? `<ul class="ai-daily-brief-task-list">${pending.map(task => `<li>${escapeHtml(task.title || task.name || "未命名任務")}</li>`).join("")}</ul>`
-      : `<p class="ai-daily-brief-empty">目前沒有待完成任務</p>`;
+    const taskList = topTask
+      ? `<div class="ai-daily-brief-focus-copy"><span>今天先完成：</span><button type="button" class="ai-daily-brief-task-link" data-ai-brief-task="1" data-ai-brief-task-title="${escapeHtml(topTask.title || topTask.name || "未命名任務")}">📋 ${escapeHtml(topTask.title || topTask.name || "未命名任務")}</button><small>${escapeHtml(briefTaskReason(topTask))}</small>${pending.length > 1 ? `<em>另外還有 ${pending.length - 1} 項</em>` : ""}</div>`
+      : `<p class="ai-daily-brief-empty">今天沒有待辦。<br><span>可以開始新增今天第一個工作。</span></p>`;
+    const taskMetricValue = topTask ? (topTask.title || topTask.name || "未命名任務") : "沒有待辦";
+    const taskMetricDetail = pending.length > 1 ? `另外還有 ${pending.length - 1} 項` : topTask ? briefTaskReason(topTask) : "可以開始新增今天第一個工作";
     return `<section class="ai-daily-brief" data-ai-daily-brief data-ai-brief-mode="${mode}" aria-labelledby="ai-daily-brief-title">
       <div class="ai-daily-brief-head"><div><span class="ai-daily-brief-kicker">Mr. KM · AI Daily Brief</span><h2 id="ai-daily-brief-title">${escapeHtml(title)}</h2><p>${escapeHtml(lead)}</p></div><time datetime="${briefDateKey(today)}">${escapeHtml(briefDateLabel(today))}</time></div>
       <div class="ai-daily-brief-metrics">
         ${briefMetric("今日工時", `${briefDuration(todayHours)} / 8h`, missingHours > 0 ? `尚缺 ${briefDuration(missingHours)}` : "今日已完成 ✅")}
-        ${briefMetric("待完成工作", `${pending.length} 項`, pending.length ? "先處理最重要的一項" : "目前沒有待辦")}
+        ${briefMetric("待完成工作", taskMetricValue, taskMetricDetail)}
         ${briefMetric("Mr. KM 建議", `${suggestionCount} 項`, "依目前工作模型整理")}
         ${briefMetric("新 Knowledge", `${recentKnowledge} 份`, "今天更新或加入")}
       </div>
@@ -115,5 +140,20 @@
   }
 
   global.aiDailyBriefMarkup = aiDailyBriefMarkup;
-  global.AIDailyBrief = Object.freeze({ briefDateKey, briefDateLabel, briefTodayHours, briefPendingTasks, briefSuggestionCount, briefRecentKnowledgeCount, briefMode });
+  global.AIDailyBrief = Object.freeze({ briefDateKey, briefDateLabel, briefTodayHours, briefPendingTasks, briefTaskPriorityScore, briefTaskReason, briefSuggestionCount, briefRecentKnowledgeCount, briefMode });
+
+  document.addEventListener("click", event => {
+    const button = event.target.closest?.("[data-ai-brief-task]");
+    if (!button || typeof openWorkspace !== "function") return;
+    event.preventDefault();
+    const title = button.dataset.aiBriefTaskTitle || "";
+    openWorkspace("tasks");
+    setTimeout(() => {
+      const row = [...document.querySelectorAll(".task-row")].find(candidate => candidate.textContent.includes(title));
+      if (!row) return;
+      row.classList.add("ai-daily-brief-task-focus");
+      row.scrollIntoView({ behavior: "smooth", block: "center" });
+      setTimeout(() => row.classList.remove("ai-daily-brief-task-focus"), 2200);
+    }, 0);
+  });
 })(window);

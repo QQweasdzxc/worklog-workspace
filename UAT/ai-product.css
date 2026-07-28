@@ -18,10 +18,17 @@
 .ai-daily-brief-metric strong { display: block; margin-top: 5px; color: #f5f9ff; font-size: 1.08rem; }
 .ai-daily-brief-metric small { display: block; margin-top: 3px; color: #91e6aa; font-size: .74rem; }
 .ai-daily-brief-bottom { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; margin-top: 18px; padding-top: 16px; border-top: 1px solid rgba(145, 180, 226, .16); }
-.ai-daily-brief-task-list { display: flex; flex-wrap: wrap; gap: 7px 16px; margin: 6px 0 0; padding: 0; list-style: none; color: #e2ecfa; }
-.ai-daily-brief-task-list li::before { content: "•"; margin-right: 5px; color: #8fc2ff; }
-.ai-daily-brief-empty { margin: 6px 0 0; color: #9db0c6; font-size: .86rem; }
+.ai-daily-brief-focus-copy { display: grid; gap: 4px; margin-top: 6px; color: #e2ecfa; }
+.ai-daily-brief-focus-copy > span { color: #dce9f8; font-size: .88rem; }
+.ai-daily-brief-task-link { width: fit-content; padding: 0; border: 0; color: #8fc2ff; background: transparent; font: inherit; font-weight: 800; text-align: left; cursor: pointer; }
+.ai-daily-brief-task-link:hover, .ai-daily-brief-task-link:focus-visible { color: #c4e0ff; text-decoration: underline; outline: none; }
+.ai-daily-brief-focus-copy small { color: #91e6aa; font-size: .78rem; }
+.ai-daily-brief-focus-copy em { color: #a9c0db; font-size: .76rem; font-style: normal; }
+.ai-daily-brief-empty { margin: 6px 0 0; color: #9db0c6; font-size: .86rem; line-height: 1.55; }
+.ai-daily-brief-empty span { color: #c0d0e4; }
 .ai-daily-brief-cta { flex: 0 0 auto; white-space: nowrap; }
+.ai-daily-brief-task-focus { animation: ai-daily-brief-task-focus 2.2s ease-out; }
+@keyframes ai-daily-brief-task-focus { 0%, 100% { box-shadow: 0 0 0 0 rgba(99, 169, 255, 0); } 12%, 70% { box-shadow: 0 0 0 3px rgba(99, 169, 255, .7); } }
 @media (max-width: 760px) {
   .ai-daily-brief-head { flex-direction: column; }
   .ai-daily-brief-head time { align-self: flex-start; }
