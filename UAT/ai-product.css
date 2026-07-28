@@ -24,6 +24,7 @@
 .ai-daily-brief-task-link:hover, .ai-daily-brief-task-link:focus-visible { color: #c4e0ff; text-decoration: underline; outline: none; }
 .ai-daily-brief-focus-copy small { color: #91e6aa; font-size: .78rem; }
 .ai-daily-brief-focus-copy em { color: #a9c0db; font-size: .76rem; font-style: normal; }
+.ai-daily-brief-advice { margin: 3px 0 0; color: #c8d8eb; font-size: .8rem; line-height: 1.45; }
 .ai-daily-brief-empty { margin: 6px 0 0; color: #9db0c6; font-size: .86rem; line-height: 1.55; }
 .ai-daily-brief-empty span { color: #c0d0e4; }
 .ai-daily-brief-cta { flex: 0 0 auto; white-space: nowrap; }
