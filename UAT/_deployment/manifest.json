@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "milestone": "Sprint 5.1 - Root Dashboard Navigation Fix",
+  "milestone": "Sprint 5 Final Patch - Dashboard Header and Relative Date Parsing",
   "mode": "uat",
   "deployable": false,
   "uatReady": true,
   "pickerConfigured": true,
-  "buildTime": "20260728-1451",
+  "buildTime": "20260728-1523",
   "commitSha": "deferred-simple-first",
-  "productVersion": "0.9.0-alpha.5.2",
+  "productVersion": "0.9.0-alpha.5.3",
   "unresolvedKeys": [
     "ROOT_DOMAIN",
     "WEBSITE_URL",

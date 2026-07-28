@@ -1178,17 +1178,81 @@ function parseNumberToken(value = "") {
   return null;
 }
 
-function parseAssistantDate(text = "") {
-  const base = new Date();
-  if (/明天|明日/.test(text)) base.setDate(base.getDate() + 1);
-  if (/昨天|昨日/.test(text)) base.setDate(base.getDate() - 1);
-  if (/下星期|下週|下周|下禮拜|下礼拜/.test(text)) base.setDate(base.getDate() + 7);
-  const explicit = String(text).match(/(\d{1,2})[/-](\d{1,2})/);
-  if (explicit) {
-    base.setMonth(Number(explicit[1]) - 1);
-    base.setDate(Number(explicit[2]));
+const assistantWeekdayIndex = { "日": 0, "天": 0, "一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6 };
+const assistantWeekdayLabels = ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"];
+
+function taipeiDateKeyFromDate(value = new Date()) {
+  const parts = taipeiDateTimeParts(value);
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function shiftTaipeiDateKey(dateKey = "", days = 0) {
+  const match = String(dateKey || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return taipeiDateKeyFromDate(new Date());
+  const shifted = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + Number(days || 0), 12));
+  return shifted.toISOString().slice(0, 10);
+}
+
+function taipeiWeekdayIndex(dateKey = "") {
+  const match = String(dateKey || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const date = new Date(`${dateKey}T12:00:00${BUSINESS_UTC_OFFSET}`);
+  const label = new Intl.DateTimeFormat("en-US", { timeZone: BUSINESS_TIME_ZONE, weekday: "short" }).format(date);
+  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(label);
+}
+
+function assistantDateLabel(dateKey = "") {
+  const weekday = taipeiWeekdayIndex(dateKey);
+  return weekday == null ? String(dateKey || "") : `${dateKey}（${assistantWeekdayLabels[weekday]}）`;
+}
+
+function validTaipeiDateKey(year, month, day) {
+  const candidate = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), 12));
+  if (candidate.getUTCFullYear() !== Number(year) || candidate.getUTCMonth() !== Number(month) - 1 || candidate.getUTCDate() !== Number(day)) return "";
+  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function parseAssistantExplicitDate(text = "", fallbackDateKey = "") {
+  const raw = String(text || "");
+  const fallbackYear = Number(String(fallbackDateKey || "").slice(0, 4)) || Number(taipeiDateKeyFromDate(new Date()).slice(0, 4));
+  const full = raw.match(/(\d{4})\s*[年/-]\s*(\d{1,2})\s*[月/-]\s*(\d{1,2})\s*(?:日|號)?/);
+  if (full) return validTaipeiDateKey(full[1], full[2], full[3]);
+  const monthDay = raw.match(/(\d{1,2})\s*月\s*(\d{1,2})\s*(?:日|號)?/);
+  if (monthDay) return validTaipeiDateKey(fallbackYear, monthDay[1], monthDay[2]);
+  const slashDay = raw.match(/(?:^|[^\d])(\d{1,2})\s*[/-]\s*(\d{1,2})(?!\d)/);
+  if (slashDay) return validTaipeiDateKey(fallbackYear, slashDay[1], slashDay[2]);
+  return "";
+}
+
+function assistantDateWeekdaySignal(text = "") {
+  const match = String(text || "").match(/(下)?(?:星期|週|周|禮拜|礼拜)\s*([日天一二三四五六])/);
+  if (!match) return null;
+  return { expected: assistantWeekdayIndex[match[2]], nextWeek: Boolean(match[1]) };
+}
+
+function assistantDateWeekdayMismatch(text = "", dateKey = "") {
+  const signal = assistantDateWeekdaySignal(text);
+  return Boolean(signal && signal.expected !== taipeiWeekdayIndex(dateKey));
+}
+
+function parseAssistantDate(text = "", now = new Date()) {
+  const raw = String(text || "");
+  const todayKey = taipeiDateKeyFromDate(now);
+  const explicit = parseAssistantExplicitDate(raw, todayKey);
+  if (explicit) return explicit;
+  const weekday = assistantDateWeekdaySignal(raw);
+  if (weekday) {
+    const currentIndex = taipeiWeekdayIndex(todayKey);
+    let distance = (weekday.expected - currentIndex + 7) % 7;
+    if (weekday.nextWeek) distance += 7;
+    else if (distance === 0) distance = 7;
+    return shiftTaipeiDateKey(todayKey, distance);
   }
-  return key(base);
+  if (/後天|後日/.test(raw)) return shiftTaipeiDateKey(todayKey, 2);
+  if (/明天|明日/.test(raw)) return shiftTaipeiDateKey(todayKey, 1);
+  if (/昨天|昨日/.test(raw)) return shiftTaipeiDateKey(todayKey, -1);
+  if (/下星期|下週|下周|下禮拜|下礼拜/.test(raw)) return shiftTaipeiDateKey(todayKey, 7);
+  return todayKey;
 }
 
 function parseAssistantTimeToken(period = "", hourToken = "", minuteToken = "") {
@@ -1420,7 +1484,9 @@ function includesAny(text = "", words = []) {
 function stripAssistantSlots(raw = "") {
   return String(raw || "")
     .replace(/(\d{1,2})[/-](\d{1,2})/g, "")
-    .replace(/今天|今日|明天|明日|昨天|昨日|下星期|下週|下周|下禮拜|下礼拜/g, "")
+    .replace(/(\d{1,2})\s*月\s*(\d{1,2})\s*(?:日|號)?/g, "")
+    .replace(/今天|今日|明天|明日|後天|後日|昨天|昨日|下星期|下週|下周|下禮拜|下礼拜/g, "")
+    .replace(/(?:下)?(?:星期|週|周|禮拜|礼拜)\s*[日天一二三四五六]/g, "")
     .replace(/上午|下午|晚上|晚間|中午|凌晨/g, "")
     .replace(/[0-9一二兩三四五六七八九十半]+點(半|\d{1,2})?\s*(到|至|-|~)\s*(上午|下午|晚上|晚間|中午|凌晨)?\s*[0-9一二兩三四五六七八九十半]+點?(半|\d{1,2})?/g, "")
     .replace(/[0-9一二兩三四五六七八九十半]+點(半|\d{1,2})?/g, "")
@@ -1448,7 +1514,7 @@ function parseAssistantSlots(raw = "") {
   const duration = parseAssistantDuration(raw) || parseAssistantPeriodDuration(raw, Boolean(range || singleStart));
   const entryType = entryTypeFromDescription(raw);
   const description = assistantEntryTitle(raw, entryType);
-  return { dateKey, range, singleStart, vagueStart, duration, entryType, description };
+  return { dateKey, range, singleStart, vagueStart, duration, entryType, description, dateWeekdayMismatch: assistantDateWeekdayMismatch(raw, dateKey) };
 }
 
 function inferAssistantIntent(raw = "", slots = {}) {
@@ -1512,7 +1578,8 @@ function assistantCommandFromParts({ raw = "", dateKey = key(), at = "", hours =
     hours: hasHours ? Number(hours) : 1,
     entryType,
     timeSource: timeSource || (at ? "explicit" : ""),
-    semantics: inferWorkSemantics(title, raw)
+    semantics: inferWorkSemantics(title, raw),
+    dateWeekdayMismatch: assistantDateWeekdayMismatch(raw, dateKey)
   };
 }
 
@@ -1533,6 +1600,7 @@ function assistantConfirmationPayload(command = {}) {
   return {
     title: item.title,
     date: item.date,
+    dateLabel: assistantDateLabel(item.date),
     start: String(item.at || "").slice(11, 16),
     end: timeFromMinutes(entryEndMinutes(item)),
     hours: item.hours,
@@ -1541,7 +1609,8 @@ function assistantConfirmationPayload(command = {}) {
     category: command.semantics?.category || "一般工作",
     tags: command.semantics?.tags || [],
     nature: command.semantics?.nature || "一般工作",
-    timeResolution: command.timeResolution || ""
+    timeResolution: command.timeResolution || "",
+    dateWeekdayMismatch: Boolean(command.dateWeekdayMismatch)
   };
 }
 
@@ -1649,8 +1718,8 @@ async function callWorkLogDomainLLM(raw = "") {
       headers: cloudHeaders(),
       body: JSON.stringify({
         input: String(raw || ""),
-        today: key(new Date()),
-        selectedDate: key(selected),
+        today: taipeiDateKeyFromDate(new Date()),
+        selectedDate: taipeiDateKeyFromDate(selected),
         timezone: "Asia/Taipei",
         scope: ["WorkLog", "Task"]
       })
@@ -1703,7 +1772,8 @@ function intentFromDomainDraft(raw = "", draft = null) {
     hours: duration,
     entryType,
     timeSource: hasExplicitTime || entryType === "leave" ? "explicit" : "",
-    semantics: inferWorkSemantics(title, raw)
+    semantics: inferWorkSemantics(title, raw),
+    dateWeekdayMismatch: assistantDateWeekdayMismatch(raw, dateKey)
   };
   if (intent === "task") return { type: "task_draft", parsedCommand: { title, raw, llmDraft: draft } };
   if (intent === "calendar") {
@@ -1818,6 +1888,11 @@ async function executeWorklogCommand(intent) {
   }
   if (intent.type === "unsupported_delete") return assistantResult("刪除工時目前請指定「刪除最後一筆」，或先到我的工作列表操作。");
   if (intent.type === "unsupported_update") return assistantResult("修改工時目前請指定「修改最後一筆為 X 小時」，或先到我的工作列表操作。");
+  if (intent?.parsedCommand?.dateWeekdayMismatch) {
+    const command = resolveAssistantCommandTime(intent.parsedCommand);
+    await setAssistantPendingCommand({ action: "confirm_date", command });
+    return assistantResult("我解析到的日期與你輸入的星期不一致，請先確認日期。", { type: "date_confirmation", payload: assistantConfirmationPayload(command) });
+  }
   if (intent.type === "need_duration") {
     const pendingIntent = intent.parsedCommand?.entryType === "leave" ? "leave" : "worklog";
     await setAssistantPendingCommand({ action: "awaiting_duration", intent: pendingIntent, command: intent.parsedCommand });
@@ -2490,7 +2565,10 @@ function workspaceContent() {
 function osShell() {
   normalizeWorkspaceState();
   const isRootDashboard = activeWorkspace === "dashboard";
-  const shellHeader = isRootDashboard ? `<div class="os-topbar">${header()}</div>` : workspaceContextBar();
+  // The authenticated Dashboard owns the single Root Hero inside its content.
+  // The global shell banner is reserved for the unauthenticated landing view;
+  // child workspaces use only their compact context bar on narrow screens.
+  const shellHeader = isRootDashboard ? "" : workspaceContextBar();
   return `<div class="os-shell workspace-${escapeHtml(activeWorkspace)} ${sidebarOpen ? "sidebar-open" : ""}">${shellHeader}<div class="os-body">${osSidebar()}<div class="sidebar-backdrop" data-close-sidebar="1"></div><main class="os-main">${workspaceTabs()}<div class="workspace-canvas">${workspaceContent()}</div></main></div>${floatingAssistantWidget()}</div>`;
 }
 
@@ -2808,7 +2886,11 @@ function renderAssistantCard(card = null) {
   }
   if (card.type === "confirm_entry") {
     const p = card.payload || {};
-    return `<div class="assistant-command-card"><div class="assistant-card-title">請確認這筆工時</div><div class="assistant-card-grid"><span>日期</span><b>${escapeHtml(p.date || "")}</b><span>時間</span><b>${escapeHtml(p.start || "")}–${escapeHtml(p.end || "")}</b><span>工時</span><b>${escapeHtml(formatHumanDuration(p.hours))}</b><span>描述</span><b>${escapeHtml(p.title || "")}</b><span>分類</span><b>${escapeHtml(p.category || "一般工作")}</b><span>性質</span><b>${escapeHtml(p.nature || "一般工作")}</b></div><div class="assistant-card-actions"><button class="btn green" type="button" data-assistant-confirm-entry="1">確認建立</button><button class="btn2" type="button" data-assistant-cancel-command="1">取消</button></div></div>`;
+    return `<div class="assistant-command-card"><div class="assistant-card-title">請確認這筆工時</div><div class="assistant-card-grid"><span>日期</span><b>${escapeHtml(p.dateLabel || p.date || "")}</b><span>時間</span><b>${escapeHtml(p.start || "")}–${escapeHtml(p.end || "")}</b><span>工時</span><b>${escapeHtml(formatHumanDuration(p.hours))}</b><span>描述</span><b>${escapeHtml(p.title || "")}</b><span>分類</span><b>${escapeHtml(p.category || "一般工作")}</b><span>性質</span><b>${escapeHtml(p.nature || "一般工作")}</b></div><div class="assistant-card-actions"><button class="btn green" type="button" data-assistant-confirm-entry="1">確認建立</button><button class="btn2" type="button" data-assistant-cancel-command="1">取消</button></div></div>`;
+  }
+  if (card.type === "date_confirmation") {
+    const p = card.payload || {};
+    return `<div class="assistant-command-card"><div class="assistant-card-title">⚠️ 日期與星期需要確認</div><div class="assistant-card-grid"><span>日期</span><b>${escapeHtml(p.dateLabel || p.date || "")}</b><span>時間</span><b>${escapeHtml(p.start || "")}–${escapeHtml(p.end || "")}</b><span>工時</span><b>${escapeHtml(formatHumanDuration(p.hours))}</b><span>內容</span><b>${escapeHtml(p.title || "")}</b></div><p class="muted">我發現你輸入的日期與星期可能不一致。請確認上面的日期後再建立。</p><div class="assistant-card-actions"><button class="btn green" type="button" data-assistant-confirm-date="1">確認日期</button><button class="btn2" type="button" data-assistant-cancel-command="1">取消</button></div></div>`;
   }
   if (card.type === "duration_prompt") {
     const title = card.intent === "leave" ? "請選擇請假時間" : "請選擇預計時間";
@@ -2816,7 +2898,7 @@ function renderAssistantCard(card = null) {
   }
   if (card.type === "entry_created") {
     const p = card.payload || {};
-    return `<div class="assistant-command-card assistant-created-card"><div class="assistant-card-title">✅ 已建立工時</div><div class="assistant-card-grid"><span>描述</span><b>${escapeHtml(p.title || "")}</b><span>日期</span><b>${escapeHtml(p.date || "")}</b><span>時間</span><b>${escapeHtml(p.start || "")}–${escapeHtml(p.end || "")}</b><span>工時</span><b>${escapeHtml(formatHumanDuration(p.hours))}</b></div></div>`;
+    return `<div class="assistant-command-card assistant-created-card"><div class="assistant-card-title">✅ 已建立工時</div><div class="assistant-card-grid"><span>描述</span><b>${escapeHtml(p.title || "")}</b><span>日期</span><b>${escapeHtml(p.dateLabel || p.date || "")}</b><span>時間</span><b>${escapeHtml(p.start || "")}–${escapeHtml(p.end || "")}</b><span>工時</span><b>${escapeHtml(formatHumanDuration(p.hours))}</b></div></div>`;
   }
   if (card.type === "task_draft") {
     const p = card.payload || {};
@@ -2824,15 +2906,15 @@ function renderAssistantCard(card = null) {
   }
   if (card.type === "calendar_draft") {
     const p = card.payload || {};
-    return `<div class="assistant-command-card"><div class="assistant-card-title">🗓 工時月曆紀錄</div><div class="assistant-card-grid"><span>日期</span><b>${escapeHtml(p.date || "")}</b><span>時間</span><b>${escapeHtml(p.start || "")}–${escapeHtml(p.end || "")}</b><span>內容</span><b>${escapeHtml(p.title || "")}</b><span>狀態</span><b>待確認建立工時</b></div></div>`;
+    return `<div class="assistant-command-card"><div class="assistant-card-title">🗓 工時月曆紀錄</div><div class="assistant-card-grid"><span>日期</span><b>${escapeHtml(p.dateLabel || p.date || "")}</b><span>時間</span><b>${escapeHtml(p.start || "")}–${escapeHtml(p.end || "")}</b><span>內容</span><b>${escapeHtml(p.title || "")}</b><span>狀態</span><b>待確認建立工時</b></div></div>`;
   }
   if (card.type === "confirm_calendar") {
     const p = card.payload || {};
-    return `<div class="assistant-command-card"><div class="assistant-card-title">請確認這筆工時</div><div class="assistant-card-grid"><span>日期</span><b>${escapeHtml(p.date || "")}</b><span>時間</span><b>${escapeHtml(p.start || "")}–${escapeHtml(p.end || "")}</b><span>工時</span><b>${escapeHtml(formatHumanDuration(p.hours))}</b><span>內容</span><b>${escapeHtml(p.title || "")}</b></div><div class="assistant-card-actions"><button class="btn green" type="button" data-assistant-confirm-calendar="1">確認建立</button><button class="btn2" type="button" data-assistant-cancel-command="1">取消</button></div></div>`;
+    return `<div class="assistant-command-card"><div class="assistant-card-title">請確認這筆工時</div><div class="assistant-card-grid"><span>日期</span><b>${escapeHtml(p.dateLabel || p.date || "")}</b><span>時間</span><b>${escapeHtml(p.start || "")}–${escapeHtml(p.end || "")}</b><span>工時</span><b>${escapeHtml(formatHumanDuration(p.hours))}</b><span>內容</span><b>${escapeHtml(p.title || "")}</b></div><div class="assistant-card-actions"><button class="btn green" type="button" data-assistant-confirm-calendar="1">確認建立</button><button class="btn2" type="button" data-assistant-cancel-command="1">取消</button></div></div>`;
   }
   if (card.type === "calendar_created") {
     const p = card.payload || {};
-    return `<div class="assistant-command-card assistant-created-card"><div class="assistant-card-title">✅ 已建立工時</div><div class="assistant-card-grid"><span>內容</span><b>${escapeHtml(p.title || "")}</b><span>日期</span><b>${escapeHtml(p.date || "")}</b><span>時間</span><b>${escapeHtml(p.start || "")}–${escapeHtml(p.end || "")}</b><span>工時</span><b>${escapeHtml(formatHumanDuration(p.hours))}</b></div></div>`;
+    return `<div class="assistant-command-card assistant-created-card"><div class="assistant-card-title">✅ 已建立工時</div><div class="assistant-card-grid"><span>內容</span><b>${escapeHtml(p.title || "")}</b><span>日期</span><b>${escapeHtml(p.dateLabel || p.date || "")}</b><span>時間</span><b>${escapeHtml(p.start || "")}–${escapeHtml(p.end || "")}</b><span>工時</span><b>${escapeHtml(formatHumanDuration(p.hours))}</b></div></div>`;
   }
   if (card.type === "work_profile_confirm") {
     const p = normalizeWorkProfile(card.payload || {}, profile);
@@ -3796,6 +3878,15 @@ function bindWorklogAssistant() {
     clearAssistantPendingCommand();
     addConversationMessage("user", "取消");
     addConversationMessage("assistant", "已取消這筆工時建立。");
+    render();
+  });
+  document.querySelectorAll("[data-assistant-confirm-date]").forEach(button => button.onclick = async () => {
+    const pending = getAssistantPendingCommand();
+    const command = pending?.command ? { ...pending.command, dateWeekdayMismatch: false } : null;
+    if (!command) return toast("找不到待確認的日期");
+    await setAssistantPendingCommand({ action: "confirm_add_entry", command });
+    addConversationMessage("user", "確認日期");
+    addConversationMessage("assistant", "日期已確認，請確認這筆工時：", { card: { type: "confirm_entry", payload: assistantConfirmationPayload(command) } });
     render();
   });
   document.querySelectorAll("[data-assistant-create-task]").forEach(button => button.onclick = () => {
