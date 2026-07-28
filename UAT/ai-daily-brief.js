@@ -75,6 +75,18 @@
     return "因為它是目前最久未完成的工作。";
   }
 
+  function briefAdvice(todayHours = 0, missingHours = 0, topTask = null, pendingCount = 0) {
+    if (!pendingCount) {
+      if (todayHours <= 0) return "🤖 Mr. KM 建議先建立今天第一筆工時。";
+      if (missingHours > 0) return "🤖 Mr. KM 建議先補齊今日工時，再開始明日規劃。";
+      return "🤖 Mr. KM 建議檢查今天的工作，或開始規劃明日工作。";
+    }
+    const title = topTask?.title || topTask?.name || "這項待辦";
+    if (todayHours <= 0) return `🤖 Mr. KM 建議先完成「${title}」，再建立今天第一筆工時。`;
+    if (missingHours > 0) return `🤖 Mr. KM 建議先完成「${title}」，今天尚缺 ${briefDuration(missingHours)}。`;
+    return `🤖 Mr. KM 建議先完成「${title}」，因為它是目前最重要的待辦。`;
+  }
+
   function briefSuggestionCount() {
     try {
       return typeof workMemoryAiSuggestionItems === "function"
@@ -123,24 +135,24 @@
         : "這是目前今天最值得注意的工作資訊。";
     const cta = mode === "closing" && missingHours > 0 ? "立即完成今天工時" : "開始今天的工作";
     const taskList = topTask
-      ? `<div class="ai-daily-brief-focus-copy"><span>今天先完成：</span><button type="button" class="ai-daily-brief-task-link" data-ai-brief-task="1" data-ai-brief-task-title="${escapeHtml(topTask.title || topTask.name || "未命名任務")}">📋 ${escapeHtml(topTask.title || topTask.name || "未命名任務")}</button><small>${escapeHtml(briefTaskReason(topTask))}</small>${pending.length > 1 ? `<em>另外還有 ${pending.length - 1} 項</em>` : ""}</div>`
-      : `<p class="ai-daily-brief-empty">今天沒有待辦。<br><span>可以開始新增今天第一個工作。</span></p>`;
+      ? `<div class="ai-daily-brief-focus-copy"><span>🎯 今日重點</span><button type="button" class="ai-daily-brief-task-link" data-ai-brief-task="1" data-ai-brief-task-title="${escapeHtml(topTask.title || topTask.name || "未命名任務")}">📋 ${escapeHtml(topTask.title || topTask.name || "未命名任務")}</button><small>${escapeHtml(briefTaskReason(topTask))}</small>${pending.length > 1 ? `<em>另外還有 ${pending.length - 1} 項待辦</em>` : ""}<p class="ai-daily-brief-advice">${escapeHtml(briefAdvice(todayHours, missingHours, topTask, pending.length))}</p></div>`
+      : `<div class="ai-daily-brief-focus-copy"><span>🎯 今日重點</span><p class="ai-daily-brief-empty">🎉 今天沒有待辦事項<br><span>可以開始新增今天第一個工作。</span></p><p class="ai-daily-brief-advice">${escapeHtml(briefAdvice(todayHours, missingHours, null, 0))}</p></div>`;
     const taskMetricValue = topTask ? (topTask.title || topTask.name || "未命名任務") : "沒有待辦";
-    const taskMetricDetail = pending.length > 1 ? `另外還有 ${pending.length - 1} 項` : topTask ? briefTaskReason(topTask) : "可以開始新增今天第一個工作";
+    const taskMetricDetail = pending.length > 1 ? `另外還有 ${pending.length - 1} 項待辦` : topTask ? briefTaskReason(topTask) : "可以開始新增今天第一個工作";
     return `<section class="ai-daily-brief" data-ai-daily-brief data-ai-brief-mode="${mode}" aria-labelledby="ai-daily-brief-title">
       <div class="ai-daily-brief-head"><div><span class="ai-daily-brief-kicker">Mr. KM · AI Daily Brief</span><h2 id="ai-daily-brief-title">${escapeHtml(title)}</h2><p>${escapeHtml(lead)}</p></div><time datetime="${briefDateKey(today)}">${escapeHtml(briefDateLabel(today))}</time></div>
       <div class="ai-daily-brief-metrics">
         ${briefMetric("今日工時", `${briefDuration(todayHours)} / 8h`, missingHours > 0 ? `尚缺 ${briefDuration(missingHours)}` : "今日已完成 ✅")}
-        ${briefMetric("待完成工作", taskMetricValue, taskMetricDetail)}
+        ${briefMetric("📋 今日待辦", taskMetricValue, taskMetricDetail)}
         ${briefMetric("Mr. KM 建議", `${suggestionCount} 項`, "依目前工作模型整理")}
         ${briefMetric("新 Knowledge", `${recentKnowledge} 份`, "今天更新或加入")}
       </div>
-      <div class="ai-daily-brief-bottom"><div><span class="ai-daily-brief-section-label">今天先看</span>${taskList}</div><button class="btn ai-daily-brief-cta" type="button" data-ai-brief-start-work="1" data-open-workspace="worklog">${escapeHtml(cta)} <span aria-hidden="true">→</span></button></div>
+      <div class="ai-daily-brief-bottom"><div>${taskList}</div><button class="btn ai-daily-brief-cta" type="button" data-ai-brief-start-work="1" data-open-workspace="worklog">${escapeHtml(cta)} <span aria-hidden="true">→</span></button></div>
     </section>`;
   }
 
   global.aiDailyBriefMarkup = aiDailyBriefMarkup;
-  global.AIDailyBrief = Object.freeze({ briefDateKey, briefDateLabel, briefTodayHours, briefPendingTasks, briefTaskPriorityScore, briefTaskReason, briefSuggestionCount, briefRecentKnowledgeCount, briefMode });
+  global.AIDailyBrief = Object.freeze({ briefDateKey, briefDateLabel, briefTodayHours, briefPendingTasks, briefTaskPriorityScore, briefTaskReason, briefAdvice, briefSuggestionCount, briefRecentKnowledgeCount, briefMode });
 
   document.addEventListener("click", event => {
     const button = event.target.closest?.("[data-ai-brief-task]");
