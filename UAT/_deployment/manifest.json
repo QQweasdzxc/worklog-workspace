@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "milestone": "Sprint 5.0.1 - OAuth Session Reuse Hotfix",
+  "milestone": "Sprint 5.1 - Root Dashboard Navigation Fix",
   "mode": "uat",
   "deployable": false,
   "uatReady": true,
   "pickerConfigured": true,
-  "buildTime": "20260728-1414",
+  "buildTime": "20260728-1451",
   "commitSha": "deferred-simple-first",
-  "productVersion": "0.9.0-alpha.5.1",
+  "productVersion": "0.9.0-alpha.5.2",
   "unresolvedKeys": [
     "ROOT_DOMAIN",
     "WEBSITE_URL",

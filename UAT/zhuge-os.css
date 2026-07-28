@@ -44,6 +44,19 @@ button.zhuge-module-card:hover, button.zhuge-module-card:focus-visible { border-
 .zhuge-root-principle { display: flex; align-items: center; gap: 9px; margin-top: 24px; padding: 13px 15px; border-left: 3px solid #69aaff; color: #c8d8eb; background: rgba(11, 32, 62, .55); font-size: .86rem; line-height: 1.5; }
 .zhuge-root-principle span:first-child { color: #8fc2ff; }
 .sidebar-brand .brand-stack[data-open-workspace="dashboard"] { cursor: pointer; }
+
+/* Child workspaces never render the Root Dashboard hero.  On narrow screens
+ * this compact context bar keeps the workspace menu reachable without
+ * repeating the product-level brand block. */
+.workspace-context-bar { display: none; max-width: 1520px; margin: 0 auto 10px; }
+.workspace-context-inner { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 8px 10px; border: 1px solid #334155; border-radius: 16px; background: linear-gradient(180deg,#0b1728,#091422); }
+.workspace-context-title { display: flex; align-items: center; gap: 7px; min-width: 0; color: #f8fafc; font-weight: 900; }
+.workspace-context-title span { flex: 0 0 auto; }
+.workspace-context-inner .work-identity-header-status { margin-left: auto; }
+@media (max-width: 1279px) {
+  .workspace-context-bar { display: block; width: min(100%, 1520px); }
+  .workspace-context-inner .adaptive-menu { display: inline-flex; }
+}
 @media (max-width: 860px) {
   .zhuge-root-hero { align-items: stretch; flex-direction: column; }
   .zhuge-root-identity { min-width: 0; }
