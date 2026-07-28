@@ -1157,7 +1157,21 @@ function refreshConversationFromCloud(renderAfter = true) {
   if (conversationRefreshTimer) clearTimeout(conversationRefreshTimer);
   conversationRefreshTimer = setTimeout(() => {
     DataService.loadConversation().finally(() => {
-      if (renderAfter && (isAssistantOpen() || IS_EXTENSION_ENTRY || isStandaloneChatRoute())) render();
+      if (!renderAfter || !(isAssistantOpen() || IS_EXTENSION_ENTRY || isStandaloneChatRoute())) return;
+      const widget = document.querySelector(".floating-assistant-widget");
+      if (widget && !IS_EXTENSION_ENTRY && !isStandaloneChatRoute() && typeof RenderEngine !== "undefined") {
+        RenderEngine.partial("conversation-refresh", () => {
+          const holder = document.createElement("div");
+          holder.innerHTML = floatingAssistantWidget();
+          const next = holder.firstElementChild;
+          if (!next) return false;
+          widget.replaceWith(next);
+          bindWorklogAssistant();
+          return true;
+        });
+        return;
+      }
+      render("conversation-refresh-fallback");
     });
   }, 150);
 }
@@ -2040,23 +2054,24 @@ function rememberWorkspace(id) {
 function openWorkspace(id) {
   if (!workspaceRegistry[id]) return;
   if (workspaceRegistry[id].comingSoon) return;
+  const route = typeof AppRouter !== "undefined" ? AppRouter.resolve(id, view) : { workspace: id, view };
   if (id === "dashboard") {
-    activeWorkspace = "dashboard";
+    activeWorkspace = route.workspace;
     openTabs = [];
     recentWorkspaces = [];
     view = "center";
     saveAll();
-    render();
+    render("workspace-change");
     return;
   }
   if (!openTabs.includes(id)) openTabs.push(id);
-  activeWorkspace = id;
+  activeWorkspace = route.workspace;
   rememberWorkspace(id);
   if (id === "worklog") view = "center";
   if (id === "library") { view = "library"; editingLibraryId = null; }
   if (id === "sync" || id === "settings") view = "center";
   saveAll();
-  render();
+  render("workspace-change");
 }
 
 function activateWorkspace(id) {
@@ -2064,7 +2079,7 @@ function activateWorkspace(id) {
   activeWorkspace = id;
   rememberWorkspace(id);
   saveAll();
-  render();
+  render("workspace-change");
 }
 
 function closeWorkspace(id) {
@@ -2073,7 +2088,7 @@ function closeWorkspace(id) {
   recentWorkspaces = recentWorkspaces.filter(x => x !== id);
   if (wasActive) activeWorkspace = recentWorkspaces.find(x => openTabs.includes(x)) || openTabs[openTabs.length - 1] || "dashboard";
   saveAll();
-  render();
+  render("workspace-change");
 }
 
 function agentStatusPanel() {
@@ -3567,17 +3582,41 @@ function currentViewHtml() {
   return settings();
 }
 
-function render() {
-  normalizeEntries();
-  if (IS_EXTENSION_ENTRY) { root.innerHTML = extensionAssistantScreen(); bindWorklogAssistant(); return; }
-  clearInvalidAuthState();
-  if (!session) { root.innerHTML = authScreen(); bindAuth(); return; }
-  if (migrationRequired) { root.innerHTML = migrationScreen(); bindMigration(); bindGlobal(); return; }
-  if (isStandaloneChatRoute()) { root.innerHTML = standaloneChatScreen(); bindWorklogAssistant(); bindGlobal(); return; }
-  if (needsWorklogWelcome()) { root.innerHTML = worklogWelcomeScreen(); bindWorklogWelcome(); bindGlobal(); return; }
-  root.innerHTML = osShell();
-  bind();
-  bindGlobal();
+function replaceRootContent(markup = "") {
+  root.replaceChildren();
+  root.insertAdjacentHTML("afterbegin", markup);
+}
+
+function render(reason = "state-update") {
+  if (renderInProgress) {
+    renderQueued = true;
+    return;
+  }
+  renderInProgress = true;
+  const performFullRender = () => {
+    normalizeEntries();
+    if (IS_EXTENSION_ENTRY) { replaceRootContent(extensionAssistantScreen()); bindWorklogAssistant(); return; }
+    clearInvalidAuthState();
+    if (!session) { replaceRootContent(authScreen()); bindAuth(); return; }
+    if (migrationRequired) { replaceRootContent(migrationScreen()); bindMigration(); bindGlobal(); return; }
+    if (isStandaloneChatRoute()) { replaceRootContent(standaloneChatScreen()); bindWorklogAssistant(); bindGlobal(); return; }
+    if (needsWorklogWelcome()) { replaceRootContent(worklogWelcomeScreen()); bindWorklogWelcome(); bindGlobal(); return; }
+    replaceRootContent(osShell());
+    bind();
+    bindGlobal();
+  };
+  try {
+    if (typeof RenderEngine !== "undefined") RenderEngine.full(reason, performFullRender);
+    else performFullRender();
+  } finally {
+    renderInProgress = false;
+    if (renderQueued) {
+      renderQueued = false;
+      const flush = () => render("queued-update");
+      if (typeof queueMicrotask === "function") queueMicrotask(flush);
+      else Promise.resolve().then(flush);
+    }
+  }
 }
 
 function bindAuth() {
