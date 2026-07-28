@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
-  "milestone": "Sprint 5.0 - Zhuge AI OS Architecture Integration",
+  "milestone": "Sprint 5.0.1 - OAuth Session Reuse Hotfix",
   "mode": "uat",
   "deployable": false,
   "uatReady": true,
   "pickerConfigured": true,
-  "buildTime": "20260728-1216",
+  "buildTime": "20260728-1414",
   "commitSha": "deferred-simple-first",
-  "productVersion": "0.9.0-alpha.5.0",
+  "productVersion": "0.9.0-alpha.5.1",
   "unresolvedKeys": [
     "ROOT_DOMAIN",
     "WEBSITE_URL",

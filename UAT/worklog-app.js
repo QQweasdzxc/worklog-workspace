@@ -3486,7 +3486,24 @@ function render() {
 }
 
 function bindAuth() {
-  document.getElementById("googleLoginBtn").onclick = () => signInWithGoogle();
+  const button = document.getElementById("googleLoginBtn");
+  if (!button) return;
+  button.onclick = () => {
+    // Browser Back may restore the pre-OAuth auth screen from bfcache even
+    // though the Google/Supabase session is still valid.
+    if (hasGoogleOAuthSession()) {
+      clearStoredOAuthError();
+      activeModule = "dashboard";
+      activeWorkspace = "dashboard";
+      openTabs = [];
+      recentWorkspaces = [];
+      view = "center";
+      saveAll();
+      render();
+      return;
+    }
+    signInWithGoogle();
+  };
 }
 
 function bindMigration() {
@@ -5536,7 +5553,18 @@ window.addEventListener("focus", () => refreshConversationFromCloud(true));
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") refreshConversationFromCloud(true);
 });
-window.addEventListener("pageshow", () => refreshConversationFromCloud(true));
+window.addEventListener("popstate", () => {
+  if (!hasGoogleOAuthSession()) return;
+  clearStoredOAuthError();
+  render();
+});
+window.addEventListener("pageshow", event => {
+  if (event.persisted && hasGoogleOAuthSession()) {
+    clearStoredOAuthError();
+    render();
+  }
+  refreshConversationFromCloud(true);
+});
 
 lastSuggestionBatchSize = suggestionBatchSize();
 window.addEventListener("resize", () => {
