@@ -1,0 +1,32 @@
+/* Sprint 6 Product Layer: AI Daily Brief. Core WorkLog CSS remains untouched. */
+.ai-daily-brief {
+  margin-top: 22px;
+  padding: clamp(18px, 2.4vw, 28px);
+  border: 1px solid rgba(111, 174, 255, .32);
+  border-radius: 20px;
+  background: linear-gradient(135deg, rgba(18, 46, 84, .92), rgba(8, 23, 45, .94));
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .14);
+}
+.ai-daily-brief-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.ai-daily-brief-kicker { color: #8fc2ff; font-size: .76rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.ai-daily-brief h2 { margin: 5px 0 4px; font-size: clamp(1.18rem, 2vw, 1.55rem); }
+.ai-daily-brief-head p { margin: 0; color: #c0d0e4; line-height: 1.5; }
+.ai-daily-brief-head time { flex: 0 0 auto; padding: 7px 10px; border-radius: 999px; color: #cfe4ff; background: rgba(65, 132, 224, .18); font-size: .8rem; }
+.ai-daily-brief-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 20px; }
+.ai-daily-brief-metric { min-width: 0; padding: 13px; border: 1px solid rgba(145, 180, 226, .18); border-radius: 13px; background: rgba(3, 14, 30, .34); }
+.ai-daily-brief-metric span, .ai-daily-brief-section-label { display: block; color: #a9c0db; font-size: .76rem; }
+.ai-daily-brief-metric strong { display: block; margin-top: 5px; color: #f5f9ff; font-size: 1.08rem; }
+.ai-daily-brief-metric small { display: block; margin-top: 3px; color: #91e6aa; font-size: .74rem; }
+.ai-daily-brief-bottom { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; margin-top: 18px; padding-top: 16px; border-top: 1px solid rgba(145, 180, 226, .16); }
+.ai-daily-brief-task-list { display: flex; flex-wrap: wrap; gap: 7px 16px; margin: 6px 0 0; padding: 0; list-style: none; color: #e2ecfa; }
+.ai-daily-brief-task-list li::before { content: "•"; margin-right: 5px; color: #8fc2ff; }
+.ai-daily-brief-empty { margin: 6px 0 0; color: #9db0c6; font-size: .86rem; }
+.ai-daily-brief-cta { flex: 0 0 auto; white-space: nowrap; }
+@media (max-width: 760px) {
+  .ai-daily-brief-head { flex-direction: column; }
+  .ai-daily-brief-head time { align-self: flex-start; }
+  .ai-daily-brief-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ai-daily-brief-bottom { align-items: stretch; flex-direction: column; }
+  .ai-daily-brief-cta { width: 100%; }
+}
+@media (max-width: 420px) { .ai-daily-brief-metrics { grid-template-columns: 1fr; } }
