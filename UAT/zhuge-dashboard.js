@@ -37,6 +37,7 @@ function zhugeRootDashboardMarkup(identity = null) {
       </div>
       ${zhugeRootIdentityMarkup(identity)}
     </div>
+    ${typeof aiDailyBriefMarkup === "function" ? aiDailyBriefMarkup() : ""}
     <section class="zhuge-module-launcher" aria-labelledby="zhuge-module-launcher-title">
       <div class="zhuge-module-launcher-head"><div><h3 id="zhuge-module-launcher-title">Module Launcher</h3><p class="muted">選擇今天要使用的工作空間</p></div><span class="zhuge-session-badge">🔐 共用 Google Session</span></div>
       <div class="zhuge-module-grid">
