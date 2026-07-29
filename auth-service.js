@@ -97,7 +97,7 @@ function clearStoredOAuthError() {
 
 function captureOAuthError() {
   const params = new URLSearchParams(location.search);
-  const code = params.get("error");
+  const code = params.get("error") || params.get("error_code");
   if (!code) return null;
   const rawDescription = params.get("error_description") || "";
   const message = code === "access_denied"
@@ -140,7 +140,7 @@ async function codeChallengeFromVerifier(verifier) {
 
 function cleanAuthCallbackUrl() {
   const params = new URLSearchParams(location.search);
-  ["code", "state", "error", "error_description"].forEach(key => params.delete(key));
+  ["code", "state", "error", "error_code", "error_description", "error_reason"].forEach(key => params.delete(key));
   const search = params.toString();
   history.replaceState(null, "", location.pathname + (search ? `?${search}` : ""));
 }
@@ -201,7 +201,14 @@ async function exchangeCodeForSession() {
 }
 
 async function getAuthSession() {
-  if (captureOAuthError()) return null;
+  const oauthError = captureOAuthError();
+  if (oauthError) {
+    // Browser Back can restore a stale OAuth error after login succeeded.
+    // Preserve the valid existing session instead of entering OAuth again.
+    const stored = getStoredAuthSession();
+    if (stored?.access_token || hasGoogleOAuthSession()) return stored || session;
+    return null;
+  }
   return captureHashAuthSession() || await exchangeCodeForSession() || await refreshAuthSession(false) || getStoredAuthSession();
 }
 

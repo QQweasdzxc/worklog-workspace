@@ -308,6 +308,97 @@ const SupabaseRepository = {
   saveEcpTasks(names) {
     return this.syncNameList("user_ecp_tasks", names);
   },
+  loadTasks() {
+    return this.select("user_tasks", "?select=*&deleted_at=is.null&order=completed_at.asc.nullslast,sort_score.desc,updated_at.desc");
+  },
+  async saveTasks(items = []) {
+    // Read deleted rows too: the partial legacy_id identity is unique across
+    // the user's history. Reviving a deleted task must PATCH that row instead
+    // of racing a new INSERT into user_tasks_user_legacy_uidx.
+    const current = await this.select("user_tasks", "?select=*&order=updated_at.desc") || [];
+    const normalized = (items || []).map(item => normalizeTask(item)).filter(item => item.title);
+    const retainedIds = new Set();
+    for (const item of normalized) {
+      const existing = current.find(row => (item.cloudId && row.id === item.cloudId) || row.legacy_id === item.id);
+      const payload = {
+        user_uuid: currentUserUuid(),
+        legacy_id: item.id,
+        title: item.title,
+        note: item.note || "",
+        due_date: item.dueDate || null,
+        deadline: item.dueDate || null,
+        status: item.status || "not_started",
+        progress: Math.max(0, Math.min(100, Number(item.progress || 0) || 0)),
+        priority: typeof PriorityEngine !== "undefined" ? PriorityEngine.normalizePriority(item.priority) : item.priority || "p2",
+        priority_score: Number(item.priorityScore || 0) || 0,
+        sort_score: typeof PriorityEngine !== "undefined" ? PriorityEngine.calculateScore(item) : Number(item.sortScore || 0) || 0,
+        pin: item.userPinned === true,
+        user_pinned: item.userPinned === true,
+        estimated_minutes: Number(item.estimatedMinutes || 0) || null,
+        started_at: item.startedAt || null,
+        completed_at: item.completedAt || null,
+        completed_note: item.completedNote || "",
+        completed_by: item.completedBy || null,
+        completion_source: item.completionSource || "manual",
+        deleted_at: null,
+        updated_at: item.updatedAt || new Date().toISOString()
+      };
+      if (existing) {
+        await this.patch("user_tasks", `?id=eq.${encodeURIComponent(existing.id)}`, payload);
+        retainedIds.add(existing.id);
+      } else {
+        const inserted = await this.insert("user_tasks", payload);
+        if (inserted?.[0]?.id) retainedIds.add(inserted[0].id);
+      }
+    }
+    for (const row of current) {
+      if (!retainedIds.has(row.id)) await this.patch("user_tasks", `?id=eq.${encodeURIComponent(row.id)}`, { deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+    }
+    return this.loadTasks();
+  },
+  // Sprint 7.2: Work Journal is an independent 1:N timeline.  It is never
+  // stored inside a task note; every write is keyed by the cloud task UUID.
+  loadWorkJournal(taskUuid = "") {
+    const taskFilter = taskUuid ? `&task_uuid=eq.${encodeURIComponent(taskUuid)}` : "";
+    return this.select("work_journal_entries", `?select=*&user_uuid=eq.${encodeURIComponent(currentUserUuid())}${taskFilter}&order=created_at.asc`);
+  },
+  async saveWorkJournalEntry(entry = {}) {
+    if (!currentUserUuid() || !currentAccessToken()) throw new Error("Cloud Sync 尚未就緒");
+    const taskUuid = String(entry.taskUuid || entry.task_uuid || "").trim();
+    const content = String(entry.content || "").trim();
+    if (!taskUuid) throw new Error("Work Journal 缺少待辦事項 UUID");
+    if (!content) throw new Error("請輸入工作推進紀錄");
+    const payload = {
+      user_uuid: currentUserUuid(),
+      task_uuid: taskUuid,
+      entry_type: entry.entryType || entry.entry_type || "progress",
+      content,
+      status: entry.status || null,
+      progress: Math.max(0, Math.min(100, Number(entry.progress || 0) || 0)),
+      work_entry_uuid: entry.workEntryUuid || entry.work_entry_uuid || null,
+      metadata: entry.metadata && typeof entry.metadata === "object" ? entry.metadata : {},
+      client_id: entry.clientId || entry.client_id || uid("journal"),
+      created_by: currentUserUuid(),
+      created_at: entry.createdAt || entry.created_at || new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    if (entry.cloudId || entry.id) {
+      const id = entry.cloudId || entry.id;
+      const rows = await this.patch("work_journal_entries", `?id=eq.${encodeURIComponent(id)}`, payload);
+      return rows?.[0] || null;
+    }
+    const rows = await this.request("work_journal_entries?on_conflict=user_uuid,client_id", {
+      method: "POST",
+      headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+      body: JSON.stringify(payload)
+    });
+    return rows?.[0] || null;
+  },
+  deleteWorkJournalEntry(entry = {}) {
+    const id = entry.cloudId || entry.id;
+    if (!id) throw new Error("Work Journal 缺少 ID");
+    return this.remove("work_journal_entries", `?id=eq.${encodeURIComponent(id)}`);
+  },
   async ensureAssistantConversation() {
     if (!currentUserUuid() || !currentAccessToken()) throw new Error("Cloud Sync 尚未就緒");
     const payload = {
@@ -366,6 +457,7 @@ const SupabaseRepository = {
       this.select("user_profiles", "?select=user_uuid&limit=1"),
       this.select("user_work_models", "?select=id&limit=1"),
       this.select("user_ecp_tasks", "?select=id&limit=1"),
+      this.select("user_tasks", "?select=id&limit=1"),
       this.select("user_export_settings", "?select=id&limit=1"),
       this.select("work_entries", "?select=id&status=neq.deleted&limit=1")
     ]);
@@ -387,6 +479,12 @@ const SupabaseRepository = {
     if (!currentUserUuid() || !currentAccessToken()) throw new Error("Cloud Sync 尚未就緒");
     const ecpRows = await this.loadEcpTasks();
     const ecpTask = ecpRows.find(row => row.name === entry.ecpTask);
+    const taskUuid = entry.taskUuid || entry.task_uuid || "";
+    let task = null;
+    if (taskUuid) {
+      const taskRows = await this.select("user_tasks", `?select=id,title&user_uuid=eq.${encodeURIComponent(currentUserUuid())}&id=eq.${encodeURIComponent(taskUuid)}&deleted_at=is.null&limit=1`);
+      task = taskRows?.[0] || null;
+    }
     const existing = entry.cloudId ? [{ id: entry.cloudId }] : await this.select("work_entries", `?select=id&legacy_id=eq.${encodeURIComponent(entry.id)}&limit=1`);
     const started = parseTaipeiBusinessDateTime(entry.at);
     const ended = new Date(started.getTime() + Math.round(Number(entry.hours || 0) * 60) * 60000);
@@ -403,6 +501,8 @@ const SupabaseRepository = {
       source: entry.source || "manual",
       ecp_task_id: ecpTask?.id || null,
       ecp_task_name_snapshot: entry.ecpTask || "",
+      task_uuid: task?.id || null,
+      task_title_snapshot: task?.title || entry.taskTitleSnapshot || "",
       legacy_id: entry.id
     };
     const saved = existing?.[0]?.id

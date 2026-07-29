@@ -8,6 +8,7 @@ let autoSaveTimer = null;
 let autoSaveInFlight = false;
 const autoSaveDirtyScopes = new Set();
 let knowledgeFoundationNotInitialized = cloudSync.status === "knowledge_uninitialized";
+let taskFoundationNotInitialized = false;
 let conversationFoundationNotInitialized = false;
 let migrationRequired = false;
 let migrationPreview = null;
@@ -31,6 +32,8 @@ const LocalCache = {
     this.save("work_models", Array.isArray(DataService.workModelsState) ? DataService.workModelsState : profile?.tags || []);
     this.save("ecp_settings", { ecpOwner: profile?.ecpOwner || "", ecpDepartment: profile?.ecpDepartment || "" });
     this.save("ecp_tasks", Array.isArray(DataService.ecpTasksState) ? DataService.ecpTasksState : profile?.ecpTasks || []);
+    this.save("tasks", Array.isArray(tasks) ? tasks.map(normalizeTask) : []);
+    this.save("work_journal", Array.isArray(workJournalEntries) ? workJournalEntries : []);
     this.save("library", library);
     this.save("knowledge_units", knowledgeUnits);
     this.save("knowledge_recommendation_candidates", knowledgeRecommendationCandidates);
@@ -51,8 +54,10 @@ const LocalCache = {
     if (Array.isArray(cachedKnowledgeCandidates) && cachedKnowledgeCandidates.length) knowledgeRecommendationCandidates = cachedKnowledgeCandidates;
     const cachedWorkModels = this.load("work_models", null);
     const cachedEcpTasks = this.load("ecp_tasks", null);
+    const cachedJournal = this.load("work_journal", null);
     if (Array.isArray(cachedWorkModels)) DataService.workModelsState = cachedWorkModels;
     if (Array.isArray(cachedEcpTasks)) DataService.ecpTasksState = cachedEcpTasks;
+    if (Array.isArray(cachedJournal)) workJournalEntries = cachedJournal;
     return !!cachedProfile || !!cachedWorkProfile || cachedEntries.length > 0;
   }
 };
@@ -122,6 +127,10 @@ const DataService = {
         const rows = await SupabaseRepository.saveEcpTasks(ecpTasks());
         setEcpTasks(Array.isArray(rows) ? rows.map(row => row.name).filter(Boolean) : ecpTasks());
       }
+      if (scopes.has("tasks")) {
+        const rows = await SupabaseRepository.saveTasks(tasks);
+        setTasksFromCloud(rows);
+      }
       LocalCache.saveAll();
       this.setStatus(autoSaveDirtyScopes.size ? "pending" : "synced");
       if (autoSaveDirtyScopes.size) {
@@ -134,6 +143,9 @@ const DataService = {
       if (scopes.has("workModels") && isWorkMemoryNotInitializedError(error)) {
         workMemoryFoundationNotInitialized = true;
         this.setStatus("work_memory_uninitialized", `請先執行 ${WORK_MEMORY_SCHEMA_SQL}`);
+      } else if (scopes.has("tasks") && isTasksNotInitializedError(error)) {
+        taskFoundationNotInitialized = true;
+        this.setStatus("tasks_uninitialized", `請先執行 ${PRIORITY_ENGINE_SCHEMA_SQL}`);
       } else this.setStatus("failed", error.message || "Smart Auto Save failed");
     } finally {
       autoSaveInFlight = false;
@@ -144,6 +156,7 @@ const DataService = {
       autoSaveDirtyScopes.add("profile");
       autoSaveDirtyScopes.add("workModels");
       autoSaveDirtyScopes.add("ecpTasks");
+      autoSaveDirtyScopes.add("tasks");
     }
     if (autoSaveTimer) clearTimeout(autoSaveTimer);
     autoSaveTimer = setTimeout(() => this.flushAutoSaveQueue(), 0);
@@ -325,6 +338,12 @@ const DataService = {
             console.warn("Work Memory Cloud Foundation not initialized", { setupSql: WORK_MEMORY_SCHEMA_SQL, error });
             return fallback;
           }
+          if (label === "tasks" && isTasksNotInitializedError(error)) {
+            taskFoundationNotInitialized = true;
+            failedLoads.add(label);
+            console.warn("Task Cloud Foundation not initialized", { setupSql: PRIORITY_ENGINE_SCHEMA_SQL, error });
+            return fallback;
+          }
           errors.push(`${label}: ${error.message || error}`);
           failedLoads.add(label);
           console.error(`Cloud Sync ${label} load failed`, error);
@@ -336,7 +355,9 @@ const DataService = {
       const cloudWorkProfile = await safeLoad("work_profile", () => SupabaseRepository.loadWorkProfile(), null);
       let workModelsRows = await safeLoad("work_models", () => SupabaseRepository.loadWorkModels(), []);
       const ecpTaskRows = await safeLoad("ecp_tasks", () => SupabaseRepository.loadEcpTasks(), []);
+      const taskRows = await safeLoad("tasks", () => SupabaseRepository.loadTasks(), []);
       const entryRows = await safeLoad("entries", () => SupabaseRepository.loadEntries(selectedMonth), []);
+      const journalRows = await safeLoad("work_journal", () => SupabaseRepository.loadWorkJournal(), []);
       const knowledgeRows = await safeLoad("knowledge", () => KnowledgeRepository.loadSources(), []);
       const knowledgeUnitRows = await safeLoad("knowledge_units", () => KnowledgeRepository.loadUnits(), []);
       const knowledgeCandidateRows = await safeLoad("knowledge_candidates", () => KnowledgeRepository.loadRecommendationCandidates(), []);
@@ -357,6 +378,13 @@ const DataService = {
       workProfile = workProfileFromCloud(cloudWorkProfile, exportSettings, ecpTaskRows || [], profile);
       applyWorkProfileToProfile(workProfile);
       if (!failedLoads.has("entries")) setEntries(Array.isArray(entryRows) ? entryRows.map(entryFromCloud) : []);
+      if (!failedLoads.has("tasks")) {
+        taskFoundationNotInitialized = false;
+        setTasksFromCloud(taskRows);
+      }
+      if (!failedLoads.has("work_journal") && typeof setWorkJournalFromCloud === "function") {
+        setWorkJournalFromCloud(journalRows);
+      }
       if (!failedLoads.has("knowledge")) {
         knowledgeFoundationNotInitialized = false;
         setLibrary(Array.isArray(knowledgeRows) ? knowledgeRows.map(knowledgeFromCloud) : []);
@@ -370,6 +398,7 @@ const DataService = {
       LocalCache.saveAll();
       if (errors.length) this.setStatus("failed", errors.join(" | "));
       else if (workMemoryFoundationNotInitialized) this.setStatus("work_memory_uninitialized", "Work Memory Cloud 尚未初始化");
+      else if (taskFoundationNotInitialized) this.setStatus("tasks_uninitialized", "Tasks Cloud 尚未初始化");
       else if (knowledgeFoundationNotInitialized) this.setStatus("knowledge_uninitialized", "Knowledge Library 尚未初始化");
       else this.setStatus("synced");
     } catch (error) {
@@ -411,6 +440,8 @@ const DataService = {
     this.setStatus("migrating");
     try {
       entries = readJson("wl_entries", []);
+      const legacyTasks = readJson("zhuge_worklog_tasks_v1", []).map(normalizeTask).filter(item => item.title);
+      if (!tasks.length && legacyTasks.length) tasks = legacyTasks;
       profile = readJson("wl_profile", profile);
       normalizeEntries();
       if (profile) {
@@ -420,6 +451,7 @@ const DataService = {
         await SupabaseRepository.upsertWorkProfile(workProfile);
         await SupabaseRepository.saveWorkModels(workMemoryObjects(), profile);
         await SupabaseRepository.saveEcpTasks(ecpTasks());
+        await SupabaseRepository.saveTasks(tasks);
       }
       for (const entry of entries.filter(e => e.status !== "deleted")) {
         const saved = await SupabaseRepository.saveEntry(entry);
@@ -444,7 +476,7 @@ const DataService = {
       toast("Migration 失敗，legacy data 已保留");
     } finally {
       migrationRunning = false;
-      render();
+      render("migration-complete");
     }
   },
   async syncAll() {
@@ -459,6 +491,7 @@ const DataService = {
         await SupabaseRepository.upsertWorkProfile(workProfile);
         await SupabaseRepository.saveWorkModels(workMemoryObjects(), profile);
         await SupabaseRepository.saveEcpTasks(ecpTasks());
+        await SupabaseRepository.saveTasks(tasks);
       }
       for (const entry of entries.filter(e => e.status !== "deleted")) {
         const saved = await SupabaseRepository.saveEntry(entry);
@@ -504,6 +537,43 @@ const DataService = {
     } catch (error) {
       console.error("Cloud Sync save entry failed", { error, supabase: error.supabase || null, item });
       this.setStatus("failed", error.message || "Entry sync failed");
+      throw error;
+    }
+  },
+  async saveTasksNow(items = tasks) {
+    if (!dataServiceReady || !hasGoogleOAuthSession()) throw new Error("Cloud Sync 尚未就緒");
+    if (dataServiceHydrating || migrationRequired || migrationRunning) throw new Error("Cloud Sync 正在初始化");
+    this.setStatus("syncing");
+    try {
+      const rows = await SupabaseRepository.saveTasks(items);
+      setTasksFromCloud(rows);
+      LocalCache.saveAll();
+      this.setStatus("synced");
+      return rows;
+    } catch (error) {
+      this.setStatus("failed", error.message || "Task sync failed");
+      throw error;
+    }
+  },
+  async loadWorkJournal(taskUuid = "") {
+    if (!hasGoogleOAuthSession() || dataServiceHydrating || migrationRunning) throw new Error("Cloud Sync 尚未就緒");
+    const rows = await SupabaseRepository.loadWorkJournal(taskUuid);
+    if (!taskUuid && typeof setWorkJournalFromCloud === "function") setWorkJournalFromCloud(rows);
+    return Array.isArray(rows) ? rows : [];
+  },
+  async saveWorkJournalEntry(entry = {}) {
+    if (!dataServiceReady || !hasGoogleOAuthSession()) throw new Error("Cloud Sync 尚未就緒");
+    if (dataServiceHydrating || migrationRequired || migrationRunning) throw new Error("Cloud Sync 正在初始化");
+    this.setStatus("syncing");
+    try {
+      const saved = await SupabaseRepository.saveWorkJournalEntry(entry);
+      if (!saved) throw new Error("Work Journal 未回傳儲存結果");
+      if (typeof upsertWorkJournalEntry === "function") upsertWorkJournalEntry(saved);
+      LocalCache.saveAll();
+      this.setStatus("synced");
+      return saved;
+    } catch (error) {
+      this.setStatus("failed", error.message || "Work Journal sync failed");
       throw error;
     }
   },

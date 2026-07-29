@@ -15,6 +15,14 @@ let tasks = [];
 let editingTaskId = null;
 let taskFilter = "all";
 let taskSearch = "";
+let taskSearchComposing = false;
+let taskCompletionDialogId = null;
+let taskDraft = null;
+// Sprint 7.2: Work Journal is an independent cloud-backed 1:N domain.
+let workJournalEntries = [];
+let taskJournalTaskId = null;
+let taskJournalDraft = null;
+let taskJournalLoading = false;
 let profile = readJson("wl_profile", null);
 let workProfile = readJson("wl_work_profile", null);
 let feedback = readJson("wl_feedback", {});
@@ -62,3 +70,31 @@ let conversationMessagesState = null;
 let conversationPendingState = undefined;
 let conversationRefreshTimer = null;
 const AI_REASON_QUEUE_SIZE = 5;
+let renderInProgress = false;
+let renderQueued = false;
+
+// Sprint 5.5: AppState is a read/write facade over the existing canonical
+// bindings. Keeping the bindings intact preserves the validated runtime while
+// giving every new module one documented state contract.
+const AppState = Object.freeze({
+  get activeModule() { return activeModule; },
+  set activeModule(value) { activeModule = value; },
+  get view() { return view; },
+  set view(value) { view = value; },
+  get activeWorkspace() { return activeWorkspace; },
+  set activeWorkspace(value) { activeWorkspace = value; },
+  get openTabs() { return openTabs.slice(); },
+  get recentWorkspaces() { return recentWorkspaces.slice(); },
+  get selectedDate() { return selected; },
+  get selectedMonth() { return selectedMonth; },
+  snapshot() {
+    return {
+      activeModule,
+      view,
+      activeWorkspace,
+      openTabs: openTabs.slice(),
+      recentWorkspaces: recentWorkspaces.slice(),
+      selectedMonth
+    };
+  }
+});
