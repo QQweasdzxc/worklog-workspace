@@ -61,6 +61,17 @@
 .lifecycle-task-workspace .task-form{margin:0;min-width:0}
 .lifecycle-task-workspace .task-date-input{max-width:100%;min-width:0}
 .task-linked-context{border:1px solid rgba(96,165,250,.45);background:rgba(30,64,175,.16);border-radius:12px;padding:10px;color:#dbeafe}
+.task-journal-panel{margin-top:16px;padding-top:14px;border-top:1px solid rgba(148,163,184,.22);display:grid;gap:10px}
+.task-journal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.task-journal-head h3{margin:0 0 4px}
+.task-journal-cloud-badge{border:1px solid rgba(103,223,137,.35);border-radius:999px;padding:3px 8px;color:#bff2ca;font-size:.74rem;white-space:nowrap}
+.task-journal-list{display:grid;gap:8px;max-height:270px;overflow:auto;padding-right:2px}
+.task-journal-entry{padding:10px 12px;border:1px solid rgba(96,165,250,.24);border-radius:10px;background:rgba(15,23,42,.38);display:grid;gap:5px;overflow-wrap:anywhere}
+.task-journal-entry-head{display:flex;justify-content:space-between;gap:8px;color:#dbeafe;font-size:.82rem}
+.task-journal-entry-head time{color:#94a3b8;font-size:.75rem;white-space:nowrap}
+.task-journal-entry-meta{color:#9fc6e8;font-size:.76rem}
+.task-journal-form{display:grid;gap:7px;padding:10px;border-radius:10px;background:rgba(2,6,23,.22)}
+.task-journal-empty,.task-journal-loading{margin-top:14px;padding:12px;border:1px dashed rgba(148,163,184,.3);border-radius:10px;text-align:center}
 .task-completion-note{margin-top:8px;padding:8px 10px;border-left:3px solid #60a5fa;color:#cbd5e1;background:rgba(15,23,42,.35);border-radius:8px;overflow-wrap:anywhere}
 .task-completion-dialog{position:fixed;inset:0;z-index:50;display:grid;place-items:center;background:rgba(2,6,23,.72)}
 .task-completion-dialog .quick-add-card{width:min(520px,calc(100vw - 28px));max-height:90vh;overflow:auto}

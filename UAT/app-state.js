@@ -18,6 +18,11 @@ let taskSearch = "";
 let taskSearchComposing = false;
 let taskCompletionDialogId = null;
 let taskDraft = null;
+// Sprint 7.2: Work Journal is an independent cloud-backed 1:N domain.
+let workJournalEntries = [];
+let taskJournalTaskId = null;
+let taskJournalDraft = null;
+let taskJournalLoading = false;
 let profile = readJson("wl_profile", null);
 let workProfile = readJson("wl_work_profile", null);
 let feedback = readJson("wl_feedback", {});

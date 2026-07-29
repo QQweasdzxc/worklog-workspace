@@ -17,6 +17,9 @@
         } else if (table === "work_entries") {
           const rows = await SupabaseRepository.loadEntries(selectedMonth);
           setEntries(Array.isArray(rows) ? rows.map(entryFromCloud) : []);
+        } else if (table === "work_journal_entries") {
+          const rows = await SupabaseRepository.loadWorkJournal();
+          setWorkJournalFromCloud(rows);
         }
         LocalCache.saveAll();
         if (typeof refreshRealtimeSurface === "function") refreshRealtimeSurface(table);
@@ -40,7 +43,8 @@
     await client.realtime.setAuth(token);
     channel = client.channel(`zhuge-work-lifecycle-${userId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "user_tasks", filter: `user_uuid=eq.${userId}` }, () => scheduleRefresh("user_tasks"))
-      .on("postgres_changes", { event: "*", schema: "public", table: "work_entries", filter: `user_uuid=eq.${userId}` }, () => scheduleRefresh("work_entries"));
+      .on("postgres_changes", { event: "*", schema: "public", table: "work_entries", filter: `user_uuid=eq.${userId}` }, () => scheduleRefresh("work_entries"))
+      .on("postgres_changes", { event: "*", schema: "public", table: "work_journal_entries", filter: `user_uuid=eq.${userId}` }, () => scheduleRefresh("work_journal_entries"));
     const status = await new Promise(resolve => {
       channel.subscribe(value => resolve(value));
     });

@@ -33,6 +33,7 @@ const LocalCache = {
     this.save("ecp_settings", { ecpOwner: profile?.ecpOwner || "", ecpDepartment: profile?.ecpDepartment || "" });
     this.save("ecp_tasks", Array.isArray(DataService.ecpTasksState) ? DataService.ecpTasksState : profile?.ecpTasks || []);
     this.save("tasks", Array.isArray(tasks) ? tasks.map(normalizeTask) : []);
+    this.save("work_journal", Array.isArray(workJournalEntries) ? workJournalEntries : []);
     this.save("library", library);
     this.save("knowledge_units", knowledgeUnits);
     this.save("knowledge_recommendation_candidates", knowledgeRecommendationCandidates);
@@ -53,8 +54,10 @@ const LocalCache = {
     if (Array.isArray(cachedKnowledgeCandidates) && cachedKnowledgeCandidates.length) knowledgeRecommendationCandidates = cachedKnowledgeCandidates;
     const cachedWorkModels = this.load("work_models", null);
     const cachedEcpTasks = this.load("ecp_tasks", null);
+    const cachedJournal = this.load("work_journal", null);
     if (Array.isArray(cachedWorkModels)) DataService.workModelsState = cachedWorkModels;
     if (Array.isArray(cachedEcpTasks)) DataService.ecpTasksState = cachedEcpTasks;
+    if (Array.isArray(cachedJournal)) workJournalEntries = cachedJournal;
     return !!cachedProfile || !!cachedWorkProfile || cachedEntries.length > 0;
   }
 };
@@ -354,6 +357,7 @@ const DataService = {
       const ecpTaskRows = await safeLoad("ecp_tasks", () => SupabaseRepository.loadEcpTasks(), []);
       const taskRows = await safeLoad("tasks", () => SupabaseRepository.loadTasks(), []);
       const entryRows = await safeLoad("entries", () => SupabaseRepository.loadEntries(selectedMonth), []);
+      const journalRows = await safeLoad("work_journal", () => SupabaseRepository.loadWorkJournal(), []);
       const knowledgeRows = await safeLoad("knowledge", () => KnowledgeRepository.loadSources(), []);
       const knowledgeUnitRows = await safeLoad("knowledge_units", () => KnowledgeRepository.loadUnits(), []);
       const knowledgeCandidateRows = await safeLoad("knowledge_candidates", () => KnowledgeRepository.loadRecommendationCandidates(), []);
@@ -377,6 +381,9 @@ const DataService = {
       if (!failedLoads.has("tasks")) {
         taskFoundationNotInitialized = false;
         setTasksFromCloud(taskRows);
+      }
+      if (!failedLoads.has("work_journal") && typeof setWorkJournalFromCloud === "function") {
+        setWorkJournalFromCloud(journalRows);
       }
       if (!failedLoads.has("knowledge")) {
         knowledgeFoundationNotInitialized = false;
@@ -530,6 +537,43 @@ const DataService = {
     } catch (error) {
       console.error("Cloud Sync save entry failed", { error, supabase: error.supabase || null, item });
       this.setStatus("failed", error.message || "Entry sync failed");
+      throw error;
+    }
+  },
+  async saveTasksNow(items = tasks) {
+    if (!dataServiceReady || !hasGoogleOAuthSession()) throw new Error("Cloud Sync 尚未就緒");
+    if (dataServiceHydrating || migrationRequired || migrationRunning) throw new Error("Cloud Sync 正在初始化");
+    this.setStatus("syncing");
+    try {
+      const rows = await SupabaseRepository.saveTasks(items);
+      setTasksFromCloud(rows);
+      LocalCache.saveAll();
+      this.setStatus("synced");
+      return rows;
+    } catch (error) {
+      this.setStatus("failed", error.message || "Task sync failed");
+      throw error;
+    }
+  },
+  async loadWorkJournal(taskUuid = "") {
+    if (!hasGoogleOAuthSession() || dataServiceHydrating || migrationRunning) throw new Error("Cloud Sync 尚未就緒");
+    const rows = await SupabaseRepository.loadWorkJournal(taskUuid);
+    if (!taskUuid && typeof setWorkJournalFromCloud === "function") setWorkJournalFromCloud(rows);
+    return Array.isArray(rows) ? rows : [];
+  },
+  async saveWorkJournalEntry(entry = {}) {
+    if (!dataServiceReady || !hasGoogleOAuthSession()) throw new Error("Cloud Sync 尚未就緒");
+    if (dataServiceHydrating || migrationRequired || migrationRunning) throw new Error("Cloud Sync 正在初始化");
+    this.setStatus("syncing");
+    try {
+      const saved = await SupabaseRepository.saveWorkJournalEntry(entry);
+      if (!saved) throw new Error("Work Journal 未回傳儲存結果");
+      if (typeof upsertWorkJournalEntry === "function") upsertWorkJournalEntry(saved);
+      LocalCache.saveAll();
+      this.setStatus("synced");
+      return saved;
+    } catch (error) {
+      this.setStatus("failed", error.message || "Work Journal sync failed");
       throw error;
     }
   },
