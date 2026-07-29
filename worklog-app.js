@@ -2346,7 +2346,7 @@ function workspaceContextBar() {
 function authScreen() {
   const oauthError = getStoredOAuthError();
   const errorBlock = oauthError ? `<div class="empty" role="alert" style="margin:14px 0;border-color:#d97878"><b>Google 登入未完成</b><div class="muted">${escapeHtml(oauthError.message || "請稍後再試")}</div><small>錯誤代碼：${escapeHtml(oauthError.code || "unknown")}</small></div>` : "";
-  return `<div class="wrap"><div class="card"><section class="panel" style="margin-top:18px"><h1>🪶 Zhuge AI OS</h1><div class="muted">by Mr. KM</div>${errorBlock}<button class="btn full" id="googleLoginBtn">使用 Google 登入</button></section></div></div>`;
+  return `<div class="wrap"><div class="card"><section class="panel" style="margin-top:18px"><h1>🪶 Zhuge AI OS</h1><div class="muted">by Mr. KM</div><p>Zhuge AI OS 是一套 AI 工作管理平台，整合 Google Login、WorkLog、Google Drive 與知識管理，協助使用者管理每日工作、工作紀錄與知識整理。</p><p class="muted">請使用 Google 帳號登入 Zhuge AI OS，登入後即可使用 WorkLog、Google Drive 整合及 AI 工作管理功能。</p>${errorBlock}<button class="btn full" id="googleLoginBtn">使用 Google 登入</button><nav class="auth-public-links" aria-label="公開產品資訊"><a href="./product/">產品介紹</a><a href="./privacy/">Privacy</a><a href="./terms/">Terms</a><a href="./support/">Support</a><a href="mailto:qq.1025@gmail.com">聯絡支援</a></nav></section></div></div>`;
 }
 
 function worklogWelcomeSeen() {
@@ -3452,7 +3452,7 @@ function capture(editId = null, seed = null) {
 function sync() {
   const googleState = googleConnectionLabel();
   const driveAuthorized = googleState.includes("🟢");
-  const driveAction = driveAuthorized ? "" : `<button class="btn2 service-action" type="button" data-google-drive-authorize>取得授權</button>`;
+  const driveAction = driveAuthorized ? "" : `<div class="service-action-group"><span class="muted">尚未授權 Google Drive</span><span class="muted">授權後即可讀取您指定的工作文件。</span><button class="btn2 service-action" type="button" data-google-drive-authorize>授權 Google Drive</button></div>`;
   const services = [
     ["Google 帳號", session ? "🟢 已登入" : "⚪ 尚未登入", ""],
     ["Google Drive", googleState, driveAction],

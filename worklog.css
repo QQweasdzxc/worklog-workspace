@@ -117,6 +117,15 @@ html:has(.standalone-chat-page),body:has(.standalone-chat-page),#app:has(.standa
   .suggestion-scan-footer{display:flex;flex-direction:row;align-items:center;justify-content:space-between;gap:8px}.suggestion-batch-actions{display:grid;grid-template-columns:1fr 1fr;width:auto}.suggestion-batch-actions .btn2{min-width:70px;padding:9px 6px}
 }
 
+/* Public login links: keep the unauthenticated product entry useful without changing the app layout. */
+.public-entry-fallback{max-width:720px;margin:12vh auto;padding:32px;border:1px solid #263b58;border-radius:18px;background:#0b1524;color:#e5eefc;line-height:1.7}
+.public-entry-fallback h1{margin-top:0}
+.public-entry-fallback nav{display:flex;flex-wrap:wrap;gap:10px 16px;margin-top:20px}
+.public-entry-fallback a{color:#93c5fd}
+.auth-public-links{display:flex;flex-wrap:wrap;justify-content:center;gap:8px 14px;margin-top:14px;font-size:.875rem}
+.auth-public-links a{color:#93c5fd;text-decoration:none}
+.auth-public-links a:hover,.auth-public-links a:focus{text-decoration:underline}
+
 .knowledge-progress-list{display:grid;gap:10px;margin:0;padding:0;list-style:none}
 .knowledge-progress-step{display:flex;align-items:center;gap:10px;color:var(--muted,#9aa7bb);transition:color .2s ease}
 .knowledge-progress-step span{display:inline-flex;width:24px;height:24px;align-items:center;justify-content:center;border-radius:999px;background:rgba(148,163,184,.12);font-weight:700}
