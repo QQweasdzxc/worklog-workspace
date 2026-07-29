@@ -64,6 +64,7 @@
 .task-journal-panel{margin-top:16px;padding-top:14px;border-top:1px solid rgba(148,163,184,.22);display:grid;gap:10px}
 .task-journal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
 .task-journal-head h3{margin:0 0 4px}
+.task-journal-head-actions{display:flex;align-items:center;gap:8px}
 .task-journal-cloud-badge{border:1px solid rgba(103,223,137,.35);border-radius:999px;padding:3px 8px;color:#bff2ca;font-size:.74rem;white-space:nowrap}
 .task-journal-list{display:grid;gap:8px;max-height:270px;overflow:auto;padding-right:2px}
 .task-journal-entry{padding:10px 12px;border:1px solid rgba(96,165,250,.24);border-radius:10px;background:rgba(15,23,42,.38);display:grid;gap:5px;overflow-wrap:anywhere}
@@ -76,8 +77,21 @@
 .task-completion-dialog{position:fixed;inset:0;z-index:50;display:grid;place-items:center;background:rgba(2,6,23,.72)}
 .task-completion-dialog .quick-add-card{width:min(520px,calc(100vw - 28px));max-height:90vh;overflow:auto}
 .task-search{align-items:center}.task-search>span{flex:0 0 auto}.task-search-clear{flex:0 0 auto;min-width:40px;padding-inline:10px}
+.task-row-core{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}
+.task-row.task-journal-open{display:block}
+.task-latest-journal{margin-top:9px;padding:8px 10px;border-left:3px solid #65a9ff;border-radius:7px;background:rgba(30,64,175,.13);color:#dbeafe;line-height:1.45;overflow-wrap:anywhere}
+.task-latest-journal span{color:#9fc6e8;font-size:.78rem;font-weight:700}
+.task-latest-journal time{color:#94a3b8;font-size:.72rem;white-space:nowrap}
+.task-journal-timeline{display:grid;gap:0;padding:2px 4px 4px 5px;border-left:2px solid rgba(96,165,250,.35)}
+.task-journal-entry{position:relative;display:flex;gap:9px;padding:8px 8px 8px 0;border:0;border-bottom:1px solid rgba(148,163,184,.12);border-radius:0;background:transparent}
+.task-journal-entry:last-child{border-bottom:0}
+.task-journal-dot{margin-left:-12px;color:#65a9ff;font-size:.72rem;line-height:1.5;background:#0f172a}
+.task-journal-entry-body{display:grid;gap:4px;min-width:0;overflow-wrap:anywhere}
+.task-journal-check{display:flex;align-items:center;gap:7px;color:#b8d8f5;font-size:.84rem}
+.task-journal-check input{accent-color:#65a9ff}
+.task-journal-optional-field.is-hidden{display:none}
 @media(max-width:900px){.lifecycle-task-workspace .task-workspace-grid{display:block}.lifecycle-task-workspace .task-form{margin-top:16px}.lifecycle-task-workspace .task-list-section{margin-bottom:16px}}
-@media(max-width:767px){.lifecycle-task-workspace .task-search{width:100%;min-width:0}.lifecycle-task-workspace .task-search .input{min-width:0}.task-linked-context{font-size:.95rem;overflow-wrap:anywhere}}
+@media(max-width:767px){.lifecycle-task-workspace .task-search{width:100%;min-width:0}.lifecycle-task-workspace .task-search .input{min-width:0}.task-linked-context{font-size:.95rem;overflow-wrap:anywhere}.task-row-core{align-items:stretch;flex-direction:column}.task-row-core .actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));width:100%}.task-row-core .actions .btn2{min-height:44px}}
 .task-priority-badge { display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px; border: 1px solid rgba(255,255,255,.2); border-radius: 999px; font-size: .72rem; font-weight: 800; white-space: nowrap; }
 .task-priority-p1 { color: #ffd2d2; background: rgba(180, 45, 55, .25); border-color: rgba(255, 117, 125, .45); }
 .task-priority-p2 { color: #ffe1bd; background: rgba(180, 104, 35, .22); border-color: rgba(255, 176, 92, .4); }
