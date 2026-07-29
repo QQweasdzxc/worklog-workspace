@@ -2453,15 +2453,15 @@ function sidebarSection(title, group) {
   return `<div class="side-section"><h3>${title}</h3>${Object.entries(workspaceRegistry).filter(([, w]) => w.group === group && !w.hidden).map(([id, w]) => w.enabled ? `<button class="side-item ${activeWorkspace === id ? "on" : ""}" data-open-workspace="${id}"><span>${w.icon} ${w.label}</span></button>` : `<div class="side-item disabled"><span>${w.icon} ${w.label}</span>${w.comingSoon ? `<small>🚧 施工中</small>` : ""}</div>`).join("")}</div>`;
 }
 
-function developerConsoleMarkup(checked = "") {
-  const conversationStatus = conversationSyncLabel().replace(/^💬\s*/, "");
+function developerConsoleMarkup() {
+  const conversationLastSync = conversationSync.lastSyncedAt ? fmt(conversationSync.lastSyncedAt) : "尚未同步";
   const cards = [
-    ["conversation", "💬", "Conversation Sync", conversationStatus, conversationSyncDetail()],
-    ["build", "🌐", "Build", "Current Build", BUILD_TIME],
-    ["version", "🧩", "Version", "Product Version", `v${VERSION}`],
-    ["schema", "🗄️", "Database Schema", "Applied Version", PRIORITY_ENGINE_SCHEMA_SQL ? "Priority Engine Schema" : "Not configured"]
+    ["conversation", "💬", "Conversation", "最後同步", conversationLastSync],
+    ["build", "🌐", "Build", "目前版本", BUILD_TIME],
+    ["version", "🧩", "Version", "目前版本", `v${VERSION}`],
+    ["schema", "🗄️", "Database Schema", PRIORITY_ENGINE_SCHEMA_SQL ? "🟢 已套用" : "🟡 尚未設定", ""]
   ];
-  return `<details class="developer-console"><summary>System Information</summary><div class="developer-console-content control-grid system-info-grid">${cards.map(([id, icon, title, status, detail]) => `<article class="service-card system-info-card" data-system-info-card="${id}"><div class="system-info-card-main"><div class="system-info-card-head"><span class="system-info-card-icon" aria-hidden="true">${icon}</span><div><h3>${escapeHtml(title)}</h3><span>${escapeHtml(status)}</span></div></div><strong>${escapeHtml(detail)}</strong></div></article>`).join("")}</div></details>`;
+  return `<section class="developer-console" aria-label="System Information"><h3 class="dashboard-section-label">System Information</h3><div class="developer-console-content control-grid system-info-grid">${cards.map(([id, icon, title, status, detail]) => `<article class="service-card system-info-card" data-system-info-card="${id}"><div class="system-info-card-main"><div class="system-info-card-head"><span class="system-info-card-icon" aria-hidden="true">${icon}</span><div><h3>${escapeHtml(title)}</h3><b>${escapeHtml(status)}</b></div></div>${detail ? `<div class="muted system-info-card-detail">${escapeHtml(detail)}</div>` : ""}</div></article>`).join("")}</div></section>`;
 }
 
 function osSidebar() {
@@ -3449,19 +3449,15 @@ function capture(editId = null, seed = null) {
 
 function sync() {
   const googleState = googleConnectionLabel();
-  const checkedAt = new Date().toLocaleString("zh-TW", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
-  const checkedDate = new Date().toLocaleDateString("zh-TW", { year: "numeric", month: "2-digit", day: "2-digit" });
-  const authButton = state => state.includes("⚪") ? `<button class="btn2 service-action">授權</button>` : "";
   const services = [
-    ["🟢 AI OS 健康度", "100%", "核心服務正常", "", "summary"],
-    ["Google 帳號", session ? "🟢 已登入" : "⚪ 尚未登入", session ? `最後驗證：${checkedAt}` : "需要先完成 Google Login", ""],
-    ["Google Drive", googleState.replace("尚未連接", "尚未授權"), `最後檢查：${checkedAt}`, authButton(googleState)],
-    ["Cloud Sync", cloudSyncLabel(), cloudSyncDetail(), ""],
-    ["AI 引擎", "🟢 正常", "目前模型：GPT-5.5", ""],
-    ["Supabase", session ? "🟢 已連線" : "⚪ 尚未登入", session ? "Auth Session OK" : "需要先完成 Google Login", ""],
-    ["本機資料", "🟢 正常", `最後同步：${checkedDate}`, ""]
+    ["Google 帳號", session ? "🟢 已登入" : "⚪ 尚未登入", ""],
+    ["Google Drive", googleState.replace("尚未連接", "尚未授權"), ""],
+    ["Cloud Sync", cloudSyncLabel(), ""],
+    ["AI 引擎", "🟢 正常", ""],
+    ["Supabase", session ? "🟢 已連線" : "⚪ 尚未登入", ""],
+    ["本機資料", "🟢 正常", ""]
   ];
-  return `<section class="panel control-center" style="margin-top:18px"><div class="panel-head"><div><h2>🔗 控制台</h2><div class="muted">AI OS 各項服務連線狀態與健康檢查。</div></div></div><h3 class="dashboard-section-label">Operational Status</h3><div class="control-grid">${services.map(([name, state, detail, action, type]) => `<div class="service-card ${type === "summary" ? "summary-card" : ""}"><div><h3>${escapeHtml(name)}</h3><b>${escapeHtml(state)}</b><div class="muted">${escapeHtml(detail)}</div></div>${action}</div>`).join("")}</div>${developerConsoleMarkup(checkedAt)}</section>`;
+  return `<section class="panel control-center" style="margin-top:18px"><div class="panel-head"><div><h2>🔗 控制台</h2><div class="muted">AI OS 健康狀態。</div></div></div><h3 class="dashboard-section-label">Operational Status</h3><div class="control-grid">${services.map(([name, state, detail]) => `<div class="service-card"><div><h3>${escapeHtml(name)}</h3><b>${escapeHtml(state)}</b>${detail ? `<div class="muted">${escapeHtml(detail)}</div>` : ""}</div></div>`).join("")}</div>${developerConsoleMarkup()}</section>`;
 }
 
 function nextKnowledgeId() {
