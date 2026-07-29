@@ -33,7 +33,7 @@ function zhugeRootDashboardMarkup(identity = null) {
     <div class="zhuge-root-hero">
       <div class="zhuge-root-brand-lockup">
         <div class="zhuge-root-mark" aria-hidden="true">🪶</div>
-        <div><p class="zhuge-root-eyebrow">Zhuge AI OS</p><h2>你的 AI 工作作業系統</h2><p class="muted">一次登入，從同一個身分進入每個工作模組。</p></div>
+        <div><p class="zhuge-root-eyebrow">Zhuge AI OS</p><h2>AI 工作管理平台</h2><p class="muted">AI Work Management Platform</p><p class="muted">使用 Google 帳號登入後，可管理待辦事項、工時紀錄、工作知識，並安全存取已授權的 Google Drive 文件。</p><p class="muted">Designed for personal productivity and work management.</p></div>
       </div>
       ${zhugeRootIdentityMarkup(identity)}
     </div>
