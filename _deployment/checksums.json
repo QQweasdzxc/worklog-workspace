@@ -1,8 +1,8 @@
 {
-  "_deployment/manifest.json": "b52ca6907ba67486747cae413fe69a6c58033f86b3e49118f82637984271bf52",
+  "_deployment/manifest.json": "5038d9c04add31b1599a99577f2d0218963139d009925276f20c19acf4ced774",
   "ai-daily-brief.js": "a5ae113c5e5bc31803d2bb623fb8e6af716120a4e877ce79df59644e2d4dc69e",
   "ai-product.css": "612666ba96a2295c4985b48691147e23eb2ad8f89a67cb85317d31a4e19e5c1b",
-  "app-config.js": "c76f8e71dcb6a4dfb259286bef545f1d8c5d6253bcce2b2f532af7be55755e1c",
+  "app-config.js": "87a5b40d05f148a7870c327c1a60b63a72c74275098a99349dd9ef80bdf21519",
   "app-router.js": "ec587a8bfe32da9e28c465ab9971a4b1ae75ec572eae2e418c67bc184fa546d3",
   "app-state.js": "60b9819f21f4344a86db4525e129fba1b6fe244032ab1b0e184fb59f0c1b9d6e",
   "auth-service.js": "3946d8493460d10baeeafe7a8fe01d53d58f2d4b2a6acd268a7b1b3bfd9733cf",
@@ -10,7 +10,7 @@
   "components/index.js": "4a326dd438edbfd4aa692635c7f8ecd88fe5ab52c3d90472bf2be64c89de1dfa",
   "data-service.js": "61c69368e47550ed40c009a3fc6b50802b53fe8560252b83b56dd6f07cf4769a",
   "google-drive-service.js": "faf3ea340d5e939869d9344350fdabf19353211ffaa3ac63e7eed4378dd9ea57",
-  "index.html": "2d6bf213af1fb3e174669b40090a881f88b8f222c042b7378a3a01fd61ef151a",
+  "index.html": "babd36c8a5a79ea0a0dc5d6d7af16b1d682db85725763e919faf7c729425541e",
   "knowledge-api.js": "9dd9a6d0d96fd62f2f428097b988734c4489d530b195168dec0ffc9fcf920727",
   "knowledge-engine.js": "6dcdbe644c9fcd7518514ad38cd9b81516306a914f960eb023ae00fefc04fea2",
   "knowledge-ingestion-service.js": "7e8ceab23602dc6fb94e61698a489dfd652d6c9b80c9410c597ab39ff268443b",
@@ -30,11 +30,11 @@
   "suggestion-intelligence.js": "6445abc931a2ddef87ddb2c45c80e1cde644d33201e2e81f2181b17dffac857b",
   "support/index.html": "1e42e9e0c834568ba4d0b0da15543f2ddbbb90cda6a6ece6bc6e09cf9f8107b6",
   "terms/index.html": "aba8875f63fb773509a71c3fc24f3de737d2584d5104446674cded8ddbb0cae9",
-  "version.json": "b123370c67732efb3136c2f832c6063372ab193814d41a073b5ff488bed59899",
+  "version.json": "67285d7c67e45a004b39d8518ca04360992a5d6c196a63daea90b581f51372cf",
   "work-intelligence.js": "8fe1e35b2de5bbf68a29759e73b354f41231a56a3f92f6c3a57a2a0743bb2cb3",
   "worklog-app.js": "bd1b42f33e745ac74b9383a5756540cdfacee34098a3d74c696f184d1096eadc",
   "worklog.css": "c7be20a1c8b4a205f7bfd47a93cecb6cdb14f6f1be67a725eb1520900fd5321b",
   "workspaces/index.js": "1b4ebf39fab9bf6891baa575a4bedb48fe2c561d811cbe70d15027bebb135046",
-  "zhuge-dashboard.js": "c0ccffa5a4e90e4c89b4c375b8c6c56df6dc5e8ab7fab9239ca5caebdc009094",
+  "zhuge-dashboard.js": "4e3612be0c5917112f07410a2b599b86bfb55716ae19334cd7dc5895055d8e15",
   "zhuge-os.css": "24476fb6dc4879d7b341f59e1b82115420b7983e7d30105f552fd49bcfe19abd"
 }
