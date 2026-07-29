@@ -2454,7 +2454,14 @@ function sidebarSection(title, group) {
 }
 
 function developerConsoleMarkup(checked = "") {
-  return `<details class="developer-console"><summary>Developer Console</summary><div class="developer-console-content"><div>Conversation：${escapeHtml(conversationSyncLabel())}</div><div>${escapeHtml(conversationSyncDetail())}</div><div>GitHub Pages：最後檢查 ${escapeHtml(checked)}</div><div>Source：${escapeHtml(DEPLOY_SOURCE)}</div><div>Migration：${escapeHtml(PRIORITY_ENGINE_SCHEMA_SQL)}</div></div></details>`;
+  const conversationStatus = conversationSyncLabel().replace(/^💬\s*/, "");
+  const cards = [
+    ["conversation", "💬", "Conversation", conversationStatus, conversationSyncDetail()],
+    ["github", "🌐", "GitHub Pages", "Current Build", BUILD_TIME],
+    ["source", "🧩", "Source", "Current Source Version", `v${VERSION}`],
+    ["migration", "🗄️", "Migration", "Applied Version", PRIORITY_ENGINE_SCHEMA_SQL ? "Priority Engine Schema" : "Not configured"]
+  ];
+  return `<details class="developer-console"><summary>System Information</summary><div class="developer-console-content system-info-grid">${cards.map(([id, icon, title, status, detail]) => `<article class="system-info-card" data-system-info-card="${id}"><div class="system-info-card-head"><span class="system-info-card-icon" aria-hidden="true">${icon}</span><div><h4>${escapeHtml(title)}</h4><span>${escapeHtml(status)}</span></div></div><strong>${escapeHtml(detail)}</strong></article>`).join("")}</div></details>`;
 }
 
 function osSidebar() {
