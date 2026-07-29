@@ -2455,13 +2455,14 @@ function sidebarSection(title, group) {
 
 function developerConsoleMarkup() {
   const conversationLastSync = conversationSync.lastSyncedAt ? fmt(conversationSync.lastSyncedAt) : "尚未同步";
+  const conversationStatus = conversationSync.status === "synced" ? "🟢 已同步" : conversationSync.status === "syncing" ? "🟡 同步中" : conversationSync.status === "failed" ? "🔴 同步失敗" : "🟡 尚未同步";
   const cards = [
-    ["conversation", "💬", "Conversation", "最後同步", conversationLastSync],
-    ["build", "🌐", "Build", "目前版本", BUILD_TIME],
-    ["version", "🧩", "Version", "目前版本", `v${VERSION}`],
-    ["schema", "🗄️", "Database Schema", PRIORITY_ENGINE_SCHEMA_SQL ? "🟢 已套用" : "🟡 尚未設定", ""]
+    ["conversation", "Conversation", conversationStatus, conversationLastSync],
+    ["build", "Build", BUILD_TIME ? "🟢 正常" : "🟡 未提供", BUILD_TIME],
+    ["version", "Version", VERSION ? "🟢 正常" : "🟡 未提供", `v${VERSION}`],
+    ["schema", "Database Schema", PRIORITY_ENGINE_SCHEMA_SQL ? "🟢 已套用" : "🟡 尚未設定", ""]
   ];
-  return `<section class="developer-console" aria-label="System Information"><h3 class="dashboard-section-label">System Information</h3><div class="developer-console-content control-grid system-info-grid">${cards.map(([id, icon, title, status, detail]) => `<article class="service-card system-info-card" data-system-info-card="${id}"><div class="system-info-card-main"><div class="system-info-card-head"><span class="system-info-card-icon" aria-hidden="true">${icon}</span><div><h3>${escapeHtml(title)}</h3><b>${escapeHtml(status)}</b></div></div>${detail ? `<div class="muted system-info-card-detail">${escapeHtml(detail)}</div>` : ""}</div></article>`).join("")}</div></section>`;
+  return `<section class="developer-console" aria-label="System Information"><h3 class="dashboard-section-label">System Information</h3><div class="developer-console-content control-grid system-info-grid">${cards.map(([id, title, status, detail]) => `<article class="service-card system-info-card" data-system-info-card="${id}"><div class="system-info-card-main"><div class="system-info-card-head"><div><h3>${escapeHtml(title)}</h3><b>${escapeHtml(status)}</b></div></div>${detail ? `<div class="muted system-info-card-detail">${escapeHtml(detail)}</div>` : ""}</div></article>`).join("")}</div></section>`;
 }
 
 function osSidebar() {
