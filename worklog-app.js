@@ -921,7 +921,8 @@ async function saveWorkModel(model, options = {}) {
 const addWorkDescription = saveWorkModel;
 
 function googleConnectionLabel() {
-  return "⚪ 尚未連接";
+  const token = typeof currentGoogleProviderToken === "function" ? currentGoogleProviderToken() : "";
+  return token ? "🟢 已授權" : "⚪ 尚未授權";
 }
 
 function cloudSyncLabel() {
@@ -3450,15 +3451,17 @@ function capture(editId = null, seed = null) {
 
 function sync() {
   const googleState = googleConnectionLabel();
+  const driveAuthorized = googleState.includes("🟢");
+  const driveAction = driveAuthorized ? "" : `<button class="btn2 service-action" type="button" data-google-drive-authorize>取得授權</button>`;
   const services = [
     ["Google 帳號", session ? "🟢 已登入" : "⚪ 尚未登入", ""],
-    ["Google Drive", googleState.replace("尚未連接", "尚未授權"), ""],
+    ["Google Drive", googleState, driveAction],
     ["Cloud Sync", cloudSyncLabel(), ""],
     ["AI 引擎", "🟢 正常", ""],
     ["Supabase", session ? "🟢 已連線" : "⚪ 尚未登入", ""],
     ["本機資料", "🟢 正常", ""]
   ];
-  return `<section class="panel control-center" style="margin-top:18px"><div class="panel-head"><div><h2>🔗 控制台</h2><div class="muted">AI OS 健康狀態。</div></div></div><h3 class="dashboard-section-label">Operational Status</h3><div class="control-grid">${services.map(([name, state, detail]) => `<div class="service-card"><div><h3>${escapeHtml(name)}</h3><b>${escapeHtml(state)}</b>${detail ? `<div class="muted">${escapeHtml(detail)}</div>` : ""}</div></div>`).join("")}</div>${developerConsoleMarkup()}</section>`;
+  return `<section class="panel control-center" style="margin-top:18px"><div class="panel-head"><div><h2>🔗 控制台</h2><div class="muted">AI OS 健康狀態。</div></div></div><h3 class="dashboard-section-label">Operational Status</h3><div class="control-grid">${services.map(([name, state, action]) => `<div class="service-card"><div><h3>${escapeHtml(name)}</h3><b>${escapeHtml(state)}</b></div>${action}</div>`).join("")}</div>${developerConsoleMarkup()}</section>`;
 }
 
 function nextKnowledgeId() {
@@ -4013,7 +4016,15 @@ function bindMigration() {
   document.querySelectorAll("[data-run-migration]").forEach(b => b.onclick = () => DataService.runMigration());
 }
 
-function bindDashboard() {}
+function bindDashboard() {
+  document.querySelectorAll("[data-google-drive-authorize]").forEach(button => {
+    button.onclick = () => {
+      button.disabled = true;
+      button.textContent = "前往授權…";
+      signInWithGoogle();
+    };
+  });
+}
 
 function bindWorklogWelcome() {
   const draftKey = scopedLocalKey(WORK_IDENTITY_SETUP_DRAFT_KEY);
@@ -4758,6 +4769,7 @@ function bind() {
   const today = document.querySelector("[data-today]"); if (today) today.onclick = async () => { selected = new Date(); await setSelectedMonth(monthKey(selected), selected.getDate()); };
   const exportBtn = document.querySelector("[data-export-month]"); if (exportBtn) exportBtn.onclick = () => exportEcpImportFile();
   bindSuggestionCardActions(document);
+  bindDashboard();
   document.querySelectorAll("[data-suggestion-prev-batch]").forEach(button => button.onclick = () => {
     if (button.getAttribute("aria-disabled") === "true") return;
     moveSuggestionBatch(-1);
