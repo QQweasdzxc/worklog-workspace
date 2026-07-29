@@ -438,10 +438,16 @@ async function saveTaskJournal(taskId = "") {
   let task = tasks.find(item => item.id === taskId);
   const content = document.getElementById("taskJournalContent")?.value?.trim() || "";
   if (!task || !content) return toast("請輸入工作推進紀錄");
+  const isFirstJournal = workJournalForTask(task).length === 0;
+  const journalStartedAt = task.startedAt || new Date().toISOString();
   const updateStatus = document.getElementById("taskJournalUpdateStatus")?.checked === true;
   const updateProgress = document.getElementById("taskJournalUpdateProgress")?.checked === true;
   let status = updateStatus ? normalizeTaskStatus(document.getElementById("taskJournalStatus")?.value || task.status, task) : normalizeTaskStatus(task.status, task);
   let progress = updateProgress ? taskProgressValue(document.getElementById("taskJournalProgress")?.value || task.progress) : taskProgressValue(task.progress);
+  if (isFirstJournal && status !== "completed") {
+    status = "in_progress";
+    progress = Math.max(1, progress);
+  }
   if (updateStatus && status === "completed") progress = 100;
   try {
     if (!taskCloudUuid(task)) {
@@ -456,15 +462,15 @@ async function saveTaskJournal(taskId = "") {
       content,
       status,
       progress,
-      metadata: { source: "task-workspace", previousStatus: task.status, previousProgress: task.progress, updateStatus, updateProgress }
+      metadata: { source: "task-workspace", previousStatus: task.status, previousProgress: task.progress, updateStatus, updateProgress, autoStarted: isFirstJournal && task.status !== "completed", startedAt: isFirstJournal && task.status !== "completed" ? journalStartedAt : task.startedAt }
     });
-    if (updateStatus || updateProgress) {
-      tasks = tasks.map(item => item.id === task.id ? normalizeTask({ ...item, status, progress, completedAt: updateStatus && status === "completed" ? new Date().toISOString() : item.completedAt, completedNote: updateStatus && status === "completed" ? content : item.completedNote, completedBy: updateStatus && status === "completed" ? currentUserUuid() : item.completedBy, updatedAt: new Date().toISOString() }) : item);
+    if (updateStatus || updateProgress || (isFirstJournal && task.status !== "completed")) {
+      tasks = tasks.map(item => item.id === task.id ? normalizeTask({ ...item, status, progress, startedAt: isFirstJournal && item.status !== "completed" ? journalStartedAt : item.startedAt, completedAt: updateStatus && status === "completed" ? new Date().toISOString() : item.completedAt, completedNote: updateStatus && status === "completed" ? content : item.completedNote, completedBy: updateStatus && status === "completed" ? currentUserUuid() : item.completedBy, updatedAt: new Date().toISOString() }) : item);
       await DataService.saveTasksNow(tasks);
     }
     upsertWorkJournalEntry(saved);
     taskJournalDraft = null;
-    toast("工作推進紀錄已儲存至 Cloud");
+    toast(isFirstJournal && task.status !== "completed" ? "工作已開始，推進紀錄已儲存至 Cloud" : "工作推進紀錄已儲存至 Cloud");
     render("journal-saved");
   } catch (error) {
     console.error("Work Journal save failed", { error, taskId });
@@ -944,6 +950,13 @@ function cloudSyncDetail() {
   return `最後同步：${fmt(cloudSync.lastSyncedAt)}`;
 }
 
+function sidebarSyncStatusLabel() {
+  if (cloudSync.status === "synced") return "🟢 已同步";
+  if (cloudSync.status === "syncing") return "🟡 同步中";
+  if (cloudSync.status === "failed") return "🔴 同步失敗";
+  return "🟡 尚未同步";
+}
+
 function conversationSyncLabel() {
   if (conversationSync.status === "synced") return "💬 Conversation 已同步";
   if (conversationSync.status === "syncing") return "💬 Conversation 同步中";
@@ -965,9 +978,8 @@ function conversationSyncDetail() {
 function refreshCloudSyncStatusDisplay() {
   const box = document.getElementById("developerCloudSyncStatus");
   if (!box) return;
-  const systemStatus = cloudSync.status === "failed" ? "🔴 系統異常" : "🟢 系統正常";
-  const syncTime = cloudSync.lastSyncedAt ? fmt(cloudSync.lastSyncedAt) : cloudSyncDetail();
-  box.innerHTML = `<strong>${escapeHtml(systemStatus)}</strong><span>最後同步</span><time>${escapeHtml(syncTime)}</time>`;
+  const syncTime = cloudSync.lastSyncedAt ? fmt(cloudSync.lastSyncedAt) : "尚未同步";
+  box.innerHTML = `<strong>${escapeHtml(sidebarSyncStatusLabel())}</strong><span>最後同步</span><time>${escapeHtml(syncTime)}</time>`;
 }
 
 function refreshAuthenticatedSurface(reason = "navigation-refresh") {
@@ -2447,9 +2459,8 @@ function developerConsoleMarkup(checked = "") {
 
 function osSidebar() {
   const checked = new Date().toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false });
-  const syncTime = cloudSync.lastSyncedAt ? fmt(cloudSync.lastSyncedAt) : cloudSyncDetail();
-  const systemStatus = cloudSync.status === "failed" ? "🔴 系統異常" : "🟢 系統正常";
-  return `<aside class="os-sidebar"><div class="sidebar-brand"><div class="brand-row"><div class="brand-stack" data-open-workspace="dashboard" role="button" tabindex="0" aria-label="返回 Zhuge AI OS 首頁"><h1><span class="brand-mark" aria-hidden="true">🪶</span> Zhuge AI OS</h1><span class="brand-companion">by Mr. KM</span></div></div><button class="mini sidebar-close" data-close-sidebar="1" aria-label="關閉選單">×</button><button class="mini sidebar-menu-mark" type="button" data-toggle-sidebar="1" aria-label="營帳選單">☰</button></div>${agentStatusPanel()}${sidebarSection("🏕️ 營帳", "camp")}${sidebarSection("⚙️ 系統", "system")}<div class="developer-build-info"><div class="sidebar-sync-summary" id="developerCloudSyncStatus" data-retry-cloud-sync="1"><strong>${escapeHtml(systemStatus)}</strong><span>最後同步</span><time>${escapeHtml(syncTime)}</time></div><div class="sidebar-version-summary"><span>Version</span><strong>v${escapeHtml(VERSION)}</strong></div><div class="sidebar-build-summary"><span>Build</span><strong>${escapeHtml(BUILD_TIME)}</strong></div></div></aside>`;
+  const syncTime = cloudSync.lastSyncedAt ? fmt(cloudSync.lastSyncedAt) : "尚未同步";
+  return `<aside class="os-sidebar"><div class="sidebar-brand"><div class="brand-row"><div class="brand-stack" data-open-workspace="dashboard" role="button" tabindex="0" aria-label="返回 Zhuge AI OS 首頁"><h1><span class="brand-mark" aria-hidden="true">🪶</span> Zhuge AI OS</h1><span class="brand-companion">by Mr. KM</span></div></div><button class="mini sidebar-close" data-close-sidebar="1" aria-label="關閉選單">×</button><button class="mini sidebar-menu-mark" type="button" data-toggle-sidebar="1" aria-label="營帳選單">☰</button></div>${agentStatusPanel()}${sidebarSection("🏕️ 營帳", "camp")}${sidebarSection("⚙️ 系統", "system")}<div class="developer-build-info"><div class="sidebar-sync-summary" id="developerCloudSyncStatus" data-retry-cloud-sync="1"><strong>${escapeHtml(sidebarSyncStatusLabel())}</strong><span>最後同步</span><time>${escapeHtml(syncTime)}</time></div><div class="sidebar-version-summary"><span>Version</span><strong>v${escapeHtml(VERSION)}</strong></div><div class="sidebar-build-summary"><span>Build</span><strong>${escapeHtml(BUILD_TIME)}</strong></div></div></aside>`;
 }
 
 function workspaceTabs() {
@@ -4652,10 +4663,10 @@ function taskWorkspace() {
   const rows = list.length ? list.map(task => {
     const timeline = workJournalForTask(task);
     const latest = timeline[timeline.length - 1];
-    const latestMarkup = latest ? `<div class="task-latest-journal"><div class="task-latest-journal-label">🟢 最新更新</div><div class="task-latest-journal-content">${escapeHtml(latest.content)}</div><time>${escapeHtml(fmt(latest.createdAt))}</time></div>` : "";
+    const latestMarkup = latest ? `<div class="task-latest-journal"><div class="task-latest-journal-label">🟢 最新更新</div><div class="task-latest-journal-line"><div class="task-latest-journal-content">${escapeHtml(latest.content)}</div><time>${escapeHtml(fmt(latest.createdAt))}</time></div></div>` : "";
     const journalToggleLabel = `${taskJournalTaskId === task.id ? "▾" : "▸"} 工作推進紀錄（${timeline.length}）`;
     const worklogHours = taskWorklogHours(task);
-    return `<article class="entry task-row ${task.status === "completed" ? "task-completed" : ""} ${taskJournalTaskId === task.id ? "task-journal-open" : ""}" data-task-card="${escapeHtml(task.id)}"><div class="task-row-core"><header class="task-row-header"><div class="task-row-title">${taskPriorityBadge(task)} ${taskWorkflowBadge(task)} <b>${task.status === "completed" ? "✅" : "⬜"} ${escapeHtml(task.title)}</b></div><div class="task-row-actions actions compact"><button class="btn2" type="button" data-task-journal="${escapeHtml(task.id)}">${journalToggleLabel}</button><button class="btn2" type="button" data-task-start="${escapeHtml(task.id)}" ${task.status === "completed" ? "disabled" : ""}>${task.startedAt ? "繼續工作" : "開始工作"}</button><button class="btn2" type="button" data-task-toggle="${escapeHtml(task.id)}">${task.status === "completed" ? "恢復" : "完成"}</button><button class="btn2" type="button" data-task-edit="${escapeHtml(task.id)}">編輯</button><button class="btn2 danger" type="button" data-task-delete="${escapeHtml(task.id)}">刪除</button></div></header><div class="task-row-content"><div class="task-progress-track" aria-label="進度 ${task.progress}%"><span style="width:${task.progress}%"></span></div><small>${task.dueDate ? `期限：${escapeHtml(task.dueDate)}` : "無期限"}｜${escapeHtml(typeof PriorityEngine !== "undefined" ? PriorityEngine.getReason(task) : "依目前工作優先順序。")} ${task.note ? `｜${escapeHtml(task.note)}` : ""}${worklogHours > 0 ? `｜⏱ ${escapeHtml(formatHumanDuration(worklogHours))}` : ""}</small>${latestMarkup}${task.status === "completed" && task.completedNote ? `<div class="task-completion-note">完成說明：${escapeHtml(task.completedNote)}</div>` : ""}</div></div>${taskJournalPanel(task)}</article>`;
+    return `<article class="entry task-row ${task.status === "completed" ? "task-completed" : ""} ${taskJournalTaskId === task.id ? "task-journal-open" : ""}" data-task-card="${escapeHtml(task.id)}"><div class="task-row-core"><header class="task-row-header"><div class="task-row-title">${taskPriorityBadge(task)} ${taskWorkflowBadge(task)} <b>${task.status === "completed" ? "✅" : "⬜"} ${escapeHtml(task.title)}</b></div><div class="task-row-actions actions compact"><button class="btn2" type="button" data-task-journal="${escapeHtml(task.id)}">${journalToggleLabel}</button><button class="btn2" type="button" data-task-toggle="${escapeHtml(task.id)}">${task.status === "completed" ? "恢復" : "完成"}</button><button class="btn2" type="button" data-task-edit="${escapeHtml(task.id)}">編輯</button><button class="btn2 danger" type="button" data-task-delete="${escapeHtml(task.id)}">刪除</button></div></header><div class="task-row-content"><div class="task-progress-track" aria-label="進度 ${task.progress}%"><span style="width:${task.progress}%"></span></div><small>${task.dueDate ? `期限：${escapeHtml(task.dueDate)}` : "無期限"}｜${escapeHtml(typeof PriorityEngine !== "undefined" ? PriorityEngine.getReason(task) : "依目前工作優先順序。")} ${task.note ? `｜${escapeHtml(task.note)}` : ""}${worklogHours > 0 ? `｜⏱ ${escapeHtml(formatHumanDuration(worklogHours))}` : ""}</small>${latestMarkup}${task.status === "completed" && task.completedNote ? `<div class="task-completion-note">完成說明：${escapeHtml(task.completedNote)}</div>` : ""}</div></div>${taskJournalPanel(task)}</article>`;
   }).join("") : `<div class="empty"><b>${taskSearch ? "找不到符合的待辦事項" : "目前還沒有待辦事項"}</b><div class="muted">可以建立今天第一個待辦事項。</div></div>`;
   const completionTask = taskCompletionDialogId ? tasks.find(task => task.id === taskCompletionDialogId) : null;
   const completionExistingHours = completionTask ? taskWorklogHours(completionTask) : 0;
