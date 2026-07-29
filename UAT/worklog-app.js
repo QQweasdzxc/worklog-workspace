@@ -256,19 +256,59 @@ function clearTaskDraft(taskId = "new") {
   localStorage.removeItem(taskDraftStorageKey(taskId));
 }
 
+const TASK_WORKFLOW_STATUSES = Object.freeze([
+  "not_started", "in_progress", "waiting_reply", "waiting_acceptance", "blocked", "completed"
+]);
+const TASK_WORKFLOW_STATUS_LABELS = Object.freeze({
+  not_started: "待開始",
+  in_progress: "進行中",
+  waiting_reply: "等待回覆",
+  waiting_acceptance: "等待驗收",
+  blocked: "阻塞",
+  completed: "完成"
+});
+
+function normalizeTaskStatus(value = "not_started", item = {}) {
+  const raw = String(value || "").trim().toLowerCase();
+  const aliases = { open: "not_started", todo: "not_started", "in progress": "in_progress", waiting: "waiting_reply", done: "completed", complete: "completed" };
+  const status = aliases[raw] || raw;
+  if (TASK_WORKFLOW_STATUSES.includes(status)) return status;
+  return item.startedAt || item.started_at ? "in_progress" : "not_started";
+}
+
+function taskStatusLabel(value = "not_started") {
+  return TASK_WORKFLOW_STATUS_LABELS[normalizeTaskStatus(value)] || TASK_WORKFLOW_STATUS_LABELS.not_started;
+}
+
+function taskProgressValue(value = 0) {
+  return Math.max(0, Math.min(100, Number.isFinite(Number(value)) ? Math.round(Number(value)) : 0));
+}
+
+function taskWorkflowBadge(task = {}) {
+  const status = normalizeTaskStatus(task.status, task);
+  const progress = status === "completed" ? 100 : taskProgressValue(task.progress);
+  return `<span class="task-workflow-badge task-status-${status}">${escapeHtml(taskStatusLabel(status))} · ${progress}%</span>`;
+}
+
+function taskStatusOptions(selected = "not_started") {
+  return TASK_WORKFLOW_STATUSES.map(status => `<option value="${status}" ${selected === status ? "selected" : ""}>${escapeHtml(TASK_WORKFLOW_STATUS_LABELS[status])}</option>`).join("");
+}
+
 function normalizeTask(item = {}) {
   const title = String(item.title || item.name || "").trim();
   const clientId = item.legacy_id || item.clientId || item.client_id || item.id || uid("task");
   const priority = typeof PriorityEngine !== "undefined"
     ? PriorityEngine.normalizePriority(item.priority)
     : String(item.priority || "p2").toLowerCase();
+  const status = normalizeTaskStatus(item.status, item);
   return {
     id: String(clientId),
     cloudId: String(item.cloudId || item.cloud_id || (item.legacy_id ? item.id || "" : "")),
     title,
     note: String(item.note || "").trim(),
     dueDate: String(item.dueDate || item.deadline || item.due_date || "").slice(0, 10),
-    status: item.status === "completed" ? "completed" : "open",
+    status,
+    progress: status === "completed" ? 100 : taskProgressValue(item.progress),
     priority,
     priorityScore: Number(item.priorityScore ?? item.priority_score ?? 0) || 0,
     sortScore: Number(item.sortScore ?? item.sort_score ?? 0) || 0,
@@ -305,7 +345,7 @@ function setTasksFromCloud(rows = []) {
 function taskListItems() {
   const search = taskSearch.trim().toLowerCase();
   const filtered = tasks
-    .filter(task => taskFilter === "all" || task.status === taskFilter)
+    .filter(task => taskFilter === "all" || (taskFilter === "open" ? task.status !== "completed" : task.status === "completed"))
     .filter(task => !search || `${task.title} ${task.note}`.toLowerCase().includes(search));
   return typeof PriorityEngine !== "undefined"
     ? PriorityEngine.rank(filtered, { includeCompleted: true })
@@ -338,7 +378,7 @@ function legacyTaskWorkspace() {
 
 // Sprint 7 lifecycle workspace. This later declaration intentionally replaces
 // the legacy task renderer without touching the validated worklog layout.
-function taskWorkspace() {
+function taskWorkspaceV7() {
   const editing = tasks.find(task => task.id === editingTaskId) || null;
   const list = taskListItems();
   const draft = loadTaskDraft(editingTaskId || "new") || {};
@@ -810,6 +850,71 @@ function refreshAuthenticatedSurface(reason = "navigation-refresh") {
     });
   } else refreshCloudSyncStatusDisplay();
   refreshConversationFromCloud(true);
+}
+
+// Sprint 7.1: Realtime updates refresh only the surface that owns the changed
+// records. This keeps WorkLog stable while a background Cloud event arrives;
+// the authenticated shell and calendar are not rebuilt for every row update.
+function bindTodayPanel(panel = document) {
+  panel.querySelectorAll("[data-action=add]").forEach(button => button.onclick = () => {
+    editingEntryId = null;
+    captureSeed = null;
+    activeWorkspace = "worklog";
+    if (!openTabs.includes("worklog")) openTabs.push("worklog");
+    rememberWorkspace("worklog");
+    view = "capture";
+    saveAll();
+    render("worklog-capture");
+  });
+  panel.querySelectorAll("[data-edit-id]").forEach(button => button.onclick = () => {
+    editingEntryId = button.dataset.editId;
+    captureSeed = null;
+    activeWorkspace = "worklog";
+    if (!openTabs.includes("worklog")) openTabs.push("worklog");
+    rememberWorkspace("worklog");
+    view = "capture";
+    saveAll();
+    render("worklog-edit");
+  });
+  panel.querySelectorAll("[data-del-id]").forEach(button => button.onclick = async () => {
+    const removed = entries.find(entry => entry.id === button.dataset.delId);
+    if (!removed) return;
+    try {
+      await DataService.deleteEntry(removed);
+      if (removed.source === "ai-card") recordSuggestionMetric(removed.title, "deleted", removed);
+      saveAll({ skipSync: true });
+      toast("已刪除");
+    } catch (error) {
+      console.error("Delete entry failed", error);
+      toast("刪除同步失敗，請稍後再試");
+    }
+  });
+}
+
+function refreshRealtimeSurface(table = "") {
+  const reason = `realtime-${table || "cloud"}`;
+  if (typeof RenderEngine === "undefined") {
+    refreshCloudSyncStatusDisplay();
+    return;
+  }
+  RenderEngine.partial(reason, () => {
+    if (table === "work_entries" && activeWorkspace === "worklog" && view === "center") {
+      const target = document.querySelector(".today-module");
+      if (target) {
+        target.innerHTML = todayPanel();
+        bindTodayPanel(target);
+      }
+    }
+    if (table === "user_tasks" && activeWorkspace === "tasks") {
+      const target = document.querySelector(".tasks-workspace");
+      if (target) {
+        target.outerHTML = taskWorkspace();
+        bindTasks();
+      }
+    }
+    refreshCloudSyncStatusDisplay();
+    return true;
+  });
 }
 
 function isKnowledgeNotInitializedError(error) {
@@ -2926,7 +3031,9 @@ function makeSuggestions() {
 }
 
 function suggestionCardMarkup(item = {}) {
-  return `<div class="suggestion-scan-item"><div class="suggestion-scan-body"><h3>${escapeHtml(item.title)}</h3><div class="suggestion-card-meta"><span>${escapeHtml(item.sourceLabel || `📂 來源：${item.title}`)}</span></div><details class="suggestion-reason"><summary>ℹ︎ 為什麼推薦？</summary><p>${escapeHtml(item.reason || "這是你已確認的「我的工作」，可直接加入今天工時。")}</p></details><div class="actions suggestion-actions"><button class="btn green" data-accept="${escapeHtml(item.id)}">加入工時</button><button class="btn2" data-adjust="${escapeHtml(item.id)}">調整</button></div></div></div>`;
+  const relatedTask = Array.isArray(tasks) ? tasks.find(task => task.status !== "completed" && (task.title === item.title || task.title.includes(item.title) || item.title.includes(task.title))) : null;
+  const workflow = relatedTask ? `<span class="suggestion-workflow-state">狀態：${escapeHtml(taskStatusLabel(relatedTask.status))}｜進度：${taskProgressValue(relatedTask.progress)}%</span>` : "";
+  return `<div class="suggestion-scan-item"><div class="suggestion-scan-body"><h3>${escapeHtml(item.title)}</h3><div class="suggestion-card-meta"><span>${escapeHtml(item.sourceLabel || `📂 來源：${item.title}`)}</span>${workflow}</div><details class="suggestion-reason"><summary>ℹ︎ 為什麼推薦？</summary><p>${escapeHtml(item.reason || "這是你已確認的「我的工作」，可直接加入今天工時。")}</p></details><div class="actions suggestion-actions"><button class="btn green" data-accept="${escapeHtml(item.id)}">加入工時</button><button class="btn2" data-adjust="${escapeHtml(item.id)}">調整</button></div></div></div>`;
 }
 
 function suggestionPanel() {
@@ -4179,10 +4286,12 @@ function createTask(title = "", note = "", dueDate = "", options = {}) {
     note,
     dueDate,
     priority: options.priority || "p2",
-    userPinned: options.userPinned === true
+    userPinned: options.userPinned === true,
+    status: options.status || "not_started",
+    progress: options.progress || 0
   });
   if (!normalized.title) return null;
-  const existing = tasks.find(task => task.status === "open" && task.title === normalized.title);
+  const existing = tasks.find(task => normalizeTaskStatus(task.status, task) !== "completed" && task.title === normalized.title);
   if (existing) return existing;
   tasks = [normalized, ...tasks];
   saveTasks();
@@ -4216,7 +4325,7 @@ function legacyBindTasks() {
     render();
   });
   document.querySelectorAll("[data-task-toggle]").forEach(button => button.onclick = () => {
-    tasks = tasks.map(task => task.id === button.dataset.taskToggle ? normalizeTask({ ...task, status: task.status === "completed" ? "open" : "completed", completedAt: task.status === "completed" ? "" : new Date().toISOString(), updatedAt: new Date().toISOString() }) : task);
+    tasks = tasks.map(task => task.id === button.dataset.taskToggle ? normalizeTask({ ...task, status: task.status === "completed" ? "not_started" : "completed", progress: task.status === "completed" ? 0 : 100, completedAt: task.status === "completed" ? "" : new Date().toISOString(), updatedAt: new Date().toISOString() }) : task);
     saveTasks();
     toast("待辦事項狀態已更新");
     render();
@@ -4249,6 +4358,8 @@ function bindTasks() {
   document.getElementById("taskTitle")?.addEventListener("input", event => draftField("title", event.target.value));
   document.getElementById("taskNote")?.addEventListener("input", event => draftField("note", event.target.value));
   document.getElementById("taskDueDate")?.addEventListener("input", event => draftField("dueDate", event.target.value));
+  document.getElementById("taskStatus")?.addEventListener("change", event => draftField("status", event.target.value));
+  document.getElementById("taskProgress")?.addEventListener("input", event => { draftField("progress", event.target.value); const output = document.getElementById("taskProgressOutput"); if (output) output.value = `${taskProgressValue(event.target.value)}%`; });
   document.querySelectorAll("input[name=taskPriority]").forEach(input => input.addEventListener("change", event => draftField("priority", event.target.value)));
   document.getElementById("taskPinned")?.addEventListener("change", event => draftField("userPinned", event.target.checked));
   document.querySelectorAll("[data-task-save]").forEach(button => button.onclick = () => {
@@ -4256,10 +4367,12 @@ function bindTasks() {
     if (!title) return toast("請輸入待辦事項名稱");
     const note = document.getElementById("taskNote")?.value?.trim() || "";
     const dueDate = document.getElementById("taskDueDate")?.value || "";
+    const status = normalizeTaskStatus(document.getElementById("taskStatus")?.value || "not_started");
+    const progress = status === "completed" ? 100 : taskProgressValue(document.getElementById("taskProgress")?.value || 0);
     const priority = document.querySelector("input[name=taskPriority]:checked")?.value || "p2";
     const userPinned = document.getElementById("taskPinned")?.checked === true;
-    if (editingTaskId) tasks = tasks.map(task => task.id === editingTaskId ? normalizeTask({ ...task, title, note, dueDate, priority, userPinned, updatedAt: new Date().toISOString() }) : task);
-    else createTask(title, note, dueDate, { priority, userPinned });
+    if (editingTaskId) tasks = tasks.map(task => task.id === editingTaskId ? normalizeTask({ ...task, title, note, dueDate, priority, userPinned, status, progress, updatedAt: new Date().toISOString() }) : task);
+    else createTask(title, note, dueDate, { priority, userPinned, status, progress });
     clearTaskDraft(editingTaskId || "new");
     editingTaskId = null;
     saveTasks();
@@ -4269,7 +4382,7 @@ function bindTasks() {
   document.querySelectorAll("[data-task-start]").forEach(button => button.onclick = () => {
     const task = tasks.find(item => item.id === button.dataset.taskStart);
     if (!task || task.status === "completed") return;
-    const next = normalizeTask({ ...task, startedAt: task.startedAt || new Date().toISOString(), updatedAt: new Date().toISOString() });
+    const next = normalizeTask({ ...task, status: task.status === "not_started" ? "in_progress" : task.status, progress: Math.max(1, task.progress || 0), startedAt: task.startedAt || new Date().toISOString(), updatedAt: new Date().toISOString() });
     tasks = tasks.map(item => item.id === task.id ? next : item);
     saveTasks();
     captureSeed = { title: next.title, note: next.note, taskUuid: next.id, taskTitleSnapshot: next.title, source: "task" };
@@ -4285,7 +4398,7 @@ function bindTasks() {
     const task = tasks.find(item => item.id === button.dataset.taskToggle);
     if (!task) return;
     if (task.status === "completed") {
-      tasks = tasks.map(item => item.id === task.id ? normalizeTask({ ...item, status: "open", completedAt: "", completedNote: "", completedBy: "", completionSource: "manual", updatedAt: new Date().toISOString() }) : item);
+      tasks = tasks.map(item => item.id === task.id ? normalizeTask({ ...item, status: "not_started", progress: 0, completedAt: "", completedNote: "", completedBy: "", completionSource: "manual", updatedAt: new Date().toISOString() }) : item);
       saveTasks(); toast("待辦事項已恢復"); render();
     } else { taskCompletionDialogId = task.id; render(); }
   });
@@ -4294,7 +4407,7 @@ function bindTasks() {
     const task = tasks.find(item => item.id === taskCompletionDialogId);
     if (!task) return;
     const completedNote = document.getElementById("taskCompletionNote")?.value?.trim() || "";
-    tasks = tasks.map(item => item.id === task.id ? normalizeTask({ ...item, status: "completed", completedAt: new Date().toISOString(), completedNote, completedBy: currentUserUuid(), completionSource: "manual", updatedAt: new Date().toISOString() }) : item);
+    tasks = tasks.map(item => item.id === task.id ? normalizeTask({ ...item, status: "completed", progress: 100, completedAt: new Date().toISOString(), completedNote, completedBy: currentUserUuid(), completionSource: "manual", updatedAt: new Date().toISOString() }) : item);
     taskCompletionDialogId = null;
     saveTasks();
     toast("待辦事項已完成");
@@ -4307,6 +4420,20 @@ function bindTasks() {
     tasks = tasks.filter(item => item.id !== task.id);
     saveTasks(); toast("待辦事項已刪除"); render();
   });
+}
+
+// Sprint 7.1: workflow-aware task editor. It keeps the Sprint 7.0 layout and
+// adds only shared Status/Progress data to the existing list/editor surface.
+function taskWorkspace() {
+  const editing = tasks.find(task => task.id === editingTaskId) || null;
+  const list = taskListItems();
+  const draft = loadTaskDraft(editingTaskId || "new") || {};
+  const value = (key, fallback = "") => editing ? (draft[key] ?? editing[key] ?? fallback) : (draft[key] ?? fallback);
+  const form = `<section class="task-form"><div class="panel-head"><div><h3>${editing ? "✏️ 編輯待辦事項" : "＋ 新增待辦事項"}</h3><div class="muted">進度描述工作目前在哪個階段；完成說明只在結案時填寫。</div></div></div><label>待辦事項名稱</label><input class="input" id="taskTitle" value="${escapeHtml(value("title"))}" placeholder="例如：寄出採購資料"><label>備註（選填）</label><textarea class="input" id="taskNote" rows="3" placeholder="補充說明">${escapeHtml(value("note"))}</textarea><label>狀態</label><select class="input" id="taskStatus">${taskStatusOptions(normalizeTaskStatus(value("status", editing?.status || "not_started")))}</select><label class="task-progress-label">進度 <output id="taskProgressOutput">${taskProgressValue(value("progress", editing?.progress || 0))}%</output></label><input class="task-progress-range" id="taskProgress" type="range" min="0" max="100" step="5" value="${taskProgressValue(value("progress", editing?.progress || 0))}"><label>期限（選填）</label><input class="input task-date-input" id="taskDueDate" type="date" value="${escapeHtml(value("dueDate"))}"><fieldset class="task-priority-fieldset"><legend>Priority</legend><div class="task-priority-options">${taskPriorityOptions(value("priority", editing?.priority || "p2"))}</div><label class="task-pin-option"><input type="checkbox" id="taskPinned" ${value("userPinned", editing?.userPinned) ? "checked" : ""}> 📌 置頂</label></fieldset><div class="form-actions"><button class="btn2" type="button" data-task-cancel="1" ${editing ? "" : "disabled"}>取消</button><button class="btn" type="button" data-task-save="1">${editing ? "儲存修改" : "建立待辦事項"}</button></div></section>`;
+  const rows = list.length ? list.map(task => `<article class="entry task-row ${task.status === "completed" ? "task-completed" : ""}" data-task-card="${escapeHtml(task.id)}"><div class="entry-main"><div class="task-row-title">${taskPriorityBadge(task)} ${taskWorkflowBadge(task)} <b>${task.status === "completed" ? "✅" : "⬜"} ${escapeHtml(task.title)}</b></div><div class="task-progress-track" aria-label="進度 ${task.progress}%"><span style="width:${task.progress}%"></span></div><small>${task.dueDate ? `期限：${escapeHtml(task.dueDate)}` : "無期限"}｜${escapeHtml(typeof PriorityEngine !== "undefined" ? PriorityEngine.getReason(task) : "依目前工作優先順序。")} ${task.note ? `｜${escapeHtml(task.note)}` : ""}</small>${task.status === "completed" && task.completedNote ? `<div class="task-completion-note">完成說明：${escapeHtml(task.completedNote)}</div>` : ""}</div><div class="actions compact"><button class="btn2" type="button" data-task-start="${escapeHtml(task.id)}" ${task.status === "completed" ? "disabled" : ""}>${task.startedAt ? "繼續工作" : "開始工作"}</button><button class="btn2" type="button" data-task-toggle="${escapeHtml(task.id)}">${task.status === "completed" ? "恢復" : "完成"}</button><button class="btn2" type="button" data-task-edit="${escapeHtml(task.id)}">編輯</button><button class="btn2 danger" type="button" data-task-delete="${escapeHtml(task.id)}">刪除</button></div></article>`).join("") : `<div class="empty"><b>${taskSearch ? "找不到符合的待辦事項" : "目前還沒有待辦事項"}</b><div class="muted">可以建立今天第一個待辦事項。</div></div>`;
+  const completionTask = taskCompletionDialogId ? tasks.find(task => task.id === taskCompletionDialogId) : null;
+  const dialog = completionTask ? `<div class="quick-add-dialog task-completion-dialog" role="dialog" aria-modal="true"><div class="quick-add-card"><h3>完成待辦事項</h3><p>完成說明會成為這件工作的結案紀錄。</p><label for="taskCompletionNote">完成說明</label><textarea class="input" id="taskCompletionNote" rows="4" placeholder="例如：已完成安裝並驗收，客戶確認無誤。"></textarea><div class="form-actions"><button class="btn2" type="button" data-task-completion-cancel>取消</button><button class="btn" type="button" data-task-completion-confirm>儲存並完成</button></div></div></div>` : "";
+  return `<section class="panel tasks-workspace lifecycle-task-workspace" style="margin-top:18px"><div class="panel-head"><div><h2>✅ 待辦事項</h2><div class="muted">目前 ${tasks.length} 項｜未完成 ${tasks.filter(task => task.status !== "completed").length} 項</div></div><button class="btn2" type="button" data-task-new="1">＋ 新增待辦事項</button></div><div class="task-workspace-grid"><section class="task-list-section"><div class="task-toolbar"><div class="task-filters">${["all", "open", "completed"].map(filter => `<button class="btn2 ${taskFilter === filter ? "selected" : ""}" type="button" data-task-filter="${filter}">${filter === "all" ? "全部" : filter === "open" ? "進行中" : "已完成"}</button>`).join("")}</div><div class="task-search"><span aria-hidden="true">🔍</span><input class="input" id="taskSearch" value="${escapeHtml(taskSearch)}" placeholder="搜尋待辦事項"><button class="btn2 task-search-clear" type="button" data-task-search-clear aria-label="清除搜尋">✕</button></div></div><div class="task-list">${rows}</div></section>${form}</div>${dialog}</section>`;
 }
 
 function doLogout() { if (typeof RealtimeService !== "undefined") RealtimeService.stop(); clearStoredAuthSession(); clearStoredCodeVerifier(); session = null; tasks = []; activeModule = "dashboard"; activeWorkspace = "dashboard"; openTabs = []; recentWorkspaces = []; view = "center"; saveAll(); toast("已登出"); render(); }
