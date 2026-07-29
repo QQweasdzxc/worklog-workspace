@@ -39,6 +39,22 @@
 .task-pin-option { display: inline-flex; align-items: center; gap: 6px; margin-top: 9px; color: #dbeaff; cursor: pointer; }
 .task-row-title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 
+/* Sprint 7.1: shared Task status/progress vocabulary. */
+.task-workflow-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border:1px solid rgba(255,255,255,.2);border-radius:999px;font-size:.72rem;font-weight:800;white-space:nowrap}
+.task-status-not_started{color:#dce8f4;background:rgba(112,133,157,.2);border-color:rgba(186,205,225,.35)}
+.task-status-in_progress{color:#cfe4ff;background:rgba(65,132,224,.2);border-color:rgba(111,174,255,.38)}
+.task-status-waiting_reply,.task-status-waiting_acceptance{color:#ffe1bd;background:rgba(180,104,35,.2);border-color:rgba(255,176,92,.38)}
+.task-status-blocked{color:#ffd2d2;background:rgba(180,45,55,.22);border-color:rgba(255,117,125,.42)}
+.task-status-completed{color:#c9f7d4;background:rgba(34,138,75,.2);border-color:rgba(103,223,137,.42)}
+.task-progress-track{height:5px;margin:9px 0 6px;overflow:hidden;border-radius:999px;background:rgba(148,163,184,.2)}
+.task-progress-track span{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#5ca8ff,#75e1a1);transition:width .2s ease}
+.task-progress-label{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.task-progress-label output{color:#a8d4ff;font-variant-numeric:tabular-nums}
+.task-progress-range{width:100%;accent-color:#65a9ff}
+.ai-daily-brief-metric-button{width:100%;border:0;color:inherit;font:inherit;text-align:left;cursor:pointer;transition:border-color .2s ease,background .2s ease}
+.ai-daily-brief-metric-button:hover,.ai-daily-brief-metric-button:focus-visible{border-color:rgba(111,174,255,.58);background:rgba(19,53,93,.55);outline:none}
+.ai-daily-brief-task-state,.suggestion-workflow-state{display:block;color:#b8d8f5;font-size:.76rem}
+
 /* Sprint 7 Work Lifecycle: desktop list/editor split, mobile stack. */
 .lifecycle-task-workspace .task-workspace-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,420px);gap:16px;align-items:start}
 .lifecycle-task-workspace .task-list-section{min-width:0}

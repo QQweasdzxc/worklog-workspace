@@ -19,7 +19,8 @@
           setEntries(Array.isArray(rows) ? rows.map(entryFromCloud) : []);
         }
         LocalCache.saveAll();
-        if (typeof render === "function") render(`realtime-${table}`);
+        if (typeof refreshRealtimeSurface === "function") refreshRealtimeSurface(table);
+        else if (typeof refreshCloudSyncStatusDisplay === "function") refreshCloudSyncStatusDisplay();
       } catch (error) {
         console.warn("Realtime refresh deferred", { table, error: error?.message || error });
       } finally {

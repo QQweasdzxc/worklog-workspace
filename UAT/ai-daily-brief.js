@@ -101,8 +101,9 @@
     return "day";
   }
 
-  function briefMetric(label, value, detail = "") {
-    return `<div class="ai-daily-brief-metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong>${detail ? `<small>${escapeHtml(detail)}</small>` : ""}</div>`;
+  function briefMetric(label, value, detail = "", task = null) {
+    const body = `<span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong>${detail ? `<small>${escapeHtml(detail)}</small>` : ""}`;
+    return task ? `<button type="button" class="ai-daily-brief-metric ai-daily-brief-metric-button" data-ai-brief-task="1" data-ai-brief-task-id="${escapeHtml(task.id || task.cloudId || "")}" data-ai-brief-task-title="${escapeHtml(task.title || task.name || "")}">${body}</button>` : `<div class="ai-daily-brief-metric">${body}</div>`;
   }
 
   function aiDailyBriefMarkup(today = new Date()) {
@@ -122,7 +123,7 @@
         : "這是目前今天最值得注意的工作資訊。";
     const cta = mode === "closing" && missingHours > 0 ? "立即完成今天工時" : "開始今天的工作";
     const taskList = topTask
-      ? `<div class="ai-daily-brief-focus-copy"><span>🎯 今日重點</span><button type="button" class="ai-daily-brief-task-link" data-ai-brief-task="1" data-ai-brief-task-title="${escapeHtml(topTask.title || topTask.name || "未命名待辦事項")}">📋 ${escapeHtml(topTask.title || topTask.name || "未命名待辦事項")}</button><small>${escapeHtml(briefTaskReason(topTask))}</small>${pending.length > 1 ? `<em>另外還有 ${pending.length - 1} 項待辦</em>` : ""}<p class="ai-daily-brief-advice">${escapeHtml(briefAdvice(todayHours, missingHours, topTask, pending.length))}</p></div>`
+      ? `<div class="ai-daily-brief-focus-copy"><span>🎯 今日重點</span><button type="button" class="ai-daily-brief-task-link" data-ai-brief-task="1" data-ai-brief-task-title="${escapeHtml(topTask.title || topTask.name || "未命名待辦事項")}">📋 ${escapeHtml(topTask.title || topTask.name || "未命名待辦事項")}</button><small>${escapeHtml(briefTaskReason(topTask))}</small><small class="ai-daily-brief-task-state">狀態：${escapeHtml(typeof taskStatusLabel === "function" ? taskStatusLabel(topTask.status) : (topTask.status || "待開始"))}｜進度：${taskProgressValue(topTask.progress)}%</small>${pending.length > 1 ? `<em>另外還有 ${pending.length - 1} 項待辦</em>` : ""}<p class="ai-daily-brief-advice">${escapeHtml(briefAdvice(todayHours, missingHours, topTask, pending.length))}</p></div>`
       : `<div class="ai-daily-brief-focus-copy"><span>🎯 今日重點</span><p class="ai-daily-brief-empty">🎉 今天沒有待辦事項<br><span>可以開始新增今天第一個工作。</span></p><p class="ai-daily-brief-advice">${escapeHtml(briefAdvice(todayHours, missingHours, null, 0))}</p></div>`;
     const taskMetricValue = topTask ? (topTask.title || topTask.name || "未命名任務") : "沒有待辦";
     const taskMetricDetail = pending.length > 1 ? `另外還有 ${pending.length - 1} 項待辦` : topTask ? briefTaskReason(topTask) : "可以開始新增今天第一個工作";
@@ -130,7 +131,7 @@
       <div class="ai-daily-brief-head"><div><span class="ai-daily-brief-kicker">Mr. KM · AI Daily Brief</span><h2 id="ai-daily-brief-title">${escapeHtml(title)}</h2><p>${escapeHtml(lead)}</p></div><time datetime="${briefDateKey(today)}">${escapeHtml(briefDateLabel(today))}</time></div>
       <div class="ai-daily-brief-metrics">
         ${briefMetric("今日工時", `${briefDuration(todayHours)} / 8h`, missingHours > 0 ? `尚缺 ${briefDuration(missingHours)}` : "今日已完成 ✅")}
-        ${briefMetric("📋 今日待辦事項", taskMetricValue, taskMetricDetail)}
+        ${briefMetric("📋 待辦事項", taskMetricValue, taskMetricDetail, topTask)}
         ${briefMetric("Mr. KM 建議", `${suggestionCount} 項`, "依目前工作模型整理")}
         ${briefMetric("新 Knowledge", `${recentKnowledge} 份`, "今天更新或加入")}
       </div>
@@ -145,10 +146,13 @@
     const button = event.target.closest?.("[data-ai-brief-task]");
     if (!button || typeof openWorkspace !== "function") return;
     event.preventDefault();
+    const taskId = button.dataset.aiBriefTaskId || "";
     const title = button.dataset.aiBriefTaskTitle || "";
     openWorkspace("tasks");
     setTimeout(() => {
-      const row = [...document.querySelectorAll(".task-row")].find(candidate => candidate.textContent.includes(title));
+      const row = taskId
+        ? [...document.querySelectorAll("[data-task-card]")].find(candidate => candidate.dataset.taskCard === taskId)
+        : [...document.querySelectorAll(".task-row")].find(candidate => candidate.textContent.includes(title));
       if (!row) return;
       row.classList.add("ai-daily-brief-task-focus");
       row.scrollIntoView({ behavior: "smooth", block: "center" });
