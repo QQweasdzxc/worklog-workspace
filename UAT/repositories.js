@@ -309,10 +309,13 @@ const SupabaseRepository = {
     return this.syncNameList("user_ecp_tasks", names);
   },
   loadTasks() {
-    return this.select("user_tasks", "?select=*&deleted_at=is.null");
+    return this.select("user_tasks", "?select=*&deleted_at=is.null&order=completed_at.asc.nullslast,sort_score.desc,updated_at.desc");
   },
   async saveTasks(items = []) {
-    const current = await this.loadTasks() || [];
+    // Read deleted rows too: the partial legacy_id identity is unique across
+    // the user's history. Reviving a deleted task must PATCH that row instead
+    // of racing a new INSERT into user_tasks_user_legacy_uidx.
+    const current = await this.select("user_tasks", "?select=*&order=updated_at.desc") || [];
     const normalized = (items || []).map(item => normalizeTask(item)).filter(item => item.title);
     const retainedIds = new Set();
     for (const item of normalized) {
@@ -331,7 +334,11 @@ const SupabaseRepository = {
         pin: item.userPinned === true,
         user_pinned: item.userPinned === true,
         estimated_minutes: Number(item.estimatedMinutes || 0) || null,
+        started_at: item.startedAt || null,
         completed_at: item.completedAt || null,
+        completed_note: item.completedNote || "",
+        completed_by: item.completedBy || null,
+        completion_source: item.completionSource || "manual",
         deleted_at: null,
         updated_at: item.updatedAt || new Date().toISOString()
       };
@@ -428,6 +435,12 @@ const SupabaseRepository = {
     if (!currentUserUuid() || !currentAccessToken()) throw new Error("Cloud Sync 尚未就緒");
     const ecpRows = await this.loadEcpTasks();
     const ecpTask = ecpRows.find(row => row.name === entry.ecpTask);
+    const taskUuid = entry.taskUuid || entry.task_uuid || "";
+    let task = null;
+    if (taskUuid) {
+      const taskRows = await this.select("user_tasks", `?select=id,title&user_uuid=eq.${encodeURIComponent(currentUserUuid())}&id=eq.${encodeURIComponent(taskUuid)}&deleted_at=is.null&limit=1`);
+      task = taskRows?.[0] || null;
+    }
     const existing = entry.cloudId ? [{ id: entry.cloudId }] : await this.select("work_entries", `?select=id&legacy_id=eq.${encodeURIComponent(entry.id)}&limit=1`);
     const started = parseTaipeiBusinessDateTime(entry.at);
     const ended = new Date(started.getTime() + Math.round(Number(entry.hours || 0) * 60) * 60000);
@@ -444,6 +457,8 @@ const SupabaseRepository = {
       source: entry.source || "manual",
       ecp_task_id: ecpTask?.id || null,
       ecp_task_name_snapshot: entry.ecpTask || "",
+      task_uuid: task?.id || null,
+      task_title_snapshot: task?.title || entry.taskTitleSnapshot || "",
       legacy_id: entry.id
     };
     const saved = existing?.[0]?.id

@@ -136,7 +136,9 @@ function entryFromCloud(row) {
     entryType,
     type: eventTypeLabel(entryType),
     status: row.status || "completed",
-    source: row.source || "manual"
+    source: row.source || "manual",
+    taskUuid: row.task_uuid || "",
+    taskTitleSnapshot: row.task_title_snapshot || ""
   };
 }
 
@@ -232,6 +234,28 @@ function taskStorageKey() {
   return scopedLocalKey(TASKS_KEY);
 }
 
+// Sprint 7: drafts are intentionally local and user-scoped. They are never
+// sent to Supabase until the user explicitly presses 建立/儲存.
+function taskDraftStorageKey(taskId = "new") {
+  return scopedLocalKey(`task_draft_${taskId || "new"}`);
+}
+
+function loadTaskDraft(taskId = "new") {
+  try { return readJson(taskDraftStorageKey(taskId), null); } catch { return null; }
+}
+
+function saveTaskDraft(taskId = "new", draft = {}) {
+  const next = { ...draft, updatedAt: new Date().toISOString() };
+  taskDraft = next;
+  localStorage.setItem(taskDraftStorageKey(taskId), JSON.stringify(next));
+  return next;
+}
+
+function clearTaskDraft(taskId = "new") {
+  taskDraft = null;
+  localStorage.removeItem(taskDraftStorageKey(taskId));
+}
+
 function normalizeTask(item = {}) {
   const title = String(item.title || item.name || "").trim();
   const clientId = item.legacy_id || item.clientId || item.client_id || item.id || uid("task");
@@ -252,7 +276,11 @@ function normalizeTask(item = {}) {
     estimatedMinutes: Number(item.estimatedMinutes ?? item.estimated_minutes ?? 0) || 0,
     createdAt: item.createdAt || new Date().toISOString(),
     updatedAt: item.updatedAt || item.updated_at || item.createdAt || new Date().toISOString(),
-    completedAt: item.completedAt || item.completed_at || ""
+    completedAt: item.completedAt || item.completed_at || "",
+    startedAt: item.startedAt || item.started_at || "",
+    completedNote: String(item.completedNote || item.completed_note || "").trim(),
+    completedBy: item.completedBy || item.completed_by || "",
+    completionSource: item.completionSource || item.completion_source || "manual"
   };
 }
 
@@ -300,12 +328,26 @@ function taskPriorityBadge(task = {}) {
   return `<span class="task-priority-badge task-priority-${meta.label.toLowerCase()}" title="${escapeHtml(reason)}">${meta.icon} ${meta.label}</span>`;
 }
 
-function taskWorkspace() {
+function legacyTaskWorkspace() {
   const editing = tasks.find(task => task.id === editingTaskId) || null;
   const list = taskListItems();
   const form = `<section class="task-form"><div class="panel-head"><div><h3>${editing ? "✏️ 編輯待辦事項" : "＋ 新增待辦事項"}</h3><div class="muted">把需要完成的事情留下來，完成後再標記即可。</div></div></div><label>待辦事項名稱</label><input class="input" id="taskTitle" value="${escapeHtml(editing?.title || "")}" placeholder="例如：寄出採購資料"><label>備註（選填）</label><textarea class="input" id="taskNote" rows="2" placeholder="補充說明">${escapeHtml(editing?.note || "")}</textarea><label>期限（選填）</label><input class="input" id="taskDueDate" type="date" value="${escapeHtml(editing?.dueDate || "")}"><fieldset class="task-priority-fieldset"><legend>Priority</legend><div class="task-priority-options">${taskPriorityOptions(editing?.priority || "p2")}</div><label class="task-pin-option"><input type="checkbox" id="taskPinned" ${editing?.userPinned ? "checked" : ""}> 📌 置頂</label></fieldset><div class="form-actions"><button class="btn2" type="button" data-task-cancel="1" ${editing ? "" : "disabled"}>取消</button><button class="btn" type="button" data-task-save="1">${editing ? "儲存修改" : "建立待辦事項"}</button></div></section>`;
   const rows = list.length ? list.map(task => `<div class="entry task-row ${task.status === "completed" ? "task-completed" : ""}"><div class="entry-main"><div class="task-row-title">${taskPriorityBadge(task)} <b>${task.status === "completed" ? "✅" : "⬜"} ${escapeHtml(task.title)}</b></div><small>${task.dueDate ? `期限：${escapeHtml(task.dueDate)}` : "無期限"}｜${escapeHtml(typeof PriorityEngine !== "undefined" ? PriorityEngine.getReason(task) : "依目前工作優先順序。")}${task.note ? `｜${escapeHtml(task.note)}` : ""}</small></div><div class="actions compact"><button class="btn2" type="button" data-task-toggle="${escapeHtml(task.id)}">${task.status === "completed" ? "恢復" : "完成"}</button><button class="btn2" type="button" data-task-edit="${escapeHtml(task.id)}">編輯</button><button class="btn2 danger" type="button" data-task-delete="${escapeHtml(task.id)}">刪除</button></div></div>`).join("") : `<div class="empty"><b>${taskSearch ? "找不到符合的待辦事項" : "目前還沒有待辦事項"}</b><div class="muted">可以從上方建立第一個待辦事項，或在 Mr. KM 對話中說：「提醒我寄採購資料」。</div></div>`;
   return `<section class="panel tasks-workspace" style="margin-top:18px"><div class="panel-head"><div><h2>✅ 待辦事項</h2><div class="muted">目前 ${tasks.length} 項｜未完成 ${tasks.filter(task => task.status === "open").length} 項</div></div><button class="btn2" type="button" data-task-new="1">＋ 新增待辦事項</button></div>${form}<section class="task-list-section"><div class="task-toolbar"><div class="task-filters">${["all", "open", "completed"].map(filter => `<button class="btn2 ${taskFilter === filter ? "selected" : ""}" type="button" data-task-filter="${filter}">${filter === "all" ? "全部" : filter === "open" ? "未完成" : "已完成"}</button>`).join("")}</div><div class="task-search"><input class="input" id="taskSearch" value="${escapeHtml(taskSearch)}" placeholder="搜尋待辦事項"><button class="btn2" type="button" data-task-search-submit="1">搜尋</button></div></div><div class="task-list">${rows}</div></section></section>`;
+}
+
+// Sprint 7 lifecycle workspace. This later declaration intentionally replaces
+// the legacy task renderer without touching the validated worklog layout.
+function taskWorkspace() {
+  const editing = tasks.find(task => task.id === editingTaskId) || null;
+  const list = taskListItems();
+  const draft = loadTaskDraft(editingTaskId || "new") || {};
+  const value = (key, fallback = "") => editing ? (draft[key] ?? editing[key] ?? fallback) : (draft[key] ?? fallback);
+  const form = `<section class="task-form"><div class="panel-head"><div><h3>${editing ? "✏️ 編輯待辦事項" : "＋ 新增待辦事項"}</h3><div class="muted">草稿只保存在本機；按下建立或儲存後才會同步雲端。</div></div></div><label>待辦事項名稱</label><input class="input" id="taskTitle" value="${escapeHtml(value("title"))}" placeholder="例如：寄出採購資料"><label>備註（選填）</label><textarea class="input" id="taskNote" rows="3" placeholder="補充說明">${escapeHtml(value("note"))}</textarea><label>期限（選填）</label><input class="input task-date-input" id="taskDueDate" type="date" value="${escapeHtml(value("dueDate"))}"><fieldset class="task-priority-fieldset"><legend>Priority</legend><div class="task-priority-options">${taskPriorityOptions(value("priority", editing?.priority || "p2"))}</div><label class="task-pin-option"><input type="checkbox" id="taskPinned" ${value("userPinned", editing?.userPinned) ? "checked" : ""}> 📌 置頂</label></fieldset><div class="form-actions"><button class="btn2" type="button" data-task-cancel="1" ${editing ? "" : "disabled"}>取消</button><button class="btn" type="button" data-task-save="1">${editing ? "儲存修改" : "建立待辦事項"}</button></div></section>`;
+  const rows = list.length ? list.map(task => `<article class="entry task-row ${task.status === "completed" ? "task-completed" : ""}" data-task-card="${escapeHtml(task.id)}"><div class="entry-main"><div class="task-row-title">${taskPriorityBadge(task)} <b>${task.status === "completed" ? "✅" : "⬜"} ${escapeHtml(task.title)}</b></div><small>${task.dueDate ? `期限：${escapeHtml(task.dueDate)}` : "無期限"}｜${escapeHtml(typeof PriorityEngine !== "undefined" ? PriorityEngine.getReason(task) : "依目前工作優先順序。")} ${task.note ? `｜${escapeHtml(task.note)}` : ""}</small>${task.status === "completed" && task.completedNote ? `<div class="task-completion-note">完成說明：${escapeHtml(task.completedNote)}</div>` : ""}</div><div class="actions compact"><button class="btn2" type="button" data-task-start="${escapeHtml(task.id)}" ${task.status === "completed" ? "disabled" : ""}>${task.startedAt ? "繼續工作" : "開始工作"}</button><button class="btn2" type="button" data-task-toggle="${escapeHtml(task.id)}">${task.status === "completed" ? "恢復" : "完成"}</button><button class="btn2" type="button" data-task-edit="${escapeHtml(task.id)}">編輯</button><button class="btn2 danger" type="button" data-task-delete="${escapeHtml(task.id)}">刪除</button></div></article>`).join("") : `<div class="empty"><b>${taskSearch ? "找不到符合的待辦事項" : "目前還沒有待辦事項"}</b><div class="muted">可以從上方建立第一個待辦事項，或在 Mr. KM 對話中說：「提醒我寄採購資料」。</div></div>`;
+  const completionTask = taskCompletionDialogId ? tasks.find(task => task.id === taskCompletionDialogId) : null;
+  const dialog = completionTask ? `<div class="quick-add-dialog task-completion-dialog" role="dialog" aria-modal="true"><div class="quick-add-card"><h3>完成待辦事項</h3><p>請留下完成說明，讓 Mr. KM 了解這次工作的結果。</p><label for="taskCompletionNote">完成說明</label><textarea class="input" id="taskCompletionNote" rows="4" placeholder="例如：已寄送採購資料，等待廠商回覆"></textarea><div class="form-actions"><button class="btn2" type="button" data-task-completion-cancel>取消</button><button class="btn" type="button" data-task-completion-confirm>儲存並完成</button></div></div></div>` : "";
+  return `<section class="panel tasks-workspace lifecycle-task-workspace" style="margin-top:18px"><div class="panel-head"><div><h2>✅ 待辦事項</h2><div class="muted">目前 ${tasks.length} 項｜未完成 ${tasks.filter(task => task.status === "open").length} 項</div></div><button class="btn2" type="button" data-task-new="1">＋ 新增待辦事項</button></div><div class="task-workspace-grid"><section class="task-list-section"><div class="task-toolbar"><div class="task-filters">${["all", "open", "completed"].map(filter => `<button class="btn2 ${taskFilter === filter ? "selected" : ""}" type="button" data-task-filter="${filter}">${filter === "all" ? "全部" : filter === "open" ? "未完成" : "已完成"}</button>`).join("")}</div><div class="task-search"><span aria-hidden="true">🔍</span><input class="input" id="taskSearch" value="${escapeHtml(taskSearch)}" placeholder="搜尋待辦事項"><button class="btn2 task-search-clear" type="button" data-task-search-clear aria-label="清除搜尋">✕</button></div></div><div class="task-list">${rows}</div></section>${form}</div>${dialog}</section>`;
 }
 
 function toast(t) {
@@ -2788,7 +2830,7 @@ function todayPanel() {
   const h = hours(list);
   const selectedIsToday = key(selected) === key(new Date());
   const selectedLabel = selectedIsToday ? "今天" : `${selected.getMonth() + 1}/${selected.getDate()}`;
-  return `<div class="panel-head panel-fixed-header"><h2>我的工時</h2><div class="tag">${selectedLabel}｜${formatHumanDuration(h)} / 8h</div></div><div class="panel-scroll-content today-entry-list">${list.length ? list.map(e => `<div class="entry"><div class="entry-main"><b>${escapeHtml(e.title)}</b><div class="muted">${escapeHtml(formatWorklogTimeRange(e))}｜${formatHumanDuration(e.hours)}${e.ecpTask ? `｜🏷 任務` : ""}</div></div><div class="actions compact entry-actions"><button class="btn amber" data-edit-id="${e.id}">編輯</button><button class="btn red" data-del-id="${e.id}">刪除</button></div></div>`).join("") : `<div class="empty today-empty-state"><b>${selectedIsToday ? "今天" : selectedLabel}尚未建立工時</b></div>`}</div><div class="panel-fixed-footer today-panel-footer"><button class="btn full today-add-bottom" data-action="add">＋ 新增工時</button></div>`;
+  return `<div class="panel-head panel-fixed-header"><h2>我的工時</h2><div class="tag">${selectedLabel}｜${formatHumanDuration(h)} / 8h</div></div><div class="panel-scroll-content today-entry-list">${list.length ? list.map(e => `<div class="entry"><div class="entry-main"><b>${escapeHtml(e.title)}</b><div class="muted">${escapeHtml(formatWorklogTimeRange(e))}｜${formatHumanDuration(e.hours)}${e.ecpTask ? `｜🏷 任務` : ""}${e.taskTitleSnapshot ? `｜🔗 ${escapeHtml(e.taskTitleSnapshot)}` : ""}</div></div><div class="actions compact entry-actions"><button class="btn amber" data-edit-id="${e.id}">編輯</button><button class="btn red" data-del-id="${e.id}">刪除</button></div></div>`).join("") : `<div class="empty today-empty-state"><b>${selectedIsToday ? "今天" : selectedLabel}尚未建立工時</b></div>`}</div><div class="panel-fixed-footer today-panel-footer"><button class="btn full today-add-bottom" data-action="add">＋ 新增工時</button></div>`;
 }
 
 function suggestionBatchSize(viewportWidth = window.innerWidth) {
@@ -3128,6 +3170,8 @@ function capture(editId = null, seed = null) {
   const e = editId ? entries.find(x => x.id === editId) : null;
   const title = e ? e.title : (seed ? seed.title : "");
   const note = e ? (e.note || "") : (seed ? seed.note || "" : "");
+  const taskUuid = e?.taskUuid || seed?.taskUuid || "";
+  const taskTitleSnapshot = e?.taskTitleSnapshot || seed?.taskTitleSnapshot || "";
   const ecpTask = e ? (e.ecpTask || "") : (seed ? seed.ecpTask || defaultEcpTaskName(seed.title) : defaultEcpTaskName(title));
   const isSuggestion = Boolean(seed?.suggestionId || seed?.source === "ai-card");
   const startAt = e?.at || seed?.at || captureDefaultStart(seed?.hours || 1);
@@ -4145,7 +4189,7 @@ function createTask(title = "", note = "", dueDate = "", options = {}) {
   return normalized;
 }
 
-function bindTasks() {
+function legacyBindTasks() {
   document.querySelectorAll("[data-task-new]").forEach(button => button.onclick = () => { editingTaskId = null; taskSearch = ""; render(); });
   document.querySelectorAll("[data-task-filter]").forEach(button => button.onclick = () => { taskFilter = button.dataset.taskFilter || "all"; render(); });
   const search = document.getElementById("taskSearch");
@@ -4188,7 +4232,84 @@ function bindTasks() {
   });
 }
 
-function doLogout() { clearStoredAuthSession(); clearStoredCodeVerifier(); session = null; tasks = []; activeModule = "dashboard"; activeWorkspace = "dashboard"; openTabs = []; recentWorkspaces = []; view = "center"; saveAll(); toast("已登出"); render(); }
+// Sprint 7 task lifecycle bindings. Search and drafts update locally without
+// writing task records; only explicit save/start/complete actions sync Cloud.
+function bindTasks() {
+  document.querySelectorAll("[data-task-new]").forEach(button => button.onclick = () => { editingTaskId = null; taskDraft = loadTaskDraft("new") || null; render(); });
+  document.querySelectorAll("[data-task-filter]").forEach(button => button.onclick = () => { taskFilter = button.dataset.taskFilter || "all"; render(); });
+  const search = document.getElementById("taskSearch");
+  if (search) {
+    search.addEventListener("compositionstart", () => { taskSearchComposing = true; });
+    search.addEventListener("compositionend", () => { taskSearchComposing = false; taskSearch = search.value || ""; render(); });
+    search.addEventListener("input", () => { if (!taskSearchComposing) { taskSearch = search.value || ""; render(); } });
+  }
+  document.querySelector("[data-task-search-clear]")?.addEventListener("click", () => { taskSearch = ""; render(); });
+  document.querySelectorAll("[data-task-cancel]").forEach(button => button.onclick = () => { clearTaskDraft(editingTaskId || "new"); editingTaskId = null; render(); });
+  const draftField = (field, value) => saveTaskDraft(editingTaskId || "new", { ...(loadTaskDraft(editingTaskId || "new") || {}), [field]: value });
+  document.getElementById("taskTitle")?.addEventListener("input", event => draftField("title", event.target.value));
+  document.getElementById("taskNote")?.addEventListener("input", event => draftField("note", event.target.value));
+  document.getElementById("taskDueDate")?.addEventListener("input", event => draftField("dueDate", event.target.value));
+  document.querySelectorAll("input[name=taskPriority]").forEach(input => input.addEventListener("change", event => draftField("priority", event.target.value)));
+  document.getElementById("taskPinned")?.addEventListener("change", event => draftField("userPinned", event.target.checked));
+  document.querySelectorAll("[data-task-save]").forEach(button => button.onclick = () => {
+    const title = document.getElementById("taskTitle")?.value?.trim() || "";
+    if (!title) return toast("請輸入待辦事項名稱");
+    const note = document.getElementById("taskNote")?.value?.trim() || "";
+    const dueDate = document.getElementById("taskDueDate")?.value || "";
+    const priority = document.querySelector("input[name=taskPriority]:checked")?.value || "p2";
+    const userPinned = document.getElementById("taskPinned")?.checked === true;
+    if (editingTaskId) tasks = tasks.map(task => task.id === editingTaskId ? normalizeTask({ ...task, title, note, dueDate, priority, userPinned, updatedAt: new Date().toISOString() }) : task);
+    else createTask(title, note, dueDate, { priority, userPinned });
+    clearTaskDraft(editingTaskId || "new");
+    editingTaskId = null;
+    saveTasks();
+    toast("待辦事項已儲存");
+    render();
+  });
+  document.querySelectorAll("[data-task-start]").forEach(button => button.onclick = () => {
+    const task = tasks.find(item => item.id === button.dataset.taskStart);
+    if (!task || task.status === "completed") return;
+    const next = normalizeTask({ ...task, startedAt: task.startedAt || new Date().toISOString(), updatedAt: new Date().toISOString() });
+    tasks = tasks.map(item => item.id === task.id ? next : item);
+    saveTasks();
+    captureSeed = { title: next.title, note: next.note, taskUuid: next.id, taskTitleSnapshot: next.title, source: "task" };
+    editingEntryId = null;
+    activeWorkspace = "worklog";
+    if (!openTabs.includes("worklog")) openTabs.push("worklog");
+    rememberWorkspace("worklog");
+    view = "capture";
+    saveAll({ skipSync: true });
+    render();
+  });
+  document.querySelectorAll("[data-task-toggle]").forEach(button => button.onclick = () => {
+    const task = tasks.find(item => item.id === button.dataset.taskToggle);
+    if (!task) return;
+    if (task.status === "completed") {
+      tasks = tasks.map(item => item.id === task.id ? normalizeTask({ ...item, status: "open", completedAt: "", completedNote: "", completedBy: "", completionSource: "manual", updatedAt: new Date().toISOString() }) : item);
+      saveTasks(); toast("待辦事項已恢復"); render();
+    } else { taskCompletionDialogId = task.id; render(); }
+  });
+  document.querySelector("[data-task-completion-cancel]")?.addEventListener("click", () => { taskCompletionDialogId = null; render(); });
+  document.querySelector("[data-task-completion-confirm]")?.addEventListener("click", () => {
+    const task = tasks.find(item => item.id === taskCompletionDialogId);
+    if (!task) return;
+    const completedNote = document.getElementById("taskCompletionNote")?.value?.trim() || "";
+    tasks = tasks.map(item => item.id === task.id ? normalizeTask({ ...item, status: "completed", completedAt: new Date().toISOString(), completedNote, completedBy: currentUserUuid(), completionSource: "manual", updatedAt: new Date().toISOString() }) : item);
+    taskCompletionDialogId = null;
+    saveTasks();
+    toast("待辦事項已完成");
+    render();
+  });
+  document.querySelectorAll("[data-task-edit]").forEach(button => button.onclick = () => { editingTaskId = button.dataset.taskEdit; taskDraft = loadTaskDraft(editingTaskId) || null; render(); });
+  document.querySelectorAll("[data-task-delete]").forEach(button => button.onclick = () => {
+    const task = tasks.find(item => item.id === button.dataset.taskDelete);
+    if (!task || !confirm(`確定刪除待辦事項「${task.title}」？`)) return;
+    tasks = tasks.filter(item => item.id !== task.id);
+    saveTasks(); toast("待辦事項已刪除"); render();
+  });
+}
+
+function doLogout() { if (typeof RealtimeService !== "undefined") RealtimeService.stop(); clearStoredAuthSession(); clearStoredCodeVerifier(); session = null; tasks = []; activeModule = "dashboard"; activeWorkspace = "dashboard"; openTabs = []; recentWorkspaces = []; view = "center"; saveAll(); toast("已登出"); render(); }
 
 function bindOnboarding() {
   let tags = [], src = [];
@@ -4729,7 +4850,9 @@ function createEntry(input = {}) {
     type: eventTypeLabel(entryType),
     source: input.source || "manual",
     status: input.status || "completed",
-    cloudId: input.cloudId || undefined
+    cloudId: input.cloudId || undefined,
+    taskUuid: input.taskUuid || input.task_uuid || "",
+    taskTitleSnapshot: input.taskTitleSnapshot || input.task_title_snapshot || ""
   };
 }
 
@@ -4910,7 +5033,9 @@ function bindCapture(editId = null) {
     const description = document.getElementById("title").value.trim();
     const entryType = editingEntry ? normalizeEntryType(editingEntry.entryType || editingEntry.type || entryTypeFromDescription(description)) : entryTypeFromDescription(description);
     const selectedEcpTask = isLeaveType(entryType) ? "" : (document.getElementById("ecpTaskSelect").value === "__add__" ? "" : document.getElementById("ecpTaskSelect").value.trim());
-    const item = createEntry({ id: editingEntry ? editingEntry.id : undefined, date: at.slice(0, 10), at, title: description, ecpTask: selectedEcpTask, hours: selectedH, entryType, note: document.getElementById("note").value.trim(), source: editingEntry ? editingEntry.source : (suggestionSeed?.source || "manual"), cloudId: editingEntry?.cloudId });
+    const linkedTaskUuid = editingEntry?.taskUuid || suggestionSeed?.taskUuid || "";
+    const linkedTask = linkedTaskUuid ? tasks.find(task => task.id === linkedTaskUuid) : null;
+    const item = createEntry({ id: editingEntry ? editingEntry.id : undefined, date: at.slice(0, 10), at, title: description, ecpTask: selectedEcpTask, hours: selectedH, entryType, note: document.getElementById("note").value.trim(), source: editingEntry ? editingEntry.source : (suggestionSeed?.source || "manual"), cloudId: editingEntry?.cloudId, taskUuid: linkedTaskUuid, taskTitleSnapshot: editingEntry?.taskTitleSnapshot || linkedTask?.title || "" });
     const error = validateEntry(item); if (error) return toast(error);
     if (monthKey(item.date) !== selectedMonth && !confirm(`此筆工時日期為 ${monthKey(item.date)}，目前畫面月份為 ${selectedMonth}。是否仍要儲存？`)) return;
     if (!confirmOvertimeEntry(item)) return;
@@ -5743,9 +5868,11 @@ async function boot() {
       if (authCallbackCaptured) { activeModule = "dashboard"; activeWorkspace = "dashboard"; openTabs = []; recentWorkspaces = []; view = "center"; hasOsShellState = true; }
       saveAll();
       await DataService.init();
+      if (typeof RealtimeService !== "undefined") await RealtimeService.start();
     } else if (hasGoogleOAuthSession()) {
       loadTasksForSession();
       await DataService.init();
+      if (typeof RealtimeService !== "undefined") await RealtimeService.start();
     }
   } catch {
     clearStoredAuthSession();
