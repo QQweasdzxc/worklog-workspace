@@ -117,3 +117,15 @@
   .ai-daily-brief-cta { width: 100%; }
 }
 @media (max-width: 420px) { .ai-daily-brief-metrics { grid-template-columns: 1fr; } }
+
+/* Sprint 8: Operational Status and System Information share one card language. */
+.dashboard-section-label{margin:0 0 10px;color:#9fc6e8;font-size:.76rem;font-weight:900;letter-spacing:.06em;text-transform:uppercase}
+.system-info-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
+.system-info-card{min-width:0;min-height:128px;padding:14px;border:1px solid #334155;border-radius:18px;background:#0f172a;display:flex;justify-content:space-between;gap:12px;align-items:flex-start;box-sizing:border-box}
+.system-info-card-main{display:grid;gap:12px;min-width:0;width:100%}
+.system-info-card-head{display:flex;align-items:flex-start;gap:9px;min-width:0}
+.system-info-card-icon{display:grid;place-items:center;width:30px;height:30px;flex:0 0 30px;border:1px solid rgba(148,163,184,.25);border-radius:9px;background:rgba(30,64,175,.18);font-size:1rem}
+.system-info-card h3{margin:0 0 6px;color:#e2edf9;font-size:.88rem}
+.system-info-card-head span{display:block;color:#93b1ce;font-size:.7rem;overflow-wrap:anywhere}
+.system-info-card strong{color:#f0f7ff;font-size:.78rem;overflow-wrap:anywhere}
+@media(max-width:767px){.system-info-grid{grid-template-columns:1fr}.system-info-card{min-height:96px}}

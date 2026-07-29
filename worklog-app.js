@@ -2456,12 +2456,12 @@ function sidebarSection(title, group) {
 function developerConsoleMarkup(checked = "") {
   const conversationStatus = conversationSyncLabel().replace(/^💬\s*/, "");
   const cards = [
-    ["conversation", "💬", "Conversation", conversationStatus, conversationSyncDetail()],
-    ["github", "🌐", "GitHub Pages", "Current Build", BUILD_TIME],
-    ["source", "🧩", "Source", "Current Source Version", `v${VERSION}`],
-    ["migration", "🗄️", "Migration", "Applied Version", PRIORITY_ENGINE_SCHEMA_SQL ? "Priority Engine Schema" : "Not configured"]
+    ["conversation", "💬", "Conversation Sync", conversationStatus, conversationSyncDetail()],
+    ["build", "🌐", "Build", "Current Build", BUILD_TIME],
+    ["version", "🧩", "Version", "Product Version", `v${VERSION}`],
+    ["schema", "🗄️", "Database Schema", "Applied Version", PRIORITY_ENGINE_SCHEMA_SQL ? "Priority Engine Schema" : "Not configured"]
   ];
-  return `<details class="developer-console"><summary>System Information</summary><div class="developer-console-content system-info-grid">${cards.map(([id, icon, title, status, detail]) => `<article class="system-info-card" data-system-info-card="${id}"><div class="system-info-card-head"><span class="system-info-card-icon" aria-hidden="true">${icon}</span><div><h4>${escapeHtml(title)}</h4><span>${escapeHtml(status)}</span></div></div><strong>${escapeHtml(detail)}</strong></article>`).join("")}</div></details>`;
+  return `<details class="developer-console"><summary>System Information</summary><div class="developer-console-content control-grid system-info-grid">${cards.map(([id, icon, title, status, detail]) => `<article class="service-card system-info-card" data-system-info-card="${id}"><div class="system-info-card-main"><div class="system-info-card-head"><span class="system-info-card-icon" aria-hidden="true">${icon}</span><div><h3>${escapeHtml(title)}</h3><span>${escapeHtml(status)}</span></div></div><strong>${escapeHtml(detail)}</strong></div></article>`).join("")}</div></details>`;
 }
 
 function osSidebar() {
@@ -3461,7 +3461,7 @@ function sync() {
     ["Supabase", session ? "🟢 已連線" : "⚪ 尚未登入", session ? "Auth Session OK" : "需要先完成 Google Login", ""],
     ["本機資料", "🟢 正常", `最後同步：${checkedDate}`, ""]
   ];
-  return `<section class="panel control-center" style="margin-top:18px"><div class="panel-head"><div><h2>🔗 控制台</h2><div class="muted">AI OS 各項服務連線狀態與健康檢查。</div></div></div><div class="control-grid">${services.map(([name, state, detail, action, type]) => `<div class="service-card ${type === "summary" ? "summary-card" : ""}"><div><h3>${escapeHtml(name)}</h3><b>${escapeHtml(state)}</b><div class="muted">${escapeHtml(detail)}</div></div>${action}</div>`).join("")}</div>${developerConsoleMarkup(checkedAt)}</section>`;
+  return `<section class="panel control-center" style="margin-top:18px"><div class="panel-head"><div><h2>🔗 控制台</h2><div class="muted">AI OS 各項服務連線狀態與健康檢查。</div></div></div><h3 class="dashboard-section-label">Operational Status</h3><div class="control-grid">${services.map(([name, state, detail, action, type]) => `<div class="service-card ${type === "summary" ? "summary-card" : ""}"><div><h3>${escapeHtml(name)}</h3><b>${escapeHtml(state)}</b><div class="muted">${escapeHtml(detail)}</div></div>${action}</div>`).join("")}</div>${developerConsoleMarkup(checkedAt)}</section>`;
 }
 
 function nextKnowledgeId() {
