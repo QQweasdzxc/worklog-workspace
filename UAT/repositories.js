@@ -356,6 +356,49 @@ const SupabaseRepository = {
     }
     return this.loadTasks();
   },
+  // Sprint 7.2: Work Journal is an independent 1:N timeline.  It is never
+  // stored inside a task note; every write is keyed by the cloud task UUID.
+  loadWorkJournal(taskUuid = "") {
+    const taskFilter = taskUuid ? `&task_uuid=eq.${encodeURIComponent(taskUuid)}` : "";
+    return this.select("work_journal_entries", `?select=*&user_uuid=eq.${encodeURIComponent(currentUserUuid())}${taskFilter}&order=created_at.asc`);
+  },
+  async saveWorkJournalEntry(entry = {}) {
+    if (!currentUserUuid() || !currentAccessToken()) throw new Error("Cloud Sync 尚未就緒");
+    const taskUuid = String(entry.taskUuid || entry.task_uuid || "").trim();
+    const content = String(entry.content || "").trim();
+    if (!taskUuid) throw new Error("Work Journal 缺少待辦事項 UUID");
+    if (!content) throw new Error("請輸入工作推進紀錄");
+    const payload = {
+      user_uuid: currentUserUuid(),
+      task_uuid: taskUuid,
+      entry_type: entry.entryType || entry.entry_type || "progress",
+      content,
+      status: entry.status || null,
+      progress: Math.max(0, Math.min(100, Number(entry.progress || 0) || 0)),
+      work_entry_uuid: entry.workEntryUuid || entry.work_entry_uuid || null,
+      metadata: entry.metadata && typeof entry.metadata === "object" ? entry.metadata : {},
+      client_id: entry.clientId || entry.client_id || uid("journal"),
+      created_by: currentUserUuid(),
+      created_at: entry.createdAt || entry.created_at || new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    if (entry.cloudId || entry.id) {
+      const id = entry.cloudId || entry.id;
+      const rows = await this.patch("work_journal_entries", `?id=eq.${encodeURIComponent(id)}`, payload);
+      return rows?.[0] || null;
+    }
+    const rows = await this.request("work_journal_entries?on_conflict=user_uuid,client_id", {
+      method: "POST",
+      headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+      body: JSON.stringify(payload)
+    });
+    return rows?.[0] || null;
+  },
+  deleteWorkJournalEntry(entry = {}) {
+    const id = entry.cloudId || entry.id;
+    if (!id) throw new Error("Work Journal 缺少 ID");
+    return this.remove("work_journal_entries", `?id=eq.${encodeURIComponent(id)}`);
+  },
   async ensureAssistantConversation() {
     if (!currentUserUuid() || !currentAccessToken()) throw new Error("Cloud Sync 尚未就緒");
     const payload = {
