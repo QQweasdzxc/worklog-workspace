@@ -1,42 +1,126 @@
 <!doctype html>
-<html lang="zh-TW">
+<html lang="en">
   <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-    <meta name="description" content="Zhuge AI OS 是一套 AI 工作管理平台，整合 Google Login、WorkLog、Google Drive 與知識管理。">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Zhuge AI OS is an AI-powered productivity platform for document management and AI knowledge workspace.">
+    <meta name="theme-color" content="#030914">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Zhuge AI OS">
+    <meta property="og:description" content="Zhuge AI OS is an AI-powered productivity platform for document management and AI knowledge workspace.">
     <title>Zhuge AI OS</title>
-    <link rel="icon" href="data:,">
-    <link rel="stylesheet" href="./worklog.css?v=20260727-1619">
-    <link rel="stylesheet" href="./zhuge-os.css?v=20260729-2158">
-    <link rel="stylesheet" href="./ai-product.css?v=20260729-2158">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128'%3E%3Crect width='128' height='128' rx='30' fill='%23071526'/%3E%3Cpath d='M28 99c18-3 36-12 51-26 18-16 28-36 31-57-22 2-42 11-58 27C37 58 30 78 28 99Z' fill='%2354d7ff'/%3E%3Cpath d='M29 100c17-20 34-37 57-55' fill='none' stroke='%23e9f7ff' stroke-width='5' stroke-linecap='round'/%3E%3C/svg%3E">
+    <link rel="stylesheet" href="./public-home.css?v=20260730-1">
   </head>
   <body>
-    <div id="app"><main class="public-entry-fallback"><h1>🪶 Zhuge AI OS</h1><p>Zhuge AI OS 是一套 AI 工作管理平台，整合 Google Login、WorkLog、Google Drive 與知識管理，協助使用者管理每日工作、工作紀錄與知識整理。</p><p>專為個人工作管理與 AI 協作設計。請使用 Google 帳號登入後開始使用。</p><nav aria-label="公開產品資訊"><a href="./product/">產品介紹</a><a href="./privacy/">Privacy</a><a href="./terms/">Terms</a><a href="./support/">Support</a><a href="mailto:qq.1025@gmail.com">聯絡支援</a></nav></main></div>
-    <noscript><main><h1>Zhuge AI OS</h1><p>Zhuge AI OS 是一套 AI 工作管理平台，整合 Google Login、WorkLog、Google Drive 與知識管理，協助使用者管理每日工作、工作紀錄與知識整理。</p><p>專為個人工作管理與 AI 協作設計。</p><nav><a href="./product/">產品介紹</a> · <a href="./privacy/">Privacy</a> · <a href="./terms/">Terms</a> · <a href="./support/">Support</a></nav></main></noscript>
-    <script src="./app-config.js?v=20260729-2158"></script>
-    <script src="./shared-utils.js?v=20260729-2158"></script>
-    <script src="./app-state.js?v=20260729-2158"></script>
-    <script src="./render-engine.js?v=20260729-2158"></script>
-    <script src="./app-router.js?v=20260729-2158"></script>
-    <script src="./components/index.js?v=20260729-2158"></script>
-    <script src="./workspaces/index.js?v=20260729-2158"></script>
-    <script src="./auth-service.js?v=20260729-2158"></script>
-    <script src="./zhuge-dashboard.js?v=20260729-2158"></script>
-    <script src="./priority-engine.js?v=20260729-2158"></script>
-    <script src="./ai-daily-brief.js?v=20260729-2158"></script>
-    <script src="./repositories.js?v=20260729-2158"></script>
-    <script src="./data-service.js?v=20260729-2158"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.55.0/dist/umd/supabase.min.js"></script>
-    <script src="./realtime-service.js?v=20260729-2158"></script>
-    <script src="./services/index.js?v=20260729-2158"></script>
-    <script src="./work-intelligence.js?v=20260729-2158"></script>
-    <script src="./suggestion-intelligence.js?v=20260729-2158"></script>
-    <script src="./knowledge-intelligence.js?v=20260729-2158"></script>
-    <script src="./knowledge-engine.js?v=20260729-2158"></script>
-    <script src="./knowledge-repository-service.js?v=20260729-2158"></script>
-    <script src="./knowledge-api.js?v=20260729-2158"></script>
-    <script src="./google-drive-service.js?v=20260729-2158"></script>
-    <script src="./knowledge-ingestion-service.js?v=20260729-2158"></script>
-    <script src="./worklog-app.js?v=20260729-2158"></script>
+    <div id="app">
+      <header class="public-header">
+        <a class="brand" href="./" aria-label="Zhuge AI OS home">
+          <svg class="brand-mark" viewBox="0 0 128 128" role="img" aria-label="Zhuge AI OS logo">
+            <defs><linearGradient id="brand-gradient" x1="26" y1="106" x2="103" y2="18" gradientUnits="userSpaceOnUse"><stop stop-color="#2F82F6"/><stop offset="1" stop-color="#54D7FF"/></linearGradient></defs>
+            <rect width="128" height="128" rx="30" fill="#071526"/>
+            <path d="M28 99c18-3 36-12 51-26 18-16 28-36 31-57-22 2-42 11-58 27C37 58 30 78 28 99Z" fill="url(#brand-gradient)"/>
+            <path d="M29 100c17-20 34-37 57-55M52 80l-1-23M67 66l20-2M40 91l-1-14M79 53l15-1" fill="none" stroke="#E9F7FF" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M24 108c19-2 37-8 52-18" fill="none" stroke="#42D392" stroke-width="5" stroke-linecap="round"/>
+          </svg>
+          <span><strong>Zhuge AI OS</strong><small>by Mr. KM</small></span>
+        </a>
+        <a class="header-link" href="?app=1">Open WorkLog</a>
+      </header>
+
+      <main>
+        <section class="hero" aria-labelledby="hero-title">
+          <div class="hero-copy">
+            <p class="eyebrow">Personal productivity · AI knowledge workspace</p>
+            <h1 id="hero-title">Zhuge AI OS</h1>
+            <p class="hero-lead">Zhuge AI OS is an AI-powered productivity platform.</p>
+            <p class="hero-body">Users can securely sign in with Google and import selected Google Drive files for AI analysis and knowledge management.</p>
+            <p class="hero-local">專為個人工作管理與 AI 協作設計，讓工作紀錄、文件理解與知識整理在同一個工作空間中自然銜接。</p>
+            <div class="hero-actions">
+              <a class="button primary" href="?app=1">使用 Google 登入</a>
+              <a class="button secondary" href="#features">View features</a>
+            </div>
+          </div>
+          <div class="hero-logo-card" aria-label="Zhuge AI OS product logo">
+            <svg class="hero-logo" viewBox="0 0 128 128" aria-hidden="true">
+              <defs><linearGradient id="hero-gradient" x1="26" y1="106" x2="103" y2="18" gradientUnits="userSpaceOnUse"><stop stop-color="#2F82F6"/><stop offset="1" stop-color="#54D7FF"/></linearGradient></defs>
+              <rect width="128" height="128" rx="30" fill="#071526"/>
+              <path d="M28 99c18-3 36-12 51-26 18-16 28-36 31-57-22 2-42 11-58 27C37 58 30 78 28 99Z" fill="url(#hero-gradient)"/>
+              <path d="M29 100c17-20 34-37 57-55M52 80l-1-23M67 66l20-2M40 91l-1-14M79 53l15-1" fill="none" stroke="#E9F7FF" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M24 108c19-2 37-8 52-18" fill="none" stroke="#42D392" stroke-width="5" stroke-linecap="round"/>
+            </svg>
+            <strong>Work smarter with Mr. KM</strong>
+            <span>Understand work. Keep knowledge. Move forward.</span>
+          </div>
+        </section>
+
+        <section class="section" id="features" aria-labelledby="features-title">
+          <div class="section-heading"><p class="eyebrow">Features</p><h2 id="features-title">One secure workspace for everyday work.</h2></div>
+          <div class="feature-grid">
+            <article class="feature-card"><span class="feature-icon">G</span><h3>Google Login</h3><p>Use one Google identity to securely access your Zhuge AI OS workspace.</p></article>
+            <article class="feature-card"><span class="feature-icon">D</span><h3>Google Drive Import</h3><p>Choose individual Drive files to import. Zhuge AI OS does not scan your Drive in the background.</p></article>
+            <article class="feature-card"><span class="feature-icon">AI</span><h3>AI Analysis</h3><p>Mr. KM helps analyze work content and turn it into practical next steps.</p></article>
+            <article class="feature-card"><span class="feature-icon">K</span><h3>Knowledge Workspace</h3><p>Keep confirmed work knowledge in one searchable workspace for future use.</p></article>
+          </div>
+        </section>
+
+        <section class="section trust-section" aria-labelledby="trust-title">
+          <div class="section-heading"><p class="eyebrow">Designed for trust</p><h2 id="trust-title">Your data, your choices.</h2></div>
+          <div class="trust-grid">
+            <div><strong>Selected files only</strong><p>Google Drive access begins only after you choose a file through Google Picker.</p></div>
+            <div><strong>Read-only Drive access</strong><p>Drive files are read for analysis; Zhuge AI OS does not modify, delete, or share them.</p></div>
+            <div><strong>Personal productivity</strong><p>Built for individual work management and AI-assisted knowledge organization.</p></div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="public-footer">
+        <div class="footer-brand"><strong>Zhuge AI OS</strong><span>AI-powered productivity and knowledge workspace.</span></div>
+        <nav aria-label="Legal and support links">
+          <a href="./privacy/">Privacy Policy</a>
+          <a href="./terms/">Terms of Service</a>
+          <a href="./support/">Contact / Support</a>
+          <a href="mailto:qq.1025@gmail.com">qq.1025@gmail.com</a>
+        </nav>
+      </footer>
+    </div>
+
+    <noscript>
+      <p class="noscript-message">Zhuge AI OS is an AI-powered productivity platform. JavaScript is required to open WorkLog after you choose to sign in.</p>
+    </noscript>
+
+    <script>
+      (() => {
+        const runtimeFiles = [
+          "app-config.js", "shared-utils.js", "app-state.js", "render-engine.js", "app-router.js", "components/index.js",
+          "workspaces/index.js", "auth-service.js", "zhuge-dashboard.js", "priority-engine.js", "ai-daily-brief.js",
+          "repositories.js", "data-service.js", "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.55.0/dist/umd/supabase.min.js",
+          "realtime-service.js", "services/index.js", "work-intelligence.js", "suggestion-intelligence.js", "knowledge-intelligence.js",
+          "knowledge-engine.js", "knowledge-repository-service.js", "knowledge-api.js", "google-drive-service.js",
+          "knowledge-ingestion-service.js", "worklog-app.js"
+        ];
+        const params = new URLSearchParams(window.location.search);
+        const hasOAuthCallback = params.has("code") || params.has("error") || window.location.hash.includes("access_token");
+        const hasSession = (() => {
+          try { return Boolean(localStorage.getItem("zhuge_ai_os_google_auth_session_v1") || localStorage.getItem("zhuge_ai_os_session_v1")); }
+          catch { return false; }
+        })();
+        const shouldOpenApp = params.get("app") === "1" || hasOAuthCallback || hasSession;
+        if (!shouldOpenApp) return;
+
+        const root = document.getElementById("app");
+        root.innerHTML = '<main class="app-loading" aria-live="polite"><div class="loading-mark">Zhuge AI OS</div><p>Opening WorkLog…</p></main>';
+        const load = (index = 0) => {
+          if (index >= runtimeFiles.length) return;
+          const script = document.createElement("script");
+          script.src = runtimeFiles[index].includes("://") ? runtimeFiles[index] : `./${runtimeFiles[index]}?v=20260730-1`;
+          script.async = false;
+          script.onload = () => load(index + 1);
+          script.onerror = () => { root.innerHTML = '<main class="app-loading" role="alert"><h1>Zhuge AI OS</h1><p>WorkLog could not be loaded. Please refresh and try again.</p><a href="./">Return to home</a></main>'; };
+          document.body.appendChild(script);
+        };
+        load();
+      })();
+    </script>
   </body>
 </html>
