@@ -44,7 +44,7 @@ a:hover { color: #a4d0ff; }
 .section { padding: 4.5rem 0; border-top: 1px solid var(--line); }
 .section-heading { max-width: 720px; margin-bottom: 2rem; }
 .section-heading h2 { margin: 0; font-size: clamp(1.8rem, 4vw, 3rem); line-height: 1.15; letter-spacing: -.035em; }
-.feature-grid, .trust-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; }
+.feature-grid, .trust-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; }
 .feature-card, .trust-grid > div { min-width: 0; padding: 1.35rem; border: 1px solid var(--line); border-radius: 18px; background: linear-gradient(150deg, rgba(13, 32, 51, .86), rgba(6, 17, 31, .88)); }
 .feature-icon { display: grid; width: 2.45rem; height: 2.45rem; place-items: center; margin-bottom: 1rem; border: 1px solid rgba(93, 168, 255, .3); border-radius: 11px; background: rgba(93, 168, 255, .1); color: var(--cyan); font-weight: 900; }
 .feature-card h3 { margin: 0; font-size: 1.05rem; }
