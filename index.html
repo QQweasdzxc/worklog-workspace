@@ -10,7 +10,7 @@
     <meta property="og:description" content="Zhuge AI OS is an AI-powered productivity platform for document management and AI knowledge workspace.">
     <title>Zhuge AI OS</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128'%3E%3Crect width='128' height='128' rx='30' fill='%23071526'/%3E%3Cpath d='M28 99c18-3 36-12 51-26 18-16 28-36 31-57-22 2-42 11-58 27C37 58 30 78 28 99Z' fill='%2354d7ff'/%3E%3Cpath d='M29 100c17-20 34-37 57-55' fill='none' stroke='%23e9f7ff' stroke-width='5' stroke-linecap='round'/%3E%3C/svg%3E">
-    <link rel="stylesheet" href="./public-home.css?v=20260730-1">
+    <link id="public-home-styles" rel="stylesheet" href="./public-home.css?v=20260730-1">
   </head>
   <body>
     <div id="app">
@@ -99,6 +99,11 @@
           "knowledge-engine.js", "knowledge-repository-service.js", "knowledge-api.js", "google-drive-service.js",
           "knowledge-ingestion-service.js", "worklog-app.js"
         ];
+        const appStyles = [
+          "./worklog.css?v=20260727-1619",
+          "./zhuge-os.css?v=20260729-2158",
+          "./ai-product.css?v=20260729-2158"
+        ];
         const params = new URLSearchParams(window.location.search);
         const hasOAuthCallback = params.has("code") || params.has("error") || window.location.hash.includes("access_token");
         const hasSession = (() => {
@@ -109,7 +114,19 @@
         if (!shouldOpenApp) return;
 
         const root = document.getElementById("app");
+        document.getElementById("public-home-styles")?.remove();
         root.innerHTML = '<main class="app-loading" aria-live="polite"><div class="loading-mark">Zhuge AI OS</div><p>Opening WorkLog…</p></main>';
+        const loadStyles = (index = 0) => {
+          if (index >= appStyles.length) return Promise.resolve();
+          return new Promise((resolve, reject) => {
+            const link = document.createElement("link");
+            link.rel = "stylesheet";
+            link.href = appStyles[index];
+            link.onload = () => resolve(loadStyles(index + 1));
+            link.onerror = () => reject(new Error(`Unable to load App stylesheet: ${appStyles[index]}`));
+            document.head.appendChild(link);
+          });
+        };
         const load = (index = 0) => {
           if (index >= runtimeFiles.length) return;
           const script = document.createElement("script");
@@ -119,7 +136,10 @@
           script.onerror = () => { root.innerHTML = '<main class="app-loading" role="alert"><h1>Zhuge AI OS</h1><p>WorkLog could not be loaded. Please refresh and try again.</p><a href="./">Return to home</a></main>'; };
           document.body.appendChild(script);
         };
-        load();
+        loadStyles().then(() => load()).catch(error => {
+          console.error("Zhuge AI OS App stylesheet load failed", error);
+          root.innerHTML = '<main class="app-loading" role="alert"><h1>Zhuge AI OS</h1><p>WorkLog styles could not be loaded. Please refresh and try again.</p><a href="./">Return to home</a></main>';
+        });
       })();
     </script>
   </body>
