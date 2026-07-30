@@ -21,9 +21,12 @@
       <h2>1. 我們處理的資料</h2>
       <ul>
         <li><strong>Google 帳號基本資料：</strong>Google 帳號識別碼、姓名、電子郵件與頭像，用於登入、建立帳號及跨裝置同步。</li>
-        <li><strong>Google Drive 資料：</strong>在使用者主動啟用 Drive 功能後，讀取使用者指定資料夾內的檔名、File ID、MIME type、修改時間及支援文件的內容。</li>
+        <li><strong>Google Drive 資料：</strong>在使用者主動授權並透過 Google Picker 選取文件後，僅讀取該文件的檔名、File ID、MIME type、修改時間及支援文件內容。</li>
         <li><strong>工作資料：</strong>工時、工作身分、「我的工作」、對話、使用者確認的知識內容與必要的操作紀錄。</li>
       </ul>
+
+      <h2>使用者授權與控制權</h2>
+      <p>Google Drive files are never accessed automatically. Only files explicitly selected and authorized by the user are processed. 使用者可隨時在 Google 帳戶權限中撤銷授權。</p>
 
       <h2>2. 使用目的</h2>
       <p>資料僅用於提供使用者可見的功能：Google 登入、同步工作資料、讀取使用者指定的工作文件、建立工作知識、改善 Mr. KM 的工時建議，以及維護服務安全與可靠性。</p>
@@ -52,6 +55,6 @@
       <h2>English summary</h2>
       <p>Zhuge AI OS uses Google identity data for sign-in and, only after explicit authorization, read-only Google Drive data for user-facing work knowledge and WorkLog assistance. We do not sell, rent, or share Google user data with third parties, use it for advertising, or modify Drive files. Users may revoke access at any time and request deletion through the support page.</p>
     </main>
-    <footer class="site-footer"><a href="../product/">Zhuge AI OS</a> · <a href="../terms/">服務條款</a> · <a href="../support/">支援</a></footer>
+    <footer class="site-footer"><nav aria-label="Legal and support links"><a href="../product/">Product</a><a href="../privacy/">Privacy Policy</a><a href="../terms/">Terms of Service</a><a href="../support/">Support</a><a href="../contact/">Contact</a><a href="../google-data/">How Google Data Is Used</a></nav></footer>
   </body>
 </html>
